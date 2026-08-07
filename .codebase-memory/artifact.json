@@ -1,0 +1,11 @@
+{
+    "schema_version": 2,
+    "commit": "46e42cf266600018114f06d503fa9c3264ff20c8",
+    "indexed_at": "2026-08-07T14:07:20Z",
+    "project": "flutter-catatan-keuangan",
+    "nodes": 838,
+    "edges": 1277,
+    "original_size": 2424832,
+    "compressed_size": 330219,
+    "compression_level": 9
+}
