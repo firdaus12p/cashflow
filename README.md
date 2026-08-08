@@ -83,9 +83,3 @@ Kontribusi sangat terbuka! Jika kamu ingin membantu mengembangkan fitur atau mem
 ## 📄 Lisensi
 
 Project ini menggunakan lisensi [MIT](LICENSE).
-
----
-
-## 🙋 Tentang Developer
-
-Created with ❤️ by [DhaniKWP](https://github.com/DhaniKWP)
