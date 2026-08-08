@@ -1,10 +1,64 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:fl_chart/fl_chart.dart';
+
+class CurrencyInputFormatter extends TextInputFormatter {
+  static String format(int value) {
+    final reversed = value.toString().split('').reversed.toList();
+    final result = <String>[];
+    for (int i = 0; i < reversed.length; i++) {
+      if (i > 0 && i % 3 == 0) result.add('.');
+      result.add(reversed[i]);
+    }
+    return result.reversed.join();
+  }
+
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
+    if (digits.isEmpty) return newValue.copyWith(text: '');
+    final formatted = CurrencyInputFormatter.format(int.parse(digits));
+    return newValue.copyWith(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
+double parseCurrencyInput(String input) {
+  return double.parse(input.replaceAll('.', ''));
+}
+
+double calculateMonthlyExpenseForInsight(
+  List<Transaction> transactions,
+  DateTime referenceDate, {
+  String selectedWallet = 'All',
+}) {
+  final thisMonthStart = DateTime(referenceDate.year, referenceDate.month, 1);
+  final thisMonthEnd =
+      DateTime(referenceDate.year, referenceDate.month + 1, 0, 23, 59, 59);
+
+  return transactions
+      .where((t) =>
+          t.type == 'expense' &&
+          (selectedWallet == 'All' || t.wallet == selectedWallet) &&
+          t.date.isAfter(thisMonthStart.subtract(const Duration(seconds: 1))) &&
+          t.date.isBefore(thisMonthEnd.add(const Duration(seconds: 1))))
+      .fold(0.0, (sum, t) => sum + t.amount);
+}
+
+bool hasSavingBadgeForPeriod(List<UserBadge> badges, DateTime referenceDate) {
+  return badges.any((badge) =>
+      badge.type == 'saving' &&
+      badge.earnedDate.year == referenceDate.year &&
+      badge.earnedDate.month == referenceDate.month);
+}
 
 void main() {
   runApp(const CuteMoneyTrackerApp());
@@ -117,13 +171,14 @@ class SavingGoal {
       currentAmount: map['currentAmount'] ?? 0,
       emoji: map['emoji'] ?? '💰',
       createdDate: DateTime.fromMillisecondsSinceEpoch(map['createdDate']),
-      targetDate: map['targetDate'] != null 
+      targetDate: map['targetDate'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['targetDate'])
           : null,
     );
   }
 
-  double get progress => targetAmount > 0 ? (currentAmount / targetAmount).clamp(0.0, 1.0) : 0.0;
+  double get progress =>
+      targetAmount > 0 ? (currentAmount / targetAmount).clamp(0.0, 1.0) : 0.0;
 }
 
 class WishlistItem {
@@ -281,8 +336,9 @@ class DatabaseHelper {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE transactions ADD COLUMN wallet TEXT DEFAULT "Cash"');
-      
+      await db.execute(
+          'ALTER TABLE transactions ADD COLUMN wallet TEXT DEFAULT "Cash"');
+
       await db.execute('''
         CREATE TABLE IF NOT EXISTS saving_goals(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -337,7 +393,8 @@ class DatabaseHelper {
     });
   }
 
-  Future<List<Transaction>> getTransactionsByDateRange(DateTime start, DateTime end) async {
+  Future<List<Transaction>> getTransactionsByDateRange(
+      DateTime start, DateTime end) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
       'transactions',
@@ -373,31 +430,32 @@ class DatabaseHelper {
     DateTime? endDate,
   }) async {
     final db = await database;
-    
+
     String whereClause = '';
     List<dynamic> whereArgs = [];
-    
+
     if (wallet != null && wallet != 'All') {
       whereClause += 'wallet = ?';
       whereArgs.add(wallet);
     }
-    
+
     if (type != null && type != 'All') {
       if (whereClause.isNotEmpty) whereClause += ' AND ';
       whereClause += 'type = ?';
       whereArgs.add(type);
     }
-    
+
     if (category != null && category != 'All') {
       if (whereClause.isNotEmpty) whereClause += ' AND ';
       whereClause += 'category = ?';
       whereArgs.add(category);
     }
-    
+
     if (startDate != null && endDate != null) {
       if (whereClause.isNotEmpty) whereClause += ' AND ';
       whereClause += 'date BETWEEN ? AND ?';
-      whereArgs.addAll([startDate.millisecondsSinceEpoch, endDate.millisecondsSinceEpoch]);
+      whereArgs.addAll(
+          [startDate.millisecondsSinceEpoch, endDate.millisecondsSinceEpoch]);
     }
 
     final List<Map<String, dynamic>> maps = await db.query(
@@ -490,6 +548,27 @@ class DatabaseHelper {
       return UserBadge.fromMap(maps[i]);
     });
   }
+
+  Future<void> purchaseWishlistItem(WishlistItem item) async {
+    if (item.id == null) {
+      throw StateError('Wishlist item must have an id before purchase.');
+    }
+
+    final db = await database;
+    await db.transaction((txn) async {
+      final transaction = Transaction(
+        type: 'expense',
+        amount: item.price,
+        category: 'Belanja',
+        description: item.name,
+        date: DateTime.now(),
+        wallet: 'Cash',
+      );
+
+      await txn.insert('transactions', transaction.toMap());
+      await txn.delete('wishlist', where: 'id = ?', whereArgs: [item.id]);
+    });
+  }
 }
 
 // Main Screen with Enhanced Navigation
@@ -500,7 +579,8 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin {
+class _MainScreenState extends State<MainScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final DatabaseHelper _dbHelper = DatabaseHelper();
   List<Transaction> _transactions = [];
@@ -520,17 +600,63 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
     _loadAllData();
   }
 
+  void _showSnackBarMessage(
+    String message, {
+    Color backgroundColor = const Color(0xFFFF69B4),
+    bool deferToNextFrame = false,
+  }) {
+    void showSnackBar() {
+      if (!mounted) return;
+
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      if (messenger == null) return;
+
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            message,
+            style: GoogleFonts.poppins(),
+          ),
+          backgroundColor: backgroundColor,
+        ),
+      );
+    }
+
+    if (deferToNextFrame) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        showSnackBar();
+      });
+      return;
+    }
+
+    showSnackBar();
+  }
+
   Future<void> _loadAllData() async {
-    await _loadAllTransactions();
-    await _loadTransactions();
-    await _loadSavingGoals();
-    await _loadWishlistItems();
-    await _loadBadges();
-    await _checkAndAwardBadges();
+    try {
+      await _loadAllTransactions();
+      await _loadTransactions();
+      await _loadSavingGoals();
+      await _loadWishlistItems();
+      await _checkAndAwardBadges();
+    } on StateError catch (_) {
+      _showSnackBarMessage(
+        'Gagal memuat data aplikasi. Coba lagi.',
+        backgroundColor: Colors.red,
+        deferToNextFrame: true,
+      );
+    } on Exception catch (_) {
+      _showSnackBarMessage(
+        'Gagal memuat data aplikasi. Coba lagi.',
+        backgroundColor: Colors.red,
+        deferToNextFrame: true,
+      );
+    }
   }
 
   Future<void> _loadAllTransactions() async {
     final allTransactions = await _dbHelper.getTransactions();
+    if (!mounted) return;
     setState(() {
       _allTransactions = allTransactions;
     });
@@ -557,17 +683,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         start = DateTime(now.year, now.month, now.day);
     }
 
-    List<Transaction> transactions;
-    if (_selectedWallet == 'All') {
-      transactions = await _dbHelper.getTransactionsByDateRange(start, end);
-    } else {
-      final allTransactions = await _dbHelper.getTransactionsByWallet(_selectedWallet);
-      transactions = allTransactions.where((t) => 
-        t.date.isAfter(start.subtract(const Duration(seconds: 1))) && 
-        t.date.isBefore(end.add(const Duration(seconds: 1)))
-      ).toList();
-    }
+    final transactions = await _dbHelper.getFilteredTransactions(
+      wallet: _selectedWallet,
+      startDate: start,
+      endDate: end,
+    );
 
+    if (!mounted) return;
     setState(() {
       _transactions = transactions;
     });
@@ -575,6 +697,7 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Future<void> _loadSavingGoals() async {
     final goals = await _dbHelper.getSavingGoals();
+    if (!mounted) return;
     setState(() {
       _savingGoals = goals;
     });
@@ -582,24 +705,18 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
 
   Future<void> _loadWishlistItems() async {
     final items = await _dbHelper.getWishlistItems();
+    if (!mounted) return;
     setState(() {
       _wishlistItems = items;
     });
   }
 
-  Future<void> _loadBadges() async {
-    final badges = await _dbHelper.getBadges();
-    setState(() {
-      _badges = badges;
-    });
-  }
-
   Future<void> _checkAndAwardBadges() async {
-    // Check for new badges based on user activity
-    final allTransactions = await _dbHelper.getTransactions();
-    
+    final allTransactions = _allTransactions;
+    final badges = await _dbHelper.getBadges();
+
     // First transaction badge
-    if (allTransactions.length == 1 && !_badges.any((b) => b.type == 'first')) {
+    if (allTransactions.length == 1 && !badges.any((b) => b.type == 'first')) {
       final badge = UserBadge(
         name: 'Langkah Pertama',
         description: 'Transaksi pertama kamu! Keep going!',
@@ -608,18 +725,26 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         type: 'first',
       );
       await _dbHelper.insertBadge(badge);
+      badges.insert(0, badge);
     }
 
     // Hemat Banget badge
     final now = DateTime.now();
     final startMonth = DateTime(now.year, now.month, 1);
     final endMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
-    
-    final monthlyTransactions = await _dbHelper.getTransactionsByDateRange(startMonth, endMonth);
-    final monthlyIncome = monthlyTransactions.where((t) => t.type == 'income').fold(0.0, (sum, t) => sum + t.amount);
-    final monthlyExpense = monthlyTransactions.where((t) => t.type == 'expense').fold(0.0, (sum, t) => sum + t.amount);
-    
-    if (monthlyIncome > monthlyExpense && monthlyExpense > 0 && !_badges.any((b) => b.type == 'saving' && b.earnedDate.month == now.month)) {
+
+    final monthlyTransactions =
+        await _dbHelper.getTransactionsByDateRange(startMonth, endMonth);
+    final monthlyIncome = monthlyTransactions
+        .where((t) => t.type == 'income')
+        .fold(0.0, (sum, t) => sum + t.amount);
+    final monthlyExpense = monthlyTransactions
+        .where((t) => t.type == 'expense')
+        .fold(0.0, (sum, t) => sum + t.amount);
+
+    if (monthlyIncome > monthlyExpense &&
+        monthlyExpense > 0 &&
+        !hasSavingBadgeForPeriod(badges, now)) {
       final badge = UserBadge(
         name: 'Hemat Banget',
         description: 'Kamu lebih banyak nabung daripada belanja bulan ini!',
@@ -628,11 +753,13 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
         type: 'saving',
       );
       await _dbHelper.insertBadge(badge);
+      badges.insert(0, badge);
     }
 
     // Goal Achievement badge
     for (var goal in _savingGoals) {
-      if (goal.progress >= 1.0 && !_badges.any((b) => b.type == 'goal_${goal.id}')) {
+      if (goal.progress >= 1.0 &&
+          !badges.any((b) => b.type == 'goal_${goal.id}')) {
         final badge = UserBadge(
           name: 'Goal Master',
           description: 'Berhasil capai target ${goal.name}!',
@@ -641,11 +768,14 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
           type: 'goal_${goal.id}',
         );
         await _dbHelper.insertBadge(badge);
+        badges.insert(0, badge);
       }
     }
 
-    // Reload badges
-    await _loadBadges();
+    if (!mounted) return;
+    setState(() {
+      _badges = badges;
+    });
   }
 
   @override
@@ -689,302 +819,302 @@ class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateM
   }
 
   Widget _buildHeader() {
-  return Container(
-    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-    child: Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.pink.withValues(alpha: 0.3),
-                blurRadius: 10,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.account_balance_wallet_rounded,
-            color: Color(0xFFFF69B4),
-            size: 30,
-          ),
-        ),
-        const SizedBox(width: 15),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Halo Cantik! 💕',
-                style: GoogleFonts.poppins(
-                  fontSize: 22, // Kecilkan sedikit
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.pink.withValues(alpha: 0.3),
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                'Yuk kelola uang kamu hari ini',
-                style: GoogleFonts.poppins(
-                  fontSize: 13, // Kecilkan sedikit
-                  color: Colors.white70,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-        // Badge count indicator dengan constraint
-        if (_badges.isNotEmpty)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 60),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.orange,
-                borderRadius: BorderRadius.circular(15),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.emoji_events, color: Colors.white, size: 14),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      '${_badges.length}',
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 11,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
+              ],
+            ),
+            child: const Icon(
+              Icons.account_balance_wallet_rounded,
+              color: Color(0xFFFF69B4),
+              size: 30,
             ),
           ),
-      ],
-    ),
-  );
-}
-
-Widget _buildEnhancedTabBar() {
-  return Container(
-    margin: const EdgeInsets.fromLTRB(20, 0, 20, 20), // margin dari kiri, atas, kanan, bawah
-    height: 75, // Tinggi diperbesar
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(35), // Radius diperbesar
-      boxShadow: [
-        BoxShadow(
-          color: Colors.pink.withOpacity(0.25),
-          blurRadius: 20,
-          offset: const Offset(0, 10),
-        ),
-      ],
-    ),
-    clipBehavior: Clip.hardEdge,
-    child: Padding(
-      padding: const EdgeInsets.all(8),
-      child: TabBar(
-        controller: _tabController,
-        indicator: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Halo Cantik! 💕',
+                  style: GoogleFonts.poppins(
+                    fontSize: 22, // Kecilkan sedikit
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  'Yuk kelola uang kamu hari ini',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13, // Kecilkan sedikit
+                    color: Colors.white70,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
-          borderRadius: BorderRadius.circular(27), // Sesuaikan dengan padding
-          boxShadow: [
-            BoxShadow(
-              color: Colors.pink.withOpacity(0.4),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
+          // Badge count indicator dengan constraint
+          if (_badges.isNotEmpty)
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 60),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.orange,
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.emoji_events,
+                        color: Colors.white, size: 14),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        '${_badges.length}',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnhancedTabBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(
+          20, 0, 20, 20), // margin dari kiri, atas, kanan, bawah
+      height: 75, // Tinggi diperbesar
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(35), // Radius diperbesar
+        boxShadow: [
+          BoxShadow(
+            color: Colors.pink.withOpacity(0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.hardEdge,
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: TabBar(
+          controller: _tabController,
+          indicator: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.circular(27), // Sesuaikan dengan padding
+            boxShadow: [
+              BoxShadow(
+                color: Colors.pink.withOpacity(0.4),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          labelColor: Colors.white,
+          unselectedLabelColor: const Color(0xFFFF69B4),
+          labelStyle: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            fontSize: 13, // Sedikit diperbesar
+          ),
+          unselectedLabelStyle: GoogleFonts.poppins(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+          isScrollable: false,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          indicatorPadding:
+              const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+          dividerColor: Colors.transparent,
+          overlayColor: WidgetStateProperty.all(Colors.transparent),
+          splashFactory: NoSplash.splashFactory,
+          tabs: [
+            _buildCustomTab('💰', 'Home'),
+            _buildCustomTab('📝', 'Transaksi'),
+            _buildCustomTab('🎯', 'Goal'),
+            _buildCustomTab('🛍️', 'Wish'),
+            _buildCustomTab('🏆', 'Badge'),
+          ],
+        ),
+      ),
+    );
+  }
+
+// Helper method untuk membuat custom tab yang lebih rapi
+  Widget _buildCustomTab(String emoji, String text) {
+    return Tab(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              emoji,
+              style: const TextStyle(fontSize: 16), // Emoji lebih besar
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                text,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
             ),
           ],
         ),
-        labelColor: Colors.white,
-        unselectedLabelColor: const Color(0xFFFF69B4),
-        labelStyle: GoogleFonts.poppins(
-          fontWeight: FontWeight.w600, 
-          fontSize: 13, // Sedikit diperbesar
-        ),
-        unselectedLabelStyle: GoogleFonts.poppins(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-        ),
-        isScrollable: false,
-        labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        indicatorPadding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-        dividerColor: Colors.transparent,
-        overlayColor: WidgetStateProperty.all(Colors.transparent),
-        splashFactory: NoSplash.splashFactory,
-        tabs: [
-          _buildCustomTab('💰', 'Home'),
-          _buildCustomTab('📝', 'Transaksi'),
-          _buildCustomTab('🎯', 'Goal'),
-          _buildCustomTab('🛍️', 'Wish'),
-          _buildCustomTab('🏆', 'Badge'),
-        ],
       ),
-    ),
-  );
-}
-
-// Helper method untuk membuat custom tab yang lebih rapi
-Widget _buildCustomTab(String emoji, String text) {
-  return Tab(
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            emoji,
-            style: const TextStyle(fontSize: 16), // Emoji lebih besar
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              text,
-              style: GoogleFonts.poppins(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
+    );
+  }
 
   Widget _buildDashboard() {
-  double totalIncome = _transactions
-      .where((t) => t.type == 'income')
-      .fold(0, (sum, t) => sum + t.amount);
-  double totalExpense = _transactions
-      .where((t) => t.type == 'expense')
-      .fold(0, (sum, t) => sum + t.amount);
-  double balance = totalIncome - totalExpense;
+    double totalIncome = _transactions
+        .where((t) => t.type == 'income')
+        .fold(0, (sum, t) => sum + t.amount);
+    double totalExpense = _transactions
+        .where((t) => t.type == 'expense')
+        .fold(0, (sum, t) => sum + t.amount);
+    double balance = totalIncome - totalExpense;
 
-  return SingleChildScrollView(
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Filter buttons with proper spacing
-        SizedBox(
-          height: 50,
-          child: Row(
-            children: [
-              _buildFilterButton('daily', 'Harian', '📅'),
-              const SizedBox(width: 10),
-              _buildFilterButton('monthly', 'Bulanan', '📆'),
-              const SizedBox(width: 10),
-              _buildFilterButton('yearly', 'Tahunan', '🗓️'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // Wallet filter
-        SizedBox(
-          height: 45,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Filter buttons with proper spacing
+          SizedBox(
+            height: 50,
             child: Row(
-              children: _wallets.map((wallet) => 
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _buildWalletFilter(wallet),
-                )
-              ).toList(),
+              children: [
+                _buildFilterButton('daily', 'Harian', '📅'),
+                const SizedBox(width: 10),
+                _buildFilterButton('monthly', 'Bulanan', '📆'),
+                const SizedBox(width: 10),
+                _buildFilterButton('yearly', 'Tahunan', '🗓️'),
+              ],
             ),
           ),
-        ),
-        const SizedBox(height: 25),
+          const SizedBox(height: 20),
 
-        // Balance card
-        _buildBalanceCard(balance, totalIncome, totalExpense),
-        const SizedBox(height: 25),
-
-        // Analytics insight
-        _buildAnalyticsInsight(),
-        const SizedBox(height: 25),
-
-        // Active goals preview
-        if (_savingGoals.isNotEmpty) ...[
-          _buildActiveGoalsPreview(),
-          const SizedBox(height: 25),
-        ],
-
-        // Category chart section
-        Text(
-          'Kategori Pengeluaran 🛍️',
-          style: GoogleFonts.poppins(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: const Color(0xFFFF69B4),
+          // Wallet filter
+          SizedBox(
+            height: 45,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _wallets
+                    .map((wallet) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _buildWalletFilter(wallet),
+                        ))
+                    .toList(),
+              ),
+            ),
           ),
-        ),
-        const SizedBox(height: 15),
-        SizedBox(
-          height: 280,
-          child: _buildCategoryChart(),
-        ),
-        const SizedBox(height: 30),
-      ],
-    ),
-  );
-}
+          const SizedBox(height: 25),
 
+          // Balance card
+          _buildBalanceCard(balance, totalIncome, totalExpense),
+          const SizedBox(height: 25),
+
+          // Analytics insight
+          _buildAnalyticsInsight(),
+          const SizedBox(height: 25),
+
+          // Active goals preview
+          if (_savingGoals.isNotEmpty) ...[
+            _buildActiveGoalsPreview(),
+            const SizedBox(height: 25),
+          ],
+
+          // Category chart section
+          Text(
+            'Kategori Pengeluaran 🛍️',
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFFFF69B4),
+            ),
+          ),
+          const SizedBox(height: 15),
+          SizedBox(
+            height: 280,
+            child: _buildCategoryChart(),
+          ),
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
 
   Widget _buildWalletFilter(String wallet) {
-  bool isSelected = _selectedWallet == wallet;
-  return GestureDetector(
-    onTap: () {
-      setState(() {
-        _selectedWallet = wallet;
-      });
-      _loadTransactions();
-    },
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: const Color(0xFFFF69B4).withAlpha(77), // 0.3 * 255 ≈ 77
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.pink.withAlpha(25), // 0.1 * 255 ≈ 25
-            blurRadius: 5,
-            offset: const Offset(0, 2),
+    bool isSelected = _selectedWallet == wallet;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedWallet = wallet;
+        });
+        _loadTransactions();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFFFF69B4).withAlpha(77), // 0.3 * 255 ≈ 77
           ),
-        ],
-      ),
-      child: Text(
-        '${_getWalletEmoji(wallet)} $wallet',
-        style: GoogleFonts.poppins(
-          color: isSelected ? Colors.white : const Color(0xFFFF69B4),
-          fontWeight: FontWeight.w500,
-          fontSize: 12,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.pink.withAlpha(25), // 0.1 * 255 ≈ 25
+              blurRadius: 5,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Text(
+          '${_getWalletEmoji(wallet)} $wallet',
+          style: GoogleFonts.poppins(
+            color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+            fontWeight: FontWeight.w500,
+            fontSize: 12,
+          ),
         ),
       ),
-    ),
-  );
-}
-
+    );
+  }
 
   String _getWalletEmoji(String wallet) {
     switch (wallet) {
@@ -1002,17 +1132,12 @@ Widget _buildCustomTab(String emoji, String text) {
   }
 
   Widget _buildAnalyticsInsight() {
-    // Calculate this month vs last month
     final now = DateTime.now();
-    final thisMonthStart = DateTime(now.year, now.month, 1);
-    final thisMonthEnd = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
-
-    // Get transactions for comparison
-    double thisMonthExpense = _transactions
-        .where((t) => t.type == 'expense' && 
-                     t.date.isAfter(thisMonthStart.subtract(const Duration(seconds: 1))) &&
-                     t.date.isBefore(thisMonthEnd.add(const Duration(seconds: 1))))
-        .fold(0, (sum, t) => sum + t.amount);
+    final thisMonthExpense = calculateMonthlyExpenseForInsight(
+      _allTransactions,
+      now,
+      selectedWallet: _selectedWallet,
+    );
 
     String insightText = '';
     String insightEmoji = '';
@@ -1162,7 +1287,9 @@ Widget _buildCustomTab(String emoji, String text) {
                       value: goal.progress,
                       backgroundColor: Colors.grey[200],
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        goal.progress >= 1.0 ? Colors.green : const Color(0xFFFF69B4),
+                        goal.progress >= 1.0
+                            ? Colors.green
+                            : const Color(0xFFFF69B4),
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -1171,7 +1298,9 @@ Widget _buildCustomTab(String emoji, String text) {
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: goal.progress >= 1.0 ? Colors.green : const Color(0xFFFF69B4),
+                        color: goal.progress >= 1.0
+                            ? Colors.green
+                            : const Color(0xFFFF69B4),
                       ),
                     ),
                   ],
@@ -1223,145 +1352,147 @@ Widget _buildCustomTab(String emoji, String text) {
   }
 
   Widget _buildBalanceCard(double balance, double income, double expense) {
-  return Container(
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Color(0xFFFF69B4),
-          Color(0xFFFF1493),
-        ],
-      ),
-      borderRadius: BorderRadius.circular(25),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.pink.withValues(alpha: 0.4),
-          blurRadius: 15,
-          offset: const Offset(0, 8),
-        ),
-      ],
-    ),
-    child: Column(
-      children: [
-        Text(
-          'Saldo Kamu',
-          style: GoogleFonts.poppins(
-            color: Colors.white70,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 10),
-        FittedBox(
-          child: Text(
-            'Rp ${NumberFormat('#,###').format(balance)}',
-            style: GoogleFonts.poppins(
-              color: Colors.white,
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.arrow_downward, color: Colors.greenAccent, size: 18),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            'Pemasukan',
-                            style: GoogleFonts.poppins(
-                              color: Colors.white70,
-                              fontSize: 11,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    FittedBox(
-                      child: Text(
-                        'Rp ${NumberFormat('#,###').format(income)}',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.arrow_upward, color: Colors.redAccent, size: 18),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            'Pengeluaran',
-                            style: GoogleFonts.poppins(
-                              color: Colors.white70,
-                              fontSize: 11,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
-                    FittedBox(
-                      child: Text(
-                        'Rp ${NumberFormat('#,###').format(expense)}',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFFF69B4),
+            Color(0xFFFF1493),
           ],
         ),
-      ],
-    ),
-  );
-}
+        borderRadius: BorderRadius.circular(25),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.pink.withValues(alpha: 0.4),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Text(
+            'Saldo Kamu',
+            style: GoogleFonts.poppins(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 10),
+          FittedBox(
+            child: Text(
+              'Rp ${NumberFormat('#,###').format(balance)}',
+              style: GoogleFonts.poppins(
+                color: Colors.white,
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.arrow_downward,
+                              color: Colors.greenAccent, size: 18),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'Pemasukan',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      FittedBox(
+                        child: Text(
+                          'Rp ${NumberFormat('#,###').format(income)}',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.arrow_upward,
+                              color: Colors.redAccent, size: 18),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              'Pengeluaran',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      FittedBox(
+                        child: Text(
+                          'Rp ${NumberFormat('#,###').format(expense)}',
+                          style: GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildCategoryChart() {
     Map<String, double> categoryData = {};
-    
+
     for (var transaction in _transactions.where((t) => t.type == 'expense')) {
-      categoryData[transaction.category] = 
+      categoryData[transaction.category] =
           (categoryData[transaction.category] ?? 0) + transaction.amount;
     }
 
@@ -1421,7 +1552,8 @@ Widget _buildCustomTab(String emoji, String text) {
       sections.add(
         PieChartSectionData(
           value: amount,
-          title: '${(amount / categoryData.values.reduce((a, b) => a + b) * 100).toInt()}%',
+          title:
+              '${(amount / categoryData.values.reduce((a, b) => a + b) * 100).toInt()}%',
           color: colors[colorIndex % colors.length],
           radius: 60,
           titleStyle: GoogleFonts.poppins(
@@ -1510,9 +1642,9 @@ Widget _buildCustomTab(String emoji, String text) {
             ],
           ),
           const SizedBox(height: 20),
-          
+
           // Transactions list
-          if (_transactions.isEmpty) 
+          if (_transactions.isEmpty)
             _buildEmptyTransactionState()
           else
             _buildTransactionItems(),
@@ -1620,7 +1752,8 @@ Widget _buildCustomTab(String emoji, String text) {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
               ),
               child: Text(
                 '+ Tambah Transaksi',
@@ -1678,14 +1811,14 @@ Widget _buildCustomTab(String emoji, String text) {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: transaction.type == 'income' 
+              color: transaction.type == 'income'
                   ? Colors.green.withValues(alpha: 0.1)
                   : Colors.red.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(15),
             ),
             child: Icon(
-              transaction.type == 'income' 
-                  ? Icons.arrow_downward 
+              transaction.type == 'income'
+                  ? Icons.arrow_downward
                   : Icons.arrow_upward,
               color: transaction.type == 'income' ? Colors.green : Colors.red,
               size: 24,
@@ -1742,7 +1875,8 @@ Widget _buildCustomTab(String emoji, String text) {
                 style: GoogleFonts.poppins(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color: transaction.type == 'income' ? Colors.green : Colors.red,
+                  color:
+                      transaction.type == 'income' ? Colors.green : Colors.red,
                 ),
               ),
               const SizedBox(height: 5),
@@ -1769,57 +1903,54 @@ Widget _buildCustomTab(String emoji, String text) {
   }
 
   Widget _buildSavingGoals() {
-  return Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Target Tabungan',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFFFF69B4),
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 10),
-            ElevatedButton(
-              onPressed: () => _showAddGoalDialog(),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF69B4),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Target Tabungan',
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFFFF69B4),
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              child: Text(
-                '+ Goal Baru',
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+              const SizedBox(width: 10),
+              ElevatedButton(
+                onPressed: () => _showAddGoalDialog(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF69B4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                child: Text(
+                  '+ Goal Baru',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-
-        Expanded(
-          child: _savingGoals.isEmpty
-              ? _buildEmptyGoalsState()
-              : _buildGoalsList(),
-        ),
-      ],
-    ),
-  );
-}
-
-
+            ],
+          ),
+          const SizedBox(height: 20),
+          Expanded(
+            child: _savingGoals.isEmpty
+                ? _buildEmptyGoalsState()
+                : _buildGoalsList(),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildWishlist() {
     return SingleChildScrollView(
@@ -1861,7 +1992,6 @@ Widget _buildCustomTab(String emoji, String text) {
             ],
           ),
           const SizedBox(height: 20),
-          
           if (_wishlistItems.isEmpty)
             _buildEmptyWishlistState()
           else
@@ -1909,7 +2039,8 @@ Widget _buildCustomTab(String emoji, String text) {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
               ),
               child: Text(
                 '+ Tambah ke Wishlist',
@@ -1957,7 +2088,7 @@ Widget _buildCustomTab(String emoji, String text) {
   Widget _buildWishlistItem(WishlistItem item) {
     Color priorityColor;
     String priorityText;
-    
+
     switch (item.priority) {
       case 'high':
         priorityColor = Colors.red;
@@ -2031,11 +2162,13 @@ Widget _buildCustomTab(String emoji, String text) {
                 ),
                 const SizedBox(height: 5),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: priorityColor.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: priorityColor.withValues(alpha: 0.3)),
+                    border:
+                        Border.all(color: priorityColor.withValues(alpha: 0.3)),
                   ),
                   child: Text(
                     priorityText,
@@ -2089,7 +2222,7 @@ Widget _buildCustomTab(String emoji, String text) {
     );
   }
 
-    Widget _buildBadgesAndAnalytics() {
+  Widget _buildBadgesAndAnalytics() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Column(
@@ -2120,10 +2253,7 @@ Widget _buildCustomTab(String emoji, String text) {
           ),
           const SizedBox(height: 15),
 
-          if (_badges.isEmpty)
-            _buildEmptyBadgesState()
-          else
-            _buildBadgesList(),
+          if (_badges.isEmpty) _buildEmptyBadgesState() else _buildBadgesList(),
 
           const SizedBox(height: 25),
 
@@ -2137,7 +2267,7 @@ Widget _buildCustomTab(String emoji, String text) {
             ),
           ),
           const SizedBox(height: 15),
-          
+
           // ✅ Ganti Container ke SizedBox
           SizedBox(
             height: 250,
@@ -2158,7 +2288,7 @@ Widget _buildCustomTab(String emoji, String text) {
         .where((t) => t.type == 'expense')
         .fold(0.0, (sum, t) => sum + t.amount);
     final completedGoals = _savingGoals.where((g) => g.progress >= 1.0).length;
-    
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -2293,128 +2423,186 @@ Widget _buildCustomTab(String emoji, String text) {
     );
   }
 
-    Widget _buildBadgesList() {
-      return SizedBox(
-        height: 230, // ⬅️ Batasi tinggi agar tidak overflow
-        child: GridView.builder(
-          scrollDirection: Axis.horizontal, // ⬅️ Ubah jadi horizontal scroll
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 1,
-            childAspectRatio: 1.1,
-            mainAxisSpacing: 15,
+  Widget _buildBadgesList() {
+    return SizedBox(
+      height: 230, // ⬅️ Batasi tinggi agar tidak overflow
+      child: GridView.builder(
+        scrollDirection: Axis.horizontal, // ⬅️ Ubah jadi horizontal scroll
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 1,
+          childAspectRatio: 1.1,
+          mainAxisSpacing: 15,
+        ),
+        itemCount: _badges.length,
+        itemBuilder: (context, index) {
+          final badge = _badges[index];
+          return Container(
+            width: 160,
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.pink.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 5),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                    ),
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  child: Text(
+                    badge.emoji,
+                    style: const TextStyle(fontSize: 28),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  badge.name,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF333333),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  badge.description,
+                  style: GoogleFonts.poppins(
+                    fontSize: 10,
+                    color: Colors.grey,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  DateFormat('dd MMM yyyy').format(badge.earnedDate),
+                  style: GoogleFonts.poppins(
+                    fontSize: 9,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMonthlyChart() {
+    // Get data for the last 6 months
+    final now = DateTime.now();
+    List<FlSpot> spots = [];
+    List<String> months = [];
+    double maxExpense = 0;
+
+    for (int i = 5; i >= 0; i--) {
+      final month = DateTime(now.year, now.month - i, 1);
+      final nextMonth = DateTime(now.year, now.month - i + 1, 1);
+
+      // ✅ FIX: Get all transactions from database instead of using filtered _transactions
+      // Use FutureBuilder or make this async, but for now we'll use a sync approach
+      // by getting all transactions that are already loaded
+
+      // Get monthly expense by filtering ALL transactions, not just _transactions
+      double monthlyExpense = 0;
+
+      // We need to get all transactions from database for this chart
+      // Since we can't make this async easily, let's use a different approach
+      // We'll use the stored transactions but get them differently
+
+      // Alternative: Use a class variable to store all transactions
+      monthlyExpense = _allTransactions
+          .where((t) =>
+              t.type == 'expense' &&
+              t.date.isAfter(month.subtract(const Duration(seconds: 1))) &&
+              t.date.isBefore(nextMonth))
+          .fold(0.0, (sum, t) => sum + t.amount);
+
+      // Simpan nilai maksimum untuk scaling
+      if (monthlyExpense > maxExpense) {
+        maxExpense = monthlyExpense;
+      }
+
+      spots.add(FlSpot((5 - i).toDouble(), monthlyExpense));
+      months.add(DateFormat('MMM').format(month));
+    }
+
+    // Rest of the function remains the same...
+    // Jika tidak ada data, tampilkan chart kosong
+    if (maxExpense == 0) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.pink.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('📈', style: TextStyle(fontSize: 48)),
+              const SizedBox(height: 16),
+              Text(
+                'Belum ada data pengeluaran',
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'Mulai catat pengeluaran untuk melihat grafik',
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
           ),
-          itemCount: _badges.length,
-          itemBuilder: (context, index) {
-            final badge = _badges[index];
-            return Container(
-              width: 160,
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.pink.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
-                      ),
-                      borderRadius: BorderRadius.circular(50),
-                    ),
-                    child: Text(
-                      badge.emoji,
-                      style: const TextStyle(fontSize: 28),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    badge.name,
-                    style: GoogleFonts.poppins(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFF333333),
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    badge.description,
-                    style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      color: Colors.grey,
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    DateFormat('dd MMM yyyy').format(badge.earnedDate),
-                    style: GoogleFonts.poppins(
-                      fontSize: 9,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
         ),
       );
     }
 
-
-  Widget _buildMonthlyChart() {
-  // Get data for the last 6 months
-  final now = DateTime.now();
-  List<FlSpot> spots = [];
-  List<String> months = [];
-  double maxExpense = 0;
-  
-  for (int i = 5; i >= 0; i--) {
-    final month = DateTime(now.year, now.month - i, 1);
-    final nextMonth = DateTime(now.year, now.month - i + 1, 1);
-    
-    // ✅ FIX: Get all transactions from database instead of using filtered _transactions
-    // Use FutureBuilder or make this async, but for now we'll use a sync approach
-    // by getting all transactions that are already loaded
-    
-    // Get monthly expense by filtering ALL transactions, not just _transactions
-    double monthlyExpense = 0;
-    
-    // We need to get all transactions from database for this chart
-    // Since we can't make this async easily, let's use a different approach
-    // We'll use the stored transactions but get them differently
-    
-    // Alternative: Use a class variable to store all transactions
-    monthlyExpense = _allTransactions
-        .where((t) => t.type == 'expense' &&
-                     t.date.isAfter(month.subtract(const Duration(seconds: 1))) &&
-                     t.date.isBefore(nextMonth))
-        .fold(0.0, (sum, t) => sum + t.amount);
-    
-    // Simpan nilai maksimum untuk scaling
-    if (monthlyExpense > maxExpense) {
-      maxExpense = monthlyExpense;
+    // Tentukan interval Y-axis yang lebih smart
+    double yInterval;
+    if (maxExpense > 10000000) {
+      // > 10 juta
+      yInterval = 2000000; // interval 2 juta
+    } else if (maxExpense > 5000000) {
+      // > 5 juta
+      yInterval = 1000000; // interval 1 juta
+    } else if (maxExpense > 1000000) {
+      // > 1 juta
+      yInterval = 500000; // interval 500rb
+    } else if (maxExpense > 500000) {
+      // > 500rb
+      yInterval = 200000; // interval 200rb
+    } else {
+      yInterval = 100000; // interval 100rb
     }
-    
-    spots.add(FlSpot((5 - i).toDouble(), monthlyExpense));
-    months.add(DateFormat('MMM').format(month));
-  }
 
-  // Rest of the function remains the same...
-  // Jika tidak ada data, tampilkan chart kosong
-  if (maxExpense == 0) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -2428,310 +2616,264 @@ Widget _buildCustomTab(String emoji, String text) {
           ),
         ],
       ),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text('📈', style: TextStyle(fontSize: 48)),
-            const SizedBox(height: 16),
-            Text(
-              'Belum ada data pengeluaran',
-              style: GoogleFonts.poppins(
-                fontSize: 16,
-                color: Colors.grey,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            Text(
-              'Mulai catat pengeluaran untuk melihat grafik',
-              style: GoogleFonts.poppins(
-                fontSize: 12,
-                color: Colors.grey,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Tentukan interval Y-axis yang lebih smart
-  double yInterval;
-  if (maxExpense > 10000000) { // > 10 juta
-    yInterval = 2000000; // interval 2 juta
-  } else if (maxExpense > 5000000) { // > 5 juta
-    yInterval = 1000000; // interval 1 juta
-  } else if (maxExpense > 1000000) { // > 1 juta
-    yInterval = 500000; // interval 500rb
-  } else if (maxExpense > 500000) { // > 500rb
-    yInterval = 200000; // interval 200rb
-  } else {
-    yInterval = 100000; // interval 100rb
-  }
-
-  return Container(
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.pink.withValues(alpha: 0.1),
-          blurRadius: 10,
-          offset: const Offset(0, 5),
-        ),
-      ],
-    ),
-    child: Column(
-      children: [
-        // Header info
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Pengeluaran 6 Bulan Terakhir',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF333333),
-                  ),
-                ),
-                Text(
-                  'Maksimal: Rp ${NumberFormat('#,###').format(maxExpense)}',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    color: Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF69B4).withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                'Trend',
-                style: GoogleFonts.poppins(
-                  fontSize: 10,
-                  color: const Color(0xFFFF69B4),
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        
-        // Chart
-        Expanded(
-          child: LineChart(
-            LineChartData(
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                horizontalInterval: yInterval,
-                getDrawingHorizontalLine: (value) {
-                  return FlLine(
-                    color: Colors.grey.withValues(alpha: 0.2),
-                    strokeWidth: 1,
-                    dashArray: [5, 5],
-                  );
-                },
-              ),
-              titlesData: FlTitlesData(
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 60,
-                    interval: yInterval,
-                    getTitlesWidget: (value, meta) {
-                      if (value == 0) return const Text('');
-                      
-                      String label;
-                      if (value >= 1000000) {
-                        label = '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
-                      } else if (value >= 1000) {
-                        label = '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 0)}K';
-                      } else {
-                        label = value.toStringAsFixed(0);
-                      }
-                      
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Text(
-                          label,
-                          style: GoogleFonts.poppins(
-                            fontSize: 10,
-                            color: Colors.grey[600],
-                            fontWeight: FontWeight.w500,
-                          ),
-                          textAlign: TextAlign.right,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 30,
-                    getTitlesWidget: (value, meta) {
-                      if (value.toInt() < months.length && value.toInt() >= 0) {
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Text(
-                            months[value.toInt()],
-                            style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              color: Colors.grey[600],
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        );
-                      }
-                      return const Text('');
-                    },
-                  ),
-                ),
-                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              ),
-              borderData: FlBorderData(
-                show: true,
-                border: Border(
-                  left: BorderSide(color: Colors.grey.withValues(alpha: 0.3), width: 1),
-                  bottom: BorderSide(color: Colors.grey.withValues(alpha: 0.3), width: 1),
-                ),
-              ),
-              minX: 0,
-              maxX: 5,
-              minY: 0,
-              maxY: (maxExpense * 1.2).ceilToDouble(), // Tambah 20% ruang di atas
-              lineTouchData: LineTouchData(
-                enabled: true,
-                touchTooltipData: LineTouchTooltipData(
-                 tooltipBgColor: const Color(0xFFFF69B4),
-                  tooltipRoundedRadius: 8,
-                  getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
-                    return touchedBarSpots.map((barSpot) {
-                      final monthIndex = barSpot.x.toInt();
-                      final amount = barSpot.y;
-                      
-                      return LineTooltipItem(
-                        '${months[monthIndex]}\nRp ${NumberFormat('#,###').format(amount)}',
-                        GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      );
-                    }).toList();
-                  },
-                ),
-                handleBuiltInTouches: true,
-                getTouchLineStart: (data, index) => 0,
-                getTouchLineEnd: (data, index) => double.infinity,
-                touchSpotThreshold: 50,
-              ),
-              lineBarsData: [
-                LineChartBarData(
-                  spots: spots,
-                  isCurved: true,
-                  curveSmoothness: 0.3,
-                  gradient: const LinearGradient(
-                    colors: [
-                      Color(0xFFFF69B4),
-                      Color(0xFFFF1493),
-                      Color(0xFFDC143C),
-                    ],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
-                  barWidth: 4,
-                  isStrokeCapRound: true,
-                  dotData: FlDotData(
-                    show: true,
-                    getDotPainter: (spot, percent, barData, index) {
-                      return FlDotCirclePainter(
-                        radius: 6,
-                        color: Colors.white,
-                        strokeWidth: 3,
-                        strokeColor: const Color(0xFFFF69B4),
-                      );
-                    },
-                  ),
-                  belowBarData: BarAreaData(
-                    show: true,
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFFFF69B4).withValues(alpha: 0.3),
-                        const Color(0xFFFF69B4).withValues(alpha: 0.1),
-                        const Color(0xFFFF69B4).withValues(alpha: 0.05),
-                      ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+      child: Column(
+        children: [
+          // Header info
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Pengeluaran 6 Bulan Terakhir',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF333333),
                     ),
                   ),
-                  shadow: Shadow(
-                    color: const Color(0xFFFF69B4).withValues(alpha: 0.3),
-                    offset: const Offset(0, 3),
-                    blurRadius: 6,
+                  Text(
+                    'Maksimal: Rp ${NumberFormat('#,###').format(maxExpense)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: Colors.grey,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        
-        // Legend dan info tambahan
-        const SizedBox(height: 15),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFF69B4).withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: const Color(0xFFFF69B4).withValues(alpha: 0.2),
-              width: 1,
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
-                  ),
-                  borderRadius: BorderRadius.circular(6),
-                ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF69B4).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
                 child: Text(
-                  'Pengeluaran Bulanan - Ketuk titik untuk detail',
+                  'Trend',
                   style: GoogleFonts.poppins(
-                    fontSize: 11,
+                    fontSize: 10,
                     color: const Color(0xFFFF69B4),
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
             ],
           ),
-        ),
-      ],
-    ),
-  );
-}
+          const SizedBox(height: 20),
 
-    Widget _buildCuteFloatingActionButton(BuildContext context) {
+          // Chart
+          Expanded(
+            child: LineChart(
+              LineChartData(
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: yInterval,
+                  getDrawingHorizontalLine: (value) {
+                    return FlLine(
+                      color: Colors.grey.withValues(alpha: 0.2),
+                      strokeWidth: 1,
+                      dashArray: [5, 5],
+                    );
+                  },
+                ),
+                titlesData: FlTitlesData(
+                  leftTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 60,
+                      interval: yInterval,
+                      getTitlesWidget: (value, meta) {
+                        if (value == 0) return const Text('');
+
+                        String label;
+                        if (value >= 1000000) {
+                          label =
+                              '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
+                        } else if (value >= 1000) {
+                          label =
+                              '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 0)}K';
+                        } else {
+                          label = value.toStringAsFixed(0);
+                        }
+
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Text(
+                            label,
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.w500,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      getTitlesWidget: (value, meta) {
+                        if (value.toInt() < months.length &&
+                            value.toInt() >= 0) {
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              months[value.toInt()],
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          );
+                        }
+                        return const Text('');
+                      },
+                    ),
+                  ),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                ),
+                borderData: FlBorderData(
+                  show: true,
+                  border: Border(
+                    left: BorderSide(
+                        color: Colors.grey.withValues(alpha: 0.3), width: 1),
+                    bottom: BorderSide(
+                        color: Colors.grey.withValues(alpha: 0.3), width: 1),
+                  ),
+                ),
+                minX: 0,
+                maxX: 5,
+                minY: 0,
+                maxY: (maxExpense * 1.2)
+                    .ceilToDouble(), // Tambah 20% ruang di atas
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  touchTooltipData: LineTouchTooltipData(
+                    tooltipBgColor: const Color(0xFFFF69B4),
+                    tooltipRoundedRadius: 8,
+                    getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
+                      return touchedBarSpots.map((barSpot) {
+                        final monthIndex = barSpot.x.toInt();
+                        final amount = barSpot.y;
+
+                        return LineTooltipItem(
+                          '${months[monthIndex]}\nRp ${NumberFormat('#,###').format(amount)}',
+                          GoogleFonts.poppins(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        );
+                      }).toList();
+                    },
+                  ),
+                  handleBuiltInTouches: true,
+                  getTouchLineStart: (data, index) => 0,
+                  getTouchLineEnd: (data, index) => double.infinity,
+                  touchSpotThreshold: 50,
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: spots,
+                    isCurved: true,
+                    curveSmoothness: 0.3,
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFFFF69B4),
+                        Color(0xFFFF1493),
+                        Color(0xFFDC143C),
+                      ],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    barWidth: 4,
+                    isStrokeCapRound: true,
+                    dotData: FlDotData(
+                      show: true,
+                      getDotPainter: (spot, percent, barData, index) {
+                        return FlDotCirclePainter(
+                          radius: 6,
+                          color: Colors.white,
+                          strokeWidth: 3,
+                          strokeColor: const Color(0xFFFF69B4),
+                        );
+                      },
+                    ),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFFFF69B4).withValues(alpha: 0.3),
+                          const Color(0xFFFF69B4).withValues(alpha: 0.1),
+                          const Color(0xFFFF69B4).withValues(alpha: 0.05),
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
+                    ),
+                    shadow: Shadow(
+                      color: const Color(0xFFFF69B4).withValues(alpha: 0.3),
+                      offset: const Offset(0, 3),
+                      blurRadius: 6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Legend dan info tambahan
+          const SizedBox(height: 15),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF69B4).withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: const Color(0xFFFF69B4).withValues(alpha: 0.2),
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+                    ),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Pengeluaran Bulanan - Ketuk titik untuk detail',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: const Color(0xFFFF69B4),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCuteFloatingActionButton(BuildContext context) {
     return FloatingActionButton(
       onPressed: () => _showAddTransactionDialog(),
       backgroundColor: const Color(0xFFFF69B4),
@@ -2761,8 +2903,6 @@ Widget _buildCustomTab(String emoji, String text) {
       ),
     );
   }
-
-
 
   Widget _buildEmptyGoalsState() {
     return Container(
@@ -2802,7 +2942,8 @@ Widget _buildCustomTab(String emoji, String text) {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
               ),
               child: Text(
                 '+ Buat Target Baru',
@@ -2863,7 +3004,7 @@ Widget _buildCustomTab(String emoji, String text) {
               Container(
                 padding: const EdgeInsets.all(15),
                 decoration: BoxDecoration(
-                  color: goal.progress >= 1.0 
+                  color: goal.progress >= 1.0
                       ? Colors.green.withValues(alpha: 0.1)
                       : const Color(0xFFFF69B4).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
@@ -2939,7 +3080,7 @@ Widget _buildCustomTab(String emoji, String text) {
             ],
           ),
           const SizedBox(height: 20),
-          
+
           // Progress bar
           Container(
             height: 12,
@@ -2954,9 +3095,12 @@ Widget _buildCustomTab(String emoji, String text) {
                   child: Container(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: goal.progress >= 1.0 
+                        colors: goal.progress >= 1.0
                             ? [Colors.green, Colors.lightGreen]
-                            : [const Color(0xFFFF69B4), const Color(0xFFFF1493)],
+                            : [
+                                const Color(0xFFFF69B4),
+                                const Color(0xFFFF1493)
+                              ],
                       ),
                       borderRadius: BorderRadius.circular(6),
                     ),
@@ -2966,7 +3110,7 @@ Widget _buildCustomTab(String emoji, String text) {
             ),
           ),
           const SizedBox(height: 15),
-          
+
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -2991,9 +3135,10 @@ Widget _buildCustomTab(String emoji, String text) {
                 ],
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: goal.progress >= 1.0 
+                  color: goal.progress >= 1.0
                       ? Colors.green
                       : const Color(0xFFFF69B4),
                   borderRadius: BorderRadius.circular(15),
@@ -3009,7 +3154,7 @@ Widget _buildCustomTab(String emoji, String text) {
               ),
             ],
           ),
-          
+
           if (goal.progress >= 1.0)
             Container(
               margin: const EdgeInsets.only(top: 15),
@@ -3047,14 +3192,25 @@ Widget _buildCustomTab(String emoji, String text) {
     String selectedType = 'expense';
     String selectedCategory = 'Makanan';
     String selectedWallet = 'Cash';
-    
+
     final List<String> expenseCategories = [
-      'Makanan', 'Transport', 'Belanja', 'Hiburan', 'Kesehatan', 
-      'Pendidikan', 'Tagihan', 'Lainnya'
+      'Makanan',
+      'Transport',
+      'Belanja',
+      'Hiburan',
+      'Kesehatan',
+      'Pendidikan',
+      'Tagihan',
+      'Lainnya'
     ];
-    
+
     final List<String> incomeCategories = [
-      'Gaji', 'Bonus', 'Freelance', 'Investasi', 'Hadiah', 'Lainnya'
+      'Gaji',
+      'Bonus',
+      'Freelance',
+      'Investasi',
+      'Hadiah',
+      'Lainnya'
     ];
 
     showModalBottomSheet(
@@ -3062,338 +3218,363 @@ Widget _buildCustomTab(String emoji, String text) {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
-  builder: (context, setState) => Container(
-    decoration: const BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.only(
-        topLeft: Radius.circular(25),
-        topRight: Radius.circular(25),
-      ),
-    ),
-    child: SafeArea(
-      top: false,
-      child: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 50,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+        builder: (context, setState) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(25),
+              topRight: Radius.circular(25),
             ),
-            const SizedBox(height: 20),
-            Text(
-              'Tambah Transaksi 💰',
-              style: GoogleFonts.poppins(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFFFF69B4),
+          ),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
               ),
-            ),
-            const SizedBox(height: 25),
-                
-                // Type selection
-                Text(
-                  'Tipe Transaksi',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 50,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() {
-                          selectedType = 'expense';
-                          if (!expenseCategories.contains(selectedCategory)) {
-                            selectedCategory = expenseCategories.first;
-                          }
-                        }),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          decoration: BoxDecoration(
-                            color: selectedType == 'expense' 
-                                ? Colors.red.withValues(alpha: 0.1)
-                                : Colors.grey.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(15),
-                            border: Border.all(
-                              color: selectedType == 'expense' 
-                                  ? Colors.red 
-                                  : Colors.grey.withValues(alpha: 0.3),
-                              width: 2,
+                  const SizedBox(height: 20),
+                  Text(
+                    'Tambah Transaksi 💰',
+                    style: GoogleFonts.poppins(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFFFF69B4),
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+
+                  // Type selection
+                  Text(
+                    'Tipe Transaksi',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF333333),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() {
+                            selectedType = 'expense';
+                            if (!expenseCategories.contains(selectedCategory)) {
+                              selectedCategory = expenseCategories.first;
+                            }
+                          }),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            decoration: BoxDecoration(
+                              color: selectedType == 'expense'
+                                  ? Colors.red.withValues(alpha: 0.1)
+                                  : Colors.grey.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(15),
+                              border: Border.all(
+                                color: selectedType == 'expense'
+                                    ? Colors.red
+                                    : Colors.grey.withValues(alpha: 0.3),
+                                width: 2,
+                              ),
                             ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.arrow_upward,
-                                color: selectedType == 'expense' ? Colors.red : Colors.grey,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Pengeluaran',
-                                style: GoogleFonts.poppins(
-                                  color: selectedType == 'expense' ? Colors.red : Colors.grey,
-                                  fontWeight: FontWeight.w600,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.arrow_upward,
+                                  color: selectedType == 'expense'
+                                      ? Colors.red
+                                      : Colors.grey,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Pengeluaran',
+                                  style: GoogleFonts.poppins(
+                                    color: selectedType == 'expense'
+                                        ? Colors.red
+                                        : Colors.grey,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() {
-                          selectedType = 'income';
-                          if (!incomeCategories.contains(selectedCategory)) {
-                            selectedCategory = incomeCategories.first;
-                          }
-                        }),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          decoration: BoxDecoration(
-                            color: selectedType == 'income' 
-                                ? Colors.green.withValues(alpha: 0.1)
-                                : Colors.grey.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(15),
-                            border: Border.all(
-                              color: selectedType == 'income' 
-                                  ? Colors.green 
-                                  : Colors.grey.withValues(alpha: 0.3),
-                              width: 2,
+                      const SizedBox(width: 15),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() {
+                            selectedType = 'income';
+                            if (!incomeCategories.contains(selectedCategory)) {
+                              selectedCategory = incomeCategories.first;
+                            }
+                          }),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            decoration: BoxDecoration(
+                              color: selectedType == 'income'
+                                  ? Colors.green.withValues(alpha: 0.1)
+                                  : Colors.grey.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(15),
+                              border: Border.all(
+                                color: selectedType == 'income'
+                                    ? Colors.green
+                                    : Colors.grey.withValues(alpha: 0.3),
+                                width: 2,
+                              ),
                             ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.arrow_downward,
-                                color: selectedType == 'income' ? Colors.green : Colors.grey,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Pemasukan',
-                                style: GoogleFonts.poppins(
-                                  color: selectedType == 'income' ? Colors.green : Colors.grey,
-                                  fontWeight: FontWeight.w600,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.arrow_downward,
+                                  color: selectedType == 'income'
+                                      ? Colors.green
+                                      : Colors.grey,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Pemasukan',
+                                  style: GoogleFonts.poppins(
+                                    color: selectedType == 'income'
+                                        ? Colors.green
+                                        : Colors.grey,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                
-                // Amount input
-                Text(
-                  'Jumlah',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: TextField(
-                    controller: amountController,
-                    keyboardType: TextInputType.number,
-                    style: GoogleFonts.poppins(),
-                    decoration: InputDecoration(
-                      hintText: 'Masukkan jumlah',
-                      hintStyle: GoogleFonts.poppins(color: Colors.grey),
-                      prefixText: 'Rp ',
-                      prefixStyle: GoogleFonts.poppins(
-                        color: const Color(0xFFFF69B4),
-                        fontWeight: FontWeight.bold,
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(20),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                
-                // Category selection
-                Text(
-                  'Kategori',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: selectedCategory,
-                      isExpanded: true,
-                      icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFFFF69B4)),
-                      style: GoogleFonts.poppins(color: const Color(0xFF333333)),
-                      onChanged: (String? newValue) {
-                        setState(() => selectedCategory = newValue!);
-                      },
-                      items: (selectedType == 'expense' ? expenseCategories : incomeCategories)
-                          .map<DropdownMenuItem<String>>((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                
-                // Wallet selection
-                Text(
-                  'Dompet',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: selectedWallet,
-                      isExpanded: true,
-                      icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFFFF69B4)),
-                      style: GoogleFonts.poppins(color: const Color(0xFF333333)),
-                      onChanged: (String? newValue) {
-                        setState(() => selectedWallet = newValue!);
-                      },
-                      items: _wallets.skip(1).map<DropdownMenuItem<String>>((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text('${_getWalletEmoji(value)} $value'),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                
-                // Description input
-                Text(
-                  'Keterangan',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: TextField(
-                    controller: descriptionController,
-                    style: GoogleFonts.poppins(),
-                    decoration: InputDecoration(
-                      hintText: 'Tambahkan keterangan...',
-                      hintStyle: GoogleFonts.poppins(color: Colors.grey),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(20),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 30),
-                
-                // Save button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (amountController.text.isNotEmpty && descriptionController.text.isNotEmpty) {
-                        final transaction = Transaction(
-                          type: selectedType,
-                          amount: double.parse(amountController.text),
-                          category: selectedCategory,
-                          description: descriptionController.text,
-                          date: DateTime.now(),
-                          wallet: selectedWallet,
-                        );
-                        
-                        await _dbHelper.insertTransaction(transaction);
-                        await _loadAllData();
+                  const SizedBox(height: 20),
 
-                        if (!context.mounted) return;
-                        Navigator.pop(context);
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Transaksi berhasil ditambahkan! 💕',
-                              style: GoogleFonts.poppins(),
-                            ),
-                            backgroundColor: const Color(0xFFFF69B4),
-                          ),
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF69B4),
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
-                      ),
+                  // Amount input
+                  Text(
+                    'Jumlah',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF333333),
                     ),
-                    child: Text(
-                      'Simpan Transaksi 💰',
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: TextField(
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [CurrencyInputFormatter()],
+                      style: GoogleFonts.poppins(),
+                      decoration: InputDecoration(
+                        hintText: 'Masukkan jumlah',
+                        hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                        prefixText: 'Rp ',
+                        prefixStyle: GoogleFonts.poppins(
+                          color: const Color(0xFFFF69B4),
+                          fontWeight: FontWeight.bold,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(20),
                       ),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 20),
+
+                  // Category selection
+                  Text(
+                    'Kategori',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF333333),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: selectedCategory,
+                        isExpanded: true,
+                        icon: const Icon(Icons.keyboard_arrow_down,
+                            color: Color(0xFFFF69B4)),
+                        style:
+                            GoogleFonts.poppins(color: const Color(0xFF333333)),
+                        onChanged: (String? newValue) {
+                          setState(() => selectedCategory = newValue!);
+                        },
+                        items: (selectedType == 'expense'
+                                ? expenseCategories
+                                : incomeCategories)
+                            .map<DropdownMenuItem<String>>((String value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Wallet selection
+                  Text(
+                    'Dompet',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF333333),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: selectedWallet,
+                        isExpanded: true,
+                        icon: const Icon(Icons.keyboard_arrow_down,
+                            color: Color(0xFFFF69B4)),
+                        style:
+                            GoogleFonts.poppins(color: const Color(0xFF333333)),
+                        onChanged: (String? newValue) {
+                          setState(() => selectedWallet = newValue!);
+                        },
+                        items: _wallets
+                            .skip(1)
+                            .map<DropdownMenuItem<String>>((String value) {
+                          return DropdownMenuItem<String>(
+                            value: value,
+                            child: Text('${_getWalletEmoji(value)} $value'),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Description input
+                  Text(
+                    'Keterangan',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF333333),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: TextField(
+                      controller: descriptionController,
+                      style: GoogleFonts.poppins(),
+                      decoration: InputDecoration(
+                        hintText: 'Tambahkan keterangan...',
+                        hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.all(20),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+
+                  // Save button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (amountController.text.isEmpty ||
+                            descriptionController.text.isEmpty) {
+                          _showSnackBarMessage(
+                            'Jumlah dan keterangan wajib diisi.',
+                            backgroundColor: Colors.red,
+                          );
+                          return;
+                        }
+
+                        try {
+                          final transaction = Transaction(
+                            type: selectedType,
+                            amount: parseCurrencyInput(amountController.text),
+                            category: selectedCategory,
+                            description: descriptionController.text,
+                            date: DateTime.now(),
+                            wallet: selectedWallet,
+                          );
+
+                          await _dbHelper.insertTransaction(transaction);
+                          await _loadAllData();
+
+                          if (!context.mounted) return;
+                          Navigator.pop(context);
+                          _showSnackBarMessage(
+                              'Transaksi berhasil ditambahkan! 💕');
+                        } on Exception catch (_) {
+                          _showSnackBarMessage(
+                            'Transaksi gagal disimpan. Coba lagi.',
+                            backgroundColor: Colors.red,
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF69B4),
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      child: Text(
+                        'Simpan Transaksi 💰',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -3403,9 +3584,18 @@ Widget _buildCustomTab(String emoji, String text) {
     final TextEditingController targetController = TextEditingController();
     String selectedEmoji = '💰';
     DateTime? selectedDate;
-    
+
     final List<String> emojiOptions = [
-      '💰', '🎯', '🏠', '🚗', '📱', '👗', '🎮', '📚', '✈️', '💍'
+      '💰',
+      '🎯',
+      '🏠',
+      '🚗',
+      '📱',
+      '👗',
+      '🎮',
+      '📚',
+      '✈️',
+      '💍'
     ];
 
     showModalBottomSheet(
@@ -3452,7 +3642,7 @@ Widget _buildCustomTab(String emoji, String text) {
                   ),
                 ),
                 const SizedBox(height: 25),
-                
+
                 // Name input
                 Text(
                   'Nama Target',
@@ -3480,7 +3670,7 @@ Widget _buildCustomTab(String emoji, String text) {
                   ),
                 ),
                 const SizedBox(height: 20),
-                
+
                 // Target amount
                 Text(
                   'Target Jumlah',
@@ -3499,6 +3689,7 @@ Widget _buildCustomTab(String emoji, String text) {
                   child: TextField(
                     controller: targetController,
                     keyboardType: TextInputType.number,
+                    inputFormatters: [CurrencyInputFormatter()],
                     style: GoogleFonts.poppins(),
                     decoration: InputDecoration(
                       hintText: 'Masukkan target jumlah',
@@ -3514,7 +3705,7 @@ Widget _buildCustomTab(String emoji, String text) {
                   ),
                 ),
                 const SizedBox(height: 20),
-                
+
                 // Emoji selection
                 Text(
                   'Pilih Emoji',
@@ -3538,25 +3729,26 @@ Widget _buildCustomTab(String emoji, String text) {
                           margin: const EdgeInsets.only(right: 10),
                           padding: const EdgeInsets.all(15),
                           decoration: BoxDecoration(
-                            color: selectedEmoji == emoji 
+                            color: selectedEmoji == emoji
                                 ? const Color(0xFFFF69B4).withValues(alpha: 0.2)
                                 : Colors.grey.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(15),
                             border: Border.all(
-                              color: selectedEmoji == emoji 
+                              color: selectedEmoji == emoji
                                   ? const Color(0xFFFF69B4)
                                   : Colors.transparent,
                               width: 2,
                             ),
                           ),
-                          child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                          child:
+                              Text(emoji, style: const TextStyle(fontSize: 24)),
                         ),
                       );
                     },
                   ),
                 ),
                 const SizedBox(height: 20),
-                
+
                 // Target date (optional)
                 Text(
                   'Target Tanggal (Opsional)',
@@ -3573,7 +3765,8 @@ Widget _buildCustomTab(String emoji, String text) {
                       context: context,
                       initialDate: DateTime.now().add(const Duration(days: 30)),
                       firstDate: DateTime.now(),
-                      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+                      lastDate:
+                          DateTime.now().add(const Duration(days: 365 * 5)),
                     );
                     if (date != null) {
                       setState(() => selectedDate = date);
@@ -3587,14 +3780,15 @@ Widget _buildCustomTab(String emoji, String text) {
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.calendar_today, color: Color(0xFFFF69B4)),
+                        const Icon(Icons.calendar_today,
+                            color: Color(0xFFFF69B4)),
                         const SizedBox(width: 15),
                         Text(
-                          selectedDate != null 
+                          selectedDate != null
                               ? DateFormat('dd MMM yyyy').format(selectedDate!)
                               : 'Pilih tanggal target',
                           style: GoogleFonts.poppins(
-                            color: selectedDate != null 
+                            color: selectedDate != null
                                 ? const Color(0xFF333333)
                                 : Colors.grey,
                           ),
@@ -3604,38 +3798,43 @@ Widget _buildCustomTab(String emoji, String text) {
                   ),
                 ),
                 const Spacer(),
-                
+
                 // Save button
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
                     onPressed: () async {
-                      if (nameController.text.isNotEmpty && targetController.text.isNotEmpty) {
+                      if (nameController.text.isEmpty ||
+                          targetController.text.isEmpty) {
+                        _showSnackBarMessage(
+                          'Nama target dan jumlah wajib diisi.',
+                          backgroundColor: Colors.red,
+                        );
+                        return;
+                      }
+
+                      try {
                         final goal = SavingGoal(
                           name: nameController.text,
-                          targetAmount: double.parse(targetController.text),
+                          targetAmount:
+                              parseCurrencyInput(targetController.text),
                           emoji: selectedEmoji,
                           createdDate: DateTime.now(),
                           targetDate: selectedDate,
                         );
-                        
+
                         await _dbHelper.insertSavingGoal(goal);
                         await _loadAllData();
-                        
-                        // Check if the widget is still mounted before using context
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Target tabungan berhasil dibuat! 🎯',
-                                style: GoogleFonts.poppins(),
-                              ),
-                              backgroundColor: const Color(0xFFFF69B4),
-                            ),
-                          );
-                        }
+
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                        _showSnackBarMessage(
+                            'Target tabungan berhasil dibuat! 🎯');
+                      } on Exception catch (_) {
+                        _showSnackBarMessage(
+                          'Target tabungan gagal disimpan. Coba lagi.',
+                          backgroundColor: Colors.red,
+                        );
                       }
                     },
                     style: ElevatedButton.styleFrom(
@@ -3664,386 +3863,39 @@ Widget _buildCustomTab(String emoji, String text) {
   }
 
   // Perbaikan untuk method _showAddWishlistDialog()
-void _showAddWishlistDialog() {
-  final TextEditingController nameController = TextEditingController();
-  final TextEditingController priceController = TextEditingController();
-  String selectedEmoji = '🛍️';
-  String selectedPriority = 'medium';
-  
-  final List<String> emojiOptions = [
-    '🛍️', '👗', '👠', '💄', '📱', '💻', '🎮', '📚', '🏠', '🚗'
-  ];
-  
-  final List<Map<String, dynamic>> priorities = [
-    {'value': 'high', 'label': 'Prioritas Tinggi', 'color': Colors.red},
-    {'value': 'medium', 'label': 'Prioritas Sedang', 'color': Colors.orange},
-    {'value': 'low', 'label': 'Prioritas Rendah', 'color': Colors.green},
-  ];
+  void _showAddWishlistDialog() {
+    final TextEditingController nameController = TextEditingController();
+    final TextEditingController priceController = TextEditingController();
+    String selectedEmoji = '🛍️';
+    String selectedPriority = 'medium';
 
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setState) => Container(
-        height: MediaQuery.of(context).size.height * 0.85, // Tinggi diperbesar jadi 85%
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(25),
-            topRight: Radius.circular(25),
-          ),
-        ),
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 20,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 50,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Tambah ke Wishlist 🛍️',
-                style: GoogleFonts.poppins(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFFFF69B4),
-                ),
-              ),
-              const SizedBox(height: 25),
-              
-              // BAGIAN FORM DALAM SCROLLABLE
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Name input
-                      Text(
-                        'Nama Barang',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF333333),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: TextField(
-                          controller: nameController,
-                          style: GoogleFonts.poppins(),
-                          decoration: InputDecoration(
-                            hintText: 'Contoh: Dress cantik, Sepatu heels',
-                            hintStyle: GoogleFonts.poppins(color: Colors.grey),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.all(20),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      
-                      // Price input
-                      Text(
-                        'Harga',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF333333),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: TextField(
-                          controller: priceController,
-                          keyboardType: TextInputType.number,
-                          style: GoogleFonts.poppins(),
-                          decoration: InputDecoration(
-                            hintText: 'Masukkan harga',
-                            hintStyle: GoogleFonts.poppins(color: Colors.grey),
-                            prefixText: 'Rp ',
-                            prefixStyle: GoogleFonts.poppins(
-                              color: const Color(0xFFFF69B4),
-                              fontWeight: FontWeight.bold,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.all(20),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      
-                      // Emoji selection
-                      Text(
-                        'Pilih Emoji',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF333333),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 60,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: emojiOptions.length,
-                          itemBuilder: (context, index) {
-                            final emoji = emojiOptions[index];
-                            return GestureDetector(
-                              onTap: () => setState(() => selectedEmoji = emoji),
-                              child: Container(
-                                margin: const EdgeInsets.only(right: 10),
-                                padding: const EdgeInsets.all(15),
-                                decoration: BoxDecoration(
-                                  color: selectedEmoji == emoji 
-                                      ? const Color(0xFFFF69B4).withValues(alpha: 0.2)
-                                      : Colors.grey.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(15),
-                                  border: Border.all(
-                                    color: selectedEmoji == emoji 
-                                        ? const Color(0xFFFF69B4)
-                                        : Colors.transparent,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: Text(emoji, style: const TextStyle(fontSize: 24)),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      
-                      // Priority selection
-                      Text(
-                        'Prioritas',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF333333),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Column(
-                        children: priorities.map((priority) {
-                          return GestureDetector(
-                            onTap: () => setState(() => selectedPriority = priority['value']),
-                            child: Container(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              padding: const EdgeInsets.all(15),
-                              decoration: BoxDecoration(
-                                color: selectedPriority == priority['value']
-                                    ? priority['color'].withValues(alpha: 0.1)
-                                    : Colors.grey.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(15),
-                                border: Border.all(
-                                  color: selectedPriority == priority['value']
-                                      ? priority['color']
-                                      : Colors.transparent,
-                                  width: 2,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 20,
-                                    height: 20,
-                                    decoration: BoxDecoration(
-                                      color: priority['color'],
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 15),
-                                  Text(
-                                    priority['label'],
-                                    style: GoogleFonts.poppins(
-                                      color: selectedPriority == priority['value']
-                                          ? priority['color']
-                                          : Colors.grey[700],
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                      const SizedBox(height: 30), // Extra space sebelum tombol
-                    ],
-                  ),
-                ),
-              ),
-              
-              // TOMBOL SELALU TERLIHAT DI BAWAH (TIDAK IKUT SCROLL)
-              Container(
-                padding: const EdgeInsets.only(top: 20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withValues(alpha: 0.2),
-                      blurRadius: 10,
-                      offset: const Offset(0, -5),
-                    ),
-                  ],
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      // Validasi input
-                      if (nameController.text.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Nama barang tidak boleh kosong!',
-                              style: GoogleFonts.poppins(),
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        return;
-                      }
-                      
-                      if (priceController.text.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Harga tidak boleh kosong!',
-                              style: GoogleFonts.poppins(),
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        return;
-                      }
+    final List<String> emojiOptions = [
+      '🛍️',
+      '👗',
+      '👠',
+      '💄',
+      '📱',
+      '💻',
+      '🎮',
+      '📚',
+      '🏠',
+      '🚗'
+    ];
 
-                      try {
-                        final item = WishlistItem(
-                          name: nameController.text.trim(),
-                          price: double.parse(priceController.text),
-                          emoji: selectedEmoji,
-                          priority: selectedPriority,
-                          createdDate: DateTime.now(),
-                        );
-                        
-                        // Simpan ke database
-                        await _dbHelper.insertWishlistItem(item);
-                        
-                        // Refresh data
-                        await _loadAllData();
-                        
-                        // Tutup dialog jika context masih valid
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          
-                          // Tampilkan notifikasi sukses
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Row(
-                                children: [
-                                  Text(
-                                    '✅ ${item.emoji} ${item.name} berhasil ditambahkan!',
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              backgroundColor: const Color(0xFFFF69B4),
-                              duration: const Duration(seconds: 3),
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(15),
-                              ),
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        // Handle error parsing harga
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Format harga tidak valid! Masukkan angka saja.',
-                              style: GoogleFonts.poppins(),
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF69B4),
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      elevation: 8,
-                      shadowColor: const Color(0xFFFF69B4).withValues(alpha: 0.4),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('🛍️', style: TextStyle(fontSize: 20)),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Tambah ke Wishlist',
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-}
+    final List<Map<String, dynamic>> priorities = [
+      {'value': 'high', 'label': 'Prioritas Tinggi', 'color': Colors.red},
+      {'value': 'medium', 'label': 'Prioritas Sedang', 'color': Colors.orange},
+      {'value': 'low', 'label': 'Prioritas Rendah', 'color': Colors.green},
+    ];
 
-  void _showAddMoneyToGoalDialog(SavingGoal goal) {
-  final TextEditingController amountController = TextEditingController();
-
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (context) => DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.8,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (_, scrollController) {
-        return Container(
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => Container(
+          height: MediaQuery.of(context).size.height *
+              0.85, // Tinggi diperbesar jadi 85%
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.only(
@@ -4051,216 +3903,578 @@ void _showAddWishlistDialog() {
               topRight: Radius.circular(25),
             ),
           ),
-          child: SafeArea(
-            child: SingleChildScrollView(
-              controller: scrollController,
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: MediaQuery.of(context).size.height * 0.4,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 50,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Handle bar
-                      Center(
-                        child: Container(
-                          width: 50,
-                          height: 5,
+                const SizedBox(height: 20),
+                Text(
+                  'Tambah ke Wishlist 🛍️',
+                  style: GoogleFonts.poppins(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFFFF69B4),
+                  ),
+                ),
+                const SizedBox(height: 25),
+
+                // BAGIAN FORM DALAM SCROLLABLE
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Name input
+                        Text(
+                          'Nama Barang',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
                           decoration: BoxDecoration(
-                            color: Colors.grey[300],
-                            borderRadius: BorderRadius.circular(10),
+                            color: Colors.grey.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(15),
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Goal info
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(15),
-                              ),
-                              child: Text(goal.emoji, style: const TextStyle(fontSize: 24)),
+                          child: TextField(
+                            controller: nameController,
+                            style: GoogleFonts.poppins(),
+                            decoration: InputDecoration(
+                              hintText: 'Contoh: Dress cantik, Sepatu heels',
+                              hintStyle:
+                                  GoogleFonts.poppins(color: Colors.grey),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.all(20),
                             ),
-                            const SizedBox(width: 15),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    goal.name,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Price input
+                        Text(
+                          'Harga',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: TextField(
+                            controller: priceController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [CurrencyInputFormatter()],
+                            style: GoogleFonts.poppins(),
+                            decoration: InputDecoration(
+                              hintText: 'Masukkan harga',
+                              hintStyle:
+                                  GoogleFonts.poppins(color: Colors.grey),
+                              prefixText: 'Rp ',
+                              prefixStyle: GoogleFonts.poppins(
+                                color: const Color(0xFFFF69B4),
+                                fontWeight: FontWeight.bold,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.all(20),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Emoji selection
+                        Text(
+                          'Pilih Emoji',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 60,
+                          child: ListView.builder(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: emojiOptions.length,
+                            itemBuilder: (context, index) {
+                              final emoji = emojiOptions[index];
+                              return GestureDetector(
+                                onTap: () =>
+                                    setState(() => selectedEmoji = emoji),
+                                child: Container(
+                                  margin: const EdgeInsets.only(right: 10),
+                                  padding: const EdgeInsets.all(15),
+                                  decoration: BoxDecoration(
+                                    color: selectedEmoji == emoji
+                                        ? const Color(0xFFFF69B4)
+                                            .withValues(alpha: 0.2)
+                                        : Colors.grey.withValues(alpha: 0.1),
+                                    borderRadius: BorderRadius.circular(15),
+                                    border: Border.all(
+                                      color: selectedEmoji == emoji
+                                          ? const Color(0xFFFF69B4)
+                                          : Colors.transparent,
+                                      width: 2,
                                     ),
                                   ),
-                                  Text(
-                                    'Rp ${NumberFormat('#,###').format(goal.currentAmount)} / Rp ${NumberFormat('#,###').format(goal.targetAmount)}',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 12,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 25),
-
-                      Text(
-                        'Tambah Uang ke Target 💰',
-                        style: GoogleFonts.poppins(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFFFF69B4),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      Text(
-                        'Jumlah Uang',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF333333),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: TextField(
-                          controller: amountController,
-                          keyboardType: TextInputType.number,
-                          style: GoogleFonts.poppins(),
-                          decoration: InputDecoration(
-                            hintText: 'Masukkan jumlah',
-                            hintStyle: GoogleFonts.poppins(color: Colors.grey),
-                            prefixText: 'Rp ',
-                            prefixStyle: GoogleFonts.poppins(
-                              color: const Color(0xFFFF69B4),
-                              fontWeight: FontWeight.bold,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.all(20),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      Text(
-                        'Jumlah Cepat',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF333333),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      Row(
-                        children: [
-                          _buildQuickAmountButton('50K', 50000, amountController),
-                          const SizedBox(width: 10),
-                          _buildQuickAmountButton('100K', 100000, amountController),
-                          const SizedBox(width: 10),
-                          _buildQuickAmountButton('500K', 500000, amountController),
-                        ],
-                      ),
-                      const SizedBox(height: 30),
-
-                      // Save button
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            if (amountController.text.isNotEmpty) {
-                              final amount = double.parse(amountController.text);
-                              final updatedGoal = SavingGoal(
-                                id: goal.id,
-                                name: goal.name,
-                                targetAmount: goal.targetAmount,
-                                currentAmount: goal.currentAmount + amount,
-                                emoji: goal.emoji,
-                                createdDate: goal.createdDate,
-                                targetDate: goal.targetDate,
-                              );
-
-                              await _dbHelper.updateSavingGoal(updatedGoal);
-                              await _loadAllData();
-
-                              if (!context.mounted) return;
-
-                              Navigator.pop(context);
-
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Berhasil menambah Rp ${NumberFormat('#,###').format(amount)} ke ${goal.name}! 💰',
-                                    style: GoogleFonts.poppins(),
-                                  ),
-                                  backgroundColor: const Color(0xFFFF69B4),
+                                  child: Text(emoji,
+                                      style: const TextStyle(fontSize: 24)),
                                 ),
                               );
-                            }
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFFF69B4),
-                            padding: const EdgeInsets.symmetric(vertical: 18),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
+                            },
                           ),
-                          child: Text(
-                            'Tambah Uang 💰',
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Priority selection
+                        Text(
+                          'Prioritas',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Column(
+                          children: priorities.map((priority) {
+                            return GestureDetector(
+                              onTap: () => setState(
+                                  () => selectedPriority = priority['value']),
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                padding: const EdgeInsets.all(15),
+                                decoration: BoxDecoration(
+                                  color: selectedPriority == priority['value']
+                                      ? priority['color'].withValues(alpha: 0.1)
+                                      : Colors.grey.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(15),
+                                  border: Border.all(
+                                    color: selectedPriority == priority['value']
+                                        ? priority['color']
+                                        : Colors.transparent,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: priority['color'],
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 15),
+                                    Text(
+                                      priority['label'],
+                                      style: GoogleFonts.poppins(
+                                        color: selectedPriority ==
+                                                priority['value']
+                                            ? priority['color']
+                                            : Colors.grey[700],
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(
+                            height: 30), // Extra space sebelum tombol
+                      ],
+                    ),
+                  ),
+                ),
+
+                // TOMBOL SELALU TERLIHAT DI BAWAH (TIDAK IKUT SCROLL)
+                Container(
+                  padding: const EdgeInsets.only(top: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withValues(alpha: 0.2),
+                        blurRadius: 10,
+                        offset: const Offset(0, -5),
+                      ),
+                    ],
+                  ),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        // Validasi input
+                        if (nameController.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Nama barang tidak boleh kosong!',
+                                style: GoogleFonts.poppins(),
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (priceController.text.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Harga tidak boleh kosong!',
+                                style: GoogleFonts.poppins(),
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        try {
+                          final item = WishlistItem(
+                            name: nameController.text.trim(),
+                            price: parseCurrencyInput(priceController.text),
+                            emoji: selectedEmoji,
+                            priority: selectedPriority,
+                            createdDate: DateTime.now(),
+                          );
+
+                          // Simpan ke database
+                          await _dbHelper.insertWishlistItem(item);
+
+                          // Refresh data
+                          await _loadAllData();
+
+                          // Tutup dialog jika context masih valid
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                          }
+
+                          _showSnackBarMessage(
+                            '✅ ${item.emoji} ${item.name} berhasil ditambahkan!',
+                          );
+                        } on FormatException {
+                          _showSnackBarMessage(
+                            'Format harga tidak valid! Masukkan angka saja.',
+                            backgroundColor: Colors.red,
+                          );
+                        } on Exception catch (_) {
+                          _showSnackBarMessage(
+                            'Wishlist gagal disimpan. Coba lagi.',
+                            backgroundColor: Colors.red,
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF69B4),
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        elevation: 8,
+                        shadowColor:
+                            const Color(0xFFFF69B4).withValues(alpha: 0.4),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('🛍️', style: TextStyle(fontSize: 20)),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Tambah ke Wishlist',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAddMoneyToGoalDialog(SavingGoal goal) {
+    final TextEditingController amountController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(25),
+                topRight: Radius.circular(25),
+              ),
+            ),
+            child: SafeArea(
+              child: SingleChildScrollView(
+                controller: scrollController,
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: MediaQuery.of(context).size.height * 0.4,
+                  ),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Handle bar
+                        Center(
+                          child: Container(
+                            width: 50,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        // Goal info
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                                child: Text(goal.emoji,
+                                    style: const TextStyle(fontSize: 24)),
+                              ),
+                              const SizedBox(width: 15),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      goal.name,
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Rp ${NumberFormat('#,###').format(goal.currentAmount)} / Rp ${NumberFormat('#,###').format(goal.targetAmount)}',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 25),
+
+                        Text(
+                          'Tambah Uang ke Target 💰',
+                          style: GoogleFonts.poppins(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: const Color(0xFFFF69B4),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        Text(
+                          'Jumlah Uang',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: TextField(
+                            controller: amountController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [CurrencyInputFormatter()],
+                            style: GoogleFonts.poppins(),
+                            decoration: InputDecoration(
+                              hintText: 'Masukkan jumlah',
+                              hintStyle:
+                                  GoogleFonts.poppins(color: Colors.grey),
+                              prefixText: 'Rp ',
+                              prefixStyle: GoogleFonts.poppins(
+                                color: const Color(0xFFFF69B4),
+                                fontWeight: FontWeight.bold,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.all(20),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        Text(
+                          'Jumlah Cepat',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF333333),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+
+                        Row(
+                          children: [
+                            _buildQuickAmountButton(
+                                '50K', 50000, amountController),
+                            const SizedBox(width: 10),
+                            _buildQuickAmountButton(
+                                '100K', 100000, amountController),
+                            const SizedBox(width: 10),
+                            _buildQuickAmountButton(
+                                '500K', 500000, amountController),
+                          ],
+                        ),
+                        const SizedBox(height: 30),
+
+                        // Save button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              if (amountController.text.isEmpty) {
+                                _showSnackBarMessage(
+                                  'Jumlah top up wajib diisi.',
+                                  backgroundColor: Colors.red,
+                                );
+                                return;
+                              }
+
+                              try {
+                                final amount =
+                                    parseCurrencyInput(amountController.text);
+                                final updatedGoal = SavingGoal(
+                                  id: goal.id,
+                                  name: goal.name,
+                                  targetAmount: goal.targetAmount,
+                                  currentAmount: goal.currentAmount + amount,
+                                  emoji: goal.emoji,
+                                  createdDate: goal.createdDate,
+                                  targetDate: goal.targetDate,
+                                );
+
+                                await _dbHelper.updateSavingGoal(updatedGoal);
+                                await _loadAllData();
+
+                                if (!context.mounted) return;
+
+                                Navigator.pop(context);
+                                _showSnackBarMessage(
+                                  'Berhasil menambah Rp ${NumberFormat('#,###').format(amount)} ke ${goal.name}! 💰',
+                                );
+                              } on Exception catch (_) {
+                                _showSnackBarMessage(
+                                  'Top up goal gagal disimpan. Coba lagi.',
+                                  backgroundColor: Colors.red,
+                                );
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF69B4),
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                            ),
+                            child: Text(
+                              'Tambah Uang 💰',
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        );
-      },
-    ),
-  );
-}
+          );
+        },
+      ),
+    );
+  }
 
-  Widget _buildQuickAmountButton(String label, double amount, TextEditingController controller) {
+  Widget _buildQuickAmountButton(
+      String label, double amount, TextEditingController controller) {
     return Expanded(
       child: GestureDetector(
-        onTap: () => controller.text = amount.toInt().toString(),
+        onTap: () =>
+            controller.text = CurrencyInputFormatter.format(amount.toInt()),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
@@ -4287,252 +4501,242 @@ void _showAddWishlistDialog() {
 
   // Delete methods
   void _deleteTransaction(int id) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text(
-        'Hapus Transaksi? 🗑️',
-        style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-      ),
-      content: Text(
-        'Kamu yakin mau hapus transaksi ini?',
-        style: GoogleFonts.poppins(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            'Batal',
-            style: GoogleFonts.poppins(color: Colors.grey),
-          ),
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Hapus Transaksi? 🗑️',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
-        TextButton(
-          onPressed: () async {
-            await _dbHelper.deleteTransaction(id);
-            await _loadAllData();
+        content: Text(
+          'Kamu yakin mau hapus transaksi ini?',
+          style: GoogleFonts.poppins(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: Colors.grey),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await _dbHelper.deleteTransaction(id);
+                await _loadAllData();
 
-            if (!context.mounted) return;
+                if (!context.mounted) return;
 
-            Navigator.pop(context);
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
+                Navigator.pop(context);
+                _showSnackBarMessage(
                   'Transaksi berhasil dihapus! 🗑️',
-                  style: GoogleFonts.poppins(),
-                ),
-                backgroundColor: Colors.red,
+                  backgroundColor: Colors.red,
+                );
+              } on Exception catch (_) {
+                _showSnackBarMessage(
+                  'Transaksi gagal dihapus. Coba lagi.',
+                  backgroundColor: Colors.red,
+                );
+              }
+            },
+            child: Text(
+              'Hapus',
+              style: GoogleFonts.poppins(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
               ),
-            );
-          },
-          child: Text(
-            'Hapus',
-            style: GoogleFonts.poppins(
-              color: Colors.red,
-              fontWeight: FontWeight.bold,
             ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-
-  void _deleteGoal(int id) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text(
-        'Hapus Target? 🎯',
-        style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-      ),
-      content: Text(
-        'Kamu yakin mau hapus target tabungan ini?',
-        style: GoogleFonts.poppins(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            'Batal',
-            style: GoogleFonts.poppins(color: Colors.grey),
-          ),
-        ),
-        TextButton(
-          onPressed: () async {
-            await _dbHelper.deleteSavingGoal(id);
-            await _loadAllData();
-
-            if (!context.mounted) return;
-
-            Navigator.pop(context);
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Target berhasil dihapus! 🗑️',
-                  style: GoogleFonts.poppins(),
-                ),
-                backgroundColor: Colors.red,
-              ),
-            );
-          },
-          child: Text(
-            'Hapus',
-            style: GoogleFonts.poppins(
-              color: Colors.red,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-
-  void _deleteWishlistItem(int id) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text(
-        'Hapus dari Wishlist? 🛍️',
-        style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-      ),
-      content: Text(
-        'Kamu yakin mau hapus item ini dari wishlist?',
-        style: GoogleFonts.poppins(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            'Batal',
-            style: GoogleFonts.poppins(color: Colors.grey),
-          ),
-        ),
-        TextButton(
-          onPressed: () async {
-            await _dbHelper.deleteWishlistItem(id);
-            await _loadAllData();
-
-            if (!context.mounted) return;
-
-            Navigator.pop(context);
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Item berhasil dihapus dari wishlist! 🗑️',
-                  style: GoogleFonts.poppins(),
-                ),
-                backgroundColor: Colors.red,
-              ),
-            );
-          },
-          child: Text(
-            'Hapus',
-            style: GoogleFonts.poppins(
-              color: Colors.red,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-
-  void _buyWishlistItem(WishlistItem item) {
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text(
-        'Beli Item? 🛒',
-        style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            'Kamu mau beli ${item.name}?',
-            style: GoogleFonts.poppins(),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Harga: Rp ${NumberFormat('#,###').format(item.price)}',
-            style: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFFFF69B4),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Item akan dihapus dari wishlist dan ditambahkan sebagai transaksi pengeluaran.',
-            style: GoogleFonts.poppins(
-              fontSize: 12,
-              color: Colors.grey,
-            ),
-            textAlign: TextAlign.center,
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(
-            'Batal',
-            style: GoogleFonts.poppins(color: Colors.grey),
-          ),
+    );
+  }
+
+  void _deleteGoal(int id) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Hapus Target? 🎯',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
-        TextButton(
-          onPressed: () async {
-            final transaction = Transaction(
-              type: 'expense',
-              amount: item.price,
-              category: 'Belanja',
-              description: item.name,
-              date: DateTime.now(),
-              wallet: 'Cash',
-            );
-
-            await _dbHelper.insertTransaction(transaction);
-            await _dbHelper.deleteWishlistItem(item.id!);
-            await _loadAllData();
-
-            if (!context.mounted) return;
-
-            Navigator.pop(context);
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Yeay! ${item.name} berhasil dibeli! 🛒✨',
-                  style: GoogleFonts.poppins(),
-                ),
-                backgroundColor: Colors.green,
-              ),
-            );
-          },
-          child: Text(
-            'Beli Sekarang',
-            style: GoogleFonts.poppins(
-              color: Colors.green,
-              fontWeight: FontWeight.bold,
+        content: Text(
+          'Kamu yakin mau hapus target tabungan ini?',
+          style: GoogleFonts.poppins(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: Colors.grey),
             ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+          TextButton(
+            onPressed: () async {
+              try {
+                await _dbHelper.deleteSavingGoal(id);
+                await _loadAllData();
 
+                if (!context.mounted) return;
+
+                Navigator.pop(context);
+                _showSnackBarMessage(
+                  'Target berhasil dihapus! 🗑️',
+                  backgroundColor: Colors.red,
+                );
+              } on Exception catch (_) {
+                _showSnackBarMessage(
+                  'Target gagal dihapus. Coba lagi.',
+                  backgroundColor: Colors.red,
+                );
+              }
+            },
+            child: Text(
+              'Hapus',
+              style: GoogleFonts.poppins(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _deleteWishlistItem(int id) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Hapus dari Wishlist? 🛍️',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Kamu yakin mau hapus item ini dari wishlist?',
+          style: GoogleFonts.poppins(),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: Colors.grey),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await _dbHelper.deleteWishlistItem(id);
+                await _loadAllData();
+
+                if (!context.mounted) return;
+
+                Navigator.pop(context);
+                _showSnackBarMessage(
+                  'Item berhasil dihapus dari wishlist! 🗑️',
+                  backgroundColor: Colors.red,
+                );
+              } on Exception catch (_) {
+                _showSnackBarMessage(
+                  'Item wishlist gagal dihapus. Coba lagi.',
+                  backgroundColor: Colors.red,
+                );
+              }
+            },
+            child: Text(
+              'Hapus',
+              style: GoogleFonts.poppins(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _buyWishlistItem(WishlistItem item) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Beli Item? 🛒',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Kamu mau beli ${item.name}?',
+              style: GoogleFonts.poppins(),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Harga: Rp ${NumberFormat('#,###').format(item.price)}',
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFFFF69B4),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Item akan dihapus dari wishlist dan ditambahkan sebagai transaksi pengeluaran.',
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: Colors.grey),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await _dbHelper.purchaseWishlistItem(item);
+                await _loadAllData();
+
+                if (!context.mounted) return;
+
+                Navigator.pop(context);
+                _showSnackBarMessage(
+                  'Yeay! ${item.name} berhasil dibeli! 🛒✨',
+                  backgroundColor: Colors.green,
+                );
+              } on Exception catch (_) {
+                _showSnackBarMessage(
+                  'Pembelian wishlist gagal diproses. Coba lagi.',
+                  backgroundColor: Colors.red,
+                );
+              }
+            },
+            child: Text(
+              'Beli Sekarang',
+              style: GoogleFonts.poppins(
+                color: Colors.green,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void dispose() {
