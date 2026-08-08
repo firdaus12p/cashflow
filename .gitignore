@@ -47,6 +47,7 @@ app.*.map.json
 # For Ai Agent
 .agents/
 project-context/
+.codebase-memory/
 skills-lock.json
 
 # Build artifacts
