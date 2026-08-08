@@ -43,3 +43,22 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# For Ai Agent
+.agents/
+project-context/
+skills-lock.json
+
+# Build artifacts
+build/
+.dart_tool/
+*.g.dart
+*.config.dart
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
