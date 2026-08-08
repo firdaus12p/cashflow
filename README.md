@@ -83,9 +83,3 @@ Kontribusi sangat terbuka! Jika kamu ingin membantu mengembangkan fitur atau mem
 ## 📄 Lisensi
 
 Project ini menggunakan lisensi [MIT](LICENSE).
-
----
-
-## 📝 Catatan
-
-Project ini awalnya merupakan fork dari [DhaniKWP/flutter-catatan-keuangan](https://github.com/DhaniKWP/flutter-catatan-keuangan) yang telah dimodifikasi dan dikembangkan lebih lanjut.
