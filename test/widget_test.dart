@@ -112,8 +112,8 @@ void main() {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const CuteMoneyTrackerApp());
 
-    // Verify that the app starts correctly
-    expect(find.text('Halo Cantik! 💕'), findsOneWidget);
+    // Verify that the app starts correctly without depending on emoji copy.
+    expect(find.byType(MainScreen), findsOneWidget);
   });
 
   testWidgets('home shows transaction history and second tab shows statistics',
@@ -121,7 +121,7 @@ void main() {
     await tester.pumpWidget(const CuteMoneyTrackerApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Riwayat Transaksi 📝'), findsOneWidget);
+    expect(find.text('Riwayat Transaksi'), findsOneWidget);
     expect(find.text('Statistik'), findsOneWidget);
     expect(find.text('Harian'), findsOneWidget);
     expect(find.text('Bulanan'), findsOneWidget);
@@ -132,20 +132,20 @@ void main() {
     await tester.tap(find.text('Statistik'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Statistik Keuangan 📊'), findsOneWidget);
+    expect(find.text('Statistik Keuangan'), findsOneWidget);
     expect(find.text('Mingguan'), findsOneWidget);
     expect(find.text('Bulanan'), findsWidgets);
     expect(find.text('Tahunan'), findsWidgets);
     expect(find.text('Rentang'), findsOneWidget);
-    expect(find.text('Kategori Pengeluaran 🛍️'), findsOneWidget);
-    expect(find.text('Grafik Pengeluaran Mingguan 📊'), findsOneWidget);
+    expect(find.text('Kategori Pengeluaran'), findsOneWidget);
+    expect(find.text('Grafik Pengeluaran Mingguan'), findsOneWidget);
 
     await tester.tap(find.text('Badge'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Badge & Pencapaian 🏆'), findsOneWidget);
-    expect(find.text('Badge Kamu 🎖️'), findsOneWidget);
-    expect(find.text('Statistik Keuangan 📊'), findsNothing);
+    expect(find.text('Badge & Pencapaian'), findsOneWidget);
+    expect(find.text('Badge Kamu'), findsOneWidget);
+    expect(find.text('Statistik Keuangan'), findsNothing);
   });
 
   testWidgets('range filter only opens picker from the range action button',
@@ -161,6 +161,6 @@ void main() {
 
     expect(find.text('Pilih Rentang Tanggal'), findsOneWidget);
     expect(find.text('Pilih rentang tanggal dulu'), findsOneWidget);
-    expect(find.text('Kategori Pengeluaran 🛍️'), findsNothing);
+    expect(find.text('Kategori Pengeluaran'), findsNothing);
   });
 }
