@@ -60,6 +60,38 @@ bool hasSavingBadgeForPeriod(List<UserBadge> badges, DateTime referenceDate) {
       badge.earnedDate.month == referenceDate.month);
 }
 
+String formatSelectedDateRangeLabel(DateTimeRange range) {
+  final startMonth = DateFormat('MMM').format(range.start);
+  final endMonth = DateFormat('MMM').format(range.end);
+
+  if (range.start.year == range.end.year &&
+      range.start.month == range.end.month) {
+    return '$startMonth ${range.start.day} - ${range.end.day}, ${range.end.year}';
+  }
+
+  if (range.start.year == range.end.year) {
+    return '$startMonth ${range.start.day} - $endMonth ${range.end.day}, ${range.end.year}';
+  }
+
+  return '$startMonth ${range.start.day}, ${range.start.year} - $endMonth ${range.end.day}, ${range.end.year}';
+}
+
+class ChartSeriesData {
+  const ChartSeriesData({
+    required this.title,
+    required this.subtitle,
+    required this.legend,
+    required this.labels,
+    required this.values,
+  });
+
+  final String title;
+  final String subtitle;
+  final String legend;
+  final List<String> labels;
+  final List<double> values;
+}
+
 void main() {
   runApp(const CuteMoneyTrackerApp());
 }
@@ -588,10 +620,138 @@ class _MainScreenState extends State<MainScreen>
   List<WishlistItem> _wishlistItems = [];
   List<UserBadge> _badges = [];
   List<Transaction> _allTransactions = [];
-  String _selectedFilter = 'daily';
+  String _selectedHomeFilter = 'daily';
+  String _selectedHomeWallet = 'All';
+  String _selectedFilter = 'weekly';
   String _selectedWallet = 'All';
+  DateTime _selectedPeriodDate = DateTime.now();
+  DateTimeRange? _selectedDateRange;
 
   final List<String> _wallets = ['All', 'Cash', 'E-Wallet', 'Bank', 'Tabungan'];
+
+  ({DateTime start, DateTime end}) _currentPeriodRange() {
+    switch (_selectedFilter) {
+      case 'weekly':
+        final weekdayOffset = _selectedPeriodDate.weekday - DateTime.monday;
+        final start = DateTime(
+          _selectedPeriodDate.year,
+          _selectedPeriodDate.month,
+          _selectedPeriodDate.day,
+        ).subtract(Duration(days: weekdayOffset));
+        final end = DateTime(
+          start.year,
+          start.month,
+          start.day + 6,
+          23,
+          59,
+          59,
+        );
+        return (start: start, end: end);
+      case 'monthly':
+        final start =
+            DateTime(_selectedPeriodDate.year, _selectedPeriodDate.month, 1);
+        final end = DateTime(
+          _selectedPeriodDate.year,
+          _selectedPeriodDate.month + 1,
+          0,
+          23,
+          59,
+          59,
+        );
+        return (start: start, end: end);
+      case 'yearly':
+        final start = DateTime(_selectedPeriodDate.year, 1, 1);
+        final end = DateTime(_selectedPeriodDate.year, 12, 31, 23, 59, 59);
+        return (start: start, end: end);
+      case 'range':
+        final range = _selectedDateRange;
+        if (range != null) {
+          final start = DateTime(
+            range.start.year,
+            range.start.month,
+            range.start.day,
+          );
+          final end = DateTime(
+            range.end.year,
+            range.end.month,
+            range.end.day,
+            23,
+            59,
+            59,
+          );
+          return (start: start, end: end);
+        }
+        final fallback = DateTime.now();
+        return (
+          start: DateTime(fallback.year, fallback.month, fallback.day),
+          end:
+              DateTime(fallback.year, fallback.month, fallback.day, 23, 59, 59),
+        );
+      default:
+        final fallback = DateTime.now();
+        return (
+          start: DateTime(fallback.year, fallback.month, fallback.day),
+          end:
+              DateTime(fallback.year, fallback.month, fallback.day, 23, 59, 59),
+        );
+    }
+  }
+
+  Future<void> _selectDateRange() async {
+    final initialRange = _selectedDateRange ??
+        DateTimeRange(
+          start: DateTime.now().subtract(const Duration(days: 6)),
+          end: DateTime.now(),
+        );
+
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+      initialDateRange: initialRange,
+    );
+
+    if (!mounted || range == null) return;
+
+    setState(() {
+      _selectedFilter = 'range';
+      _selectedDateRange = range;
+      _selectedPeriodDate = range.end;
+    });
+  }
+
+  Future<void> _shiftSelectedPeriod(int direction) async {
+    setState(() {
+      switch (_selectedFilter) {
+        case 'weekly':
+          _selectedPeriodDate =
+              _selectedPeriodDate.add(Duration(days: 7 * direction));
+          break;
+        case 'monthly':
+          _selectedPeriodDate = DateTime(
+            _selectedPeriodDate.year,
+            _selectedPeriodDate.month + direction,
+            1,
+          );
+          break;
+        case 'yearly':
+          _selectedPeriodDate =
+              DateTime(_selectedPeriodDate.year + direction, 1, 1);
+          break;
+        case 'range':
+          if (_selectedDateRange != null) {
+            final span = _selectedDateRange!.duration.inDays;
+            final start = _selectedDateRange!.start
+                .add(Duration(days: (span + 1) * direction));
+            final end = _selectedDateRange!.end
+                .add(Duration(days: (span + 1) * direction));
+            _selectedDateRange = DateTimeRange(start: start, end: end);
+            _selectedPeriodDate = end;
+          }
+          break;
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -667,7 +827,7 @@ class _MainScreenState extends State<MainScreen>
     DateTime start;
     DateTime end = DateTime(now.year, now.month, now.day, 23, 59, 59);
 
-    switch (_selectedFilter) {
+    switch (_selectedHomeFilter) {
       case 'daily':
         start = DateTime(now.year, now.month, now.day);
         break;
@@ -684,7 +844,7 @@ class _MainScreenState extends State<MainScreen>
     }
 
     final transactions = await _dbHelper.getFilteredTransactions(
-      wallet: _selectedWallet,
+      wallet: _selectedHomeWallet,
       startDate: start,
       endDate: end,
     );
@@ -802,10 +962,10 @@ class _MainScreenState extends State<MainScreen>
                   controller: _tabController,
                   children: [
                     _buildDashboard(),
-                    _buildTransactionsList(),
+                    _buildStatisticsPage(),
                     _buildSavingGoals(),
                     _buildWishlist(),
-                    _buildBadgesAndAnalytics(),
+                    _buildBadgesPage(),
                   ],
                 ),
               ),
@@ -958,7 +1118,7 @@ class _MainScreenState extends State<MainScreen>
           splashFactory: NoSplash.splashFactory,
           tabs: [
             _buildCustomTab('💰', 'Home'),
-            _buildCustomTab('📝', 'Transaksi'),
+            _buildCustomTab('📊', 'Statistik'),
             _buildCustomTab('🎯', 'Goal'),
             _buildCustomTab('🛍️', 'Wish'),
             _buildCustomTab('🏆', 'Badge'),
@@ -1013,19 +1173,7 @@ class _MainScreenState extends State<MainScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Filter buttons with proper spacing
-          SizedBox(
-            height: 50,
-            child: Row(
-              children: [
-                _buildFilterButton('daily', 'Harian', '📅'),
-                const SizedBox(width: 10),
-                _buildFilterButton('monthly', 'Bulanan', '📆'),
-                const SizedBox(width: 10),
-                _buildFilterButton('yearly', 'Tahunan', '🗓️'),
-              ],
-            ),
-          ),
+          _buildHomeFilterSection(),
           const SizedBox(height: 20),
 
           // Wallet filter
@@ -1059,32 +1207,152 @@ class _MainScreenState extends State<MainScreen>
             const SizedBox(height: 25),
           ],
 
-          // Category chart section
-          Text(
-            'Kategori Pengeluaran 🛍️',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFFFF69B4),
-            ),
-          ),
-          const SizedBox(height: 15),
-          SizedBox(
-            height: 280,
-            child: _buildCategoryChart(),
-          ),
+          _buildTransactionHistorySection(),
           const SizedBox(height: 30),
         ],
       ),
     );
   }
 
+  Widget _buildTransactionHistorySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Riwayat Transaksi 📝',
+          style: GoogleFonts.poppins(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: const Color(0xFFFF69B4),
+          ),
+        ),
+        const SizedBox(height: 15),
+        if (_transactions.isEmpty)
+          _buildEmptyTransactionState()
+        else
+          _buildTransactionItems(),
+      ],
+    );
+  }
+
+  Widget _buildStatisticsPage() {
+    final hasStatisticsRangeSelection =
+        _selectedFilter != 'range' || _selectedDateRange != null;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Statistik Keuangan 📊',
+            style: GoogleFonts.poppins(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFFFF69B4),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _buildStatisticsFilterSection(),
+          const SizedBox(height: 20),
+          if (hasStatisticsRangeSelection) ...[
+            _buildStatsOverview(),
+            const SizedBox(height: 25),
+            Text(
+              'Kategori Pengeluaran 🛍️',
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFFFF69B4),
+              ),
+            ),
+            const SizedBox(height: 15),
+            SizedBox(
+              height: 280,
+              child: _buildCategoryChart(),
+            ),
+            const SizedBox(height: 25),
+            Text(
+              'Grafik ${_statisticsPeriodLabel()} 📊',
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: const Color(0xFFFF69B4),
+              ),
+            ),
+            const SizedBox(height: 15),
+            SizedBox(
+              height: 250,
+              child: _buildMonthlyChart(),
+            ),
+          ] else
+            _buildStatisticsRangePlaceholder(),
+          const SizedBox(height: 30),
+        ],
+      ),
+    );
+  }
+
+  String _statisticsPeriodLabel() {
+    switch (_selectedFilter) {
+      case 'weekly':
+        return 'Pengeluaran Mingguan';
+      case 'monthly':
+        return 'Pengeluaran Bulanan';
+      case 'yearly':
+        return 'Pengeluaran Tahunan';
+      case 'range':
+        return 'Pengeluaran Rentang';
+      default:
+        return 'Pengeluaran';
+    }
+  }
+
+  Widget _buildStatisticsRangePlaceholder() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        children: [
+          const Icon(
+            Icons.date_range,
+            size: 40,
+            color: Color(0xFFFF69B4),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Pilih rentang tanggal dulu',
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: const Color(0xFF333333),
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Statistik rentang akan tampil setelah kamu memilih tanggal mulai dan tanggal akhir.',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              color: Colors.grey,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildWalletFilter(String wallet) {
-    bool isSelected = _selectedWallet == wallet;
+    bool isSelected = _selectedHomeWallet == wallet;
     return GestureDetector(
       onTap: () {
         setState(() {
-          _selectedWallet = wallet;
+          _selectedHomeWallet = wallet;
         });
         _loadTransactions();
       },
@@ -1136,7 +1404,7 @@ class _MainScreenState extends State<MainScreen>
     final thisMonthExpense = calculateMonthlyExpenseForInsight(
       _allTransactions,
       now,
-      selectedWallet: _selectedWallet,
+      selectedWallet: _selectedHomeWallet,
     );
 
     String insightText = '';
@@ -1202,6 +1470,18 @@ class _MainScreenState extends State<MainScreen>
         ],
       ),
     );
+  }
+
+  List<Transaction> _filteredStatisticsTransactions() {
+    final period = _currentPeriodRange();
+    return _allTransactions.where((t) {
+      final matchesWallet =
+          _selectedWallet == 'All' || t.wallet == _selectedWallet;
+      final matchesPeriod =
+          t.date.isAfter(period.start.subtract(const Duration(seconds: 1))) &&
+              t.date.isBefore(period.end.add(const Duration(seconds: 1)));
+      return matchesWallet && matchesPeriod;
+    }).toList();
   }
 
   Widget _buildActiveGoalsPreview() {
@@ -1313,13 +1593,13 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  Widget _buildFilterButton(String filter, String label, String emoji) {
-    bool isSelected = _selectedFilter == filter;
+  Widget _buildHomeFilterButton(String filter, String label, String emoji) {
+    bool isSelected = _selectedHomeFilter == filter;
     return Expanded(
       child: GestureDetector(
         onTap: () {
           setState(() {
-            _selectedFilter = filter;
+            _selectedHomeFilter = filter;
           });
           _loadTransactions();
         },
@@ -1338,7 +1618,7 @@ class _MainScreenState extends State<MainScreen>
           ),
           child: Center(
             child: Text(
-              '$emoji $label',
+              label,
               style: GoogleFonts.poppins(
                 color: isSelected ? Colors.white : const Color(0xFFFF69B4),
                 fontWeight: FontWeight.w600,
@@ -1349,6 +1629,181 @@ class _MainScreenState extends State<MainScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildStatisticsFilterButton(String filter, String label) {
+    bool isSelected = _selectedFilter == filter;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _selectedFilter = filter;
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.pink.withValues(alpha: 0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHomeFilterSection() {
+    return SizedBox(
+      height: 50,
+      child: Row(
+        children: [
+          _buildHomeFilterButton('daily', 'Harian', '📅'),
+          const SizedBox(width: 10),
+          _buildHomeFilterButton('monthly', 'Bulanan', '📆'),
+          const SizedBox(width: 10),
+          _buildHomeFilterButton('yearly', 'Tahunan', '🗓️'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatisticsFilterSection() {
+    final period = _currentPeriodRange();
+    final headerInfo = _periodHeaderInfo(period.start, period.end);
+
+    return Column(
+      children: [
+        Container(
+          height: 50,
+          child: Row(
+            children: [
+              _buildStatisticsFilterButton('weekly', 'Mingguan'),
+              const SizedBox(width: 10),
+              _buildStatisticsFilterButton('monthly', 'Bulanan'),
+              const SizedBox(width: 10),
+              _buildStatisticsFilterButton('yearly', 'Tahunan'),
+              const SizedBox(width: 10),
+              _buildStatisticsFilterButton('range', 'Rentang'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        if (_selectedFilter == 'range')
+          GestureDetector(
+            onTap: _selectDateRange,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.calendar_today, color: Color(0xFF4A6C8E)),
+                  const SizedBox(width: 12),
+                  Text(
+                    _selectedDateRange != null
+                        ? formatSelectedDateRangeLabel(_selectedDateRange!)
+                        : 'Pilih Rentang Tanggal',
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF2F4057),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          Row(
+            children: [
+              IconButton(
+                onPressed: () => _shiftSelectedPeriod(-1),
+                icon: const Icon(Icons.chevron_left, size: 36),
+                color: const Color(0xFF4A4A4A),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    Text(
+                      headerInfo.title,
+                      style: GoogleFonts.poppins(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1F2430),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (headerInfo.subtitle != null)
+                      Text(
+                        headerInfo.subtitle!,
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          color: Colors.grey,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => _shiftSelectedPeriod(1),
+                icon: const Icon(Icons.chevron_right, size: 36),
+                color: const Color(0xFF4A4A4A),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  ({String title, String? subtitle}) _periodHeaderInfo(
+    DateTime start,
+    DateTime end,
+  ) {
+    switch (_selectedFilter) {
+      case 'weekly':
+        return (
+          title:
+              '${DateFormat('MMM d').format(start)} - ${DateFormat('d').format(end)}',
+          subtitle: null,
+        );
+      case 'monthly':
+        return (
+          title: DateFormat('MMMM yyyy').format(start),
+          subtitle:
+              '(${DateFormat('d MMM').format(start)} - ${DateFormat('d MMM').format(end)})',
+        );
+      case 'yearly':
+        return (title: DateFormat('yyyy').format(start), subtitle: null);
+      case 'range':
+        return (
+          title:
+              '${DateFormat('d MMM yyyy').format(start)} - ${DateFormat('d MMM yyyy').format(end)}',
+          subtitle: null,
+        );
+      default:
+        return (title: DateFormat('d MMM yyyy').format(start), subtitle: null);
+    }
   }
 
   Widget _buildBalanceCard(double balance, double income, double expense) {
@@ -1491,7 +1946,8 @@ class _MainScreenState extends State<MainScreen>
   Widget _buildCategoryChart() {
     Map<String, double> categoryData = {};
 
-    for (var transaction in _transactions.where((t) => t.type == 'expense')) {
+    for (var transaction in _filteredStatisticsTransactions()
+        .where((t) => t.type == 'expense')) {
       categoryData[transaction.category] =
           (categoryData[transaction.category] ?? 0) + transaction.amount;
     }
@@ -1621,95 +2077,6 @@ class _MainScreenState extends State<MainScreen>
             }).toList(),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTransactionsList() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Filter section
-          Row(
-            children: [
-              Expanded(
-                child: _buildTransactionFilter(),
-              ),
-              const SizedBox(width: 10),
-              _buildAddTransactionButton(),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Transactions list
-          if (_transactions.isEmpty)
-            _buildEmptyTransactionState()
-          else
-            _buildTransactionItems(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTransactionFilter() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.1),
-            blurRadius: 5,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedWallet,
-          icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFFFF69B4)),
-          style: GoogleFonts.poppins(color: const Color(0xFFFF69B4)),
-          onChanged: (String? newValue) {
-            setState(() {
-              _selectedWallet = newValue!;
-            });
-            _loadTransactions();
-          },
-          items: _wallets.map<DropdownMenuItem<String>>((String value) {
-            return DropdownMenuItem<String>(
-              value: value,
-              child: Text('${_getWalletEmoji(value)} $value'),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAddTransactionButton() {
-    return GestureDetector(
-      onTap: () => _showAddTransactionDialog(),
-      child: Container(
-        padding: const EdgeInsets.all(15),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFF69B4),
-          borderRadius: BorderRadius.circular(15),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.pink.withValues(alpha: 0.3),
-              blurRadius: 5,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: const Icon(
-          Icons.add,
-          color: Colors.white,
-          size: 24,
-        ),
       ),
     );
   }
@@ -2222,7 +2589,7 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  Widget _buildBadgesAndAnalytics() {
+  Widget _buildBadgesPage() {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Column(
@@ -2237,12 +2604,6 @@ class _MainScreenState extends State<MainScreen>
             ),
           ),
           const SizedBox(height: 20),
-
-          // Stats overview
-          _buildStatsOverview(),
-          const SizedBox(height: 25),
-
-          // Badges section
           Text(
             'Badge Kamu 🎖️',
             style: GoogleFonts.poppins(
@@ -2252,35 +2613,15 @@ class _MainScreenState extends State<MainScreen>
             ),
           ),
           const SizedBox(height: 15),
-
           if (_badges.isEmpty) _buildEmptyBadgesState() else _buildBadgesList(),
-
-          const SizedBox(height: 25),
-
-          // Monthly spending chart
-          Text(
-            'Grafik Pengeluaran Bulanan 📊',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xFFFF69B4),
-            ),
-          ),
-          const SizedBox(height: 15),
-
-          // ✅ Ganti Container ke SizedBox
-          SizedBox(
-            height: 250,
-            child: _buildMonthlyChart(),
-          ),
+          const SizedBox(height: 30),
         ],
       ),
     );
   }
 
   Widget _buildStatsOverview() {
-    // Calculate overall statistics
-    final allTransactions = _transactions;
+    final allTransactions = _filteredStatisticsTransactions();
     final totalIncome = allTransactions
         .where((t) => t.type == 'income')
         .fold(0.0, (sum, t) => sum + t.amount);
@@ -2307,7 +2648,7 @@ class _MainScreenState extends State<MainScreen>
       child: Column(
         children: [
           Text(
-            'Statistik Kamu ✨',
+            'Statistik ${_selectedFilter == 'weekly' ? 'Mingguan' : _selectedFilter == 'monthly' ? 'Bulanan' : _selectedFilter == 'yearly' ? 'Tahunan' : 'Rentang'} ✨',
             style: GoogleFonts.poppins(
               fontSize: 18,
               fontWeight: FontWeight.bold,
@@ -2320,7 +2661,7 @@ class _MainScreenState extends State<MainScreen>
               Expanded(
                 child: _buildStatItem(
                   '💰',
-                  'Total Pemasukan',
+                  'Pemasukan',
                   'Rp ${NumberFormat('#,###').format(totalIncome)}',
                 ),
               ),
@@ -2328,7 +2669,7 @@ class _MainScreenState extends State<MainScreen>
               Expanded(
                 child: _buildStatItem(
                   '💸',
-                  'Total Pengeluaran',
+                  'Pengeluaran',
                   'Rp ${NumberFormat('#,###').format(totalExpense)}',
                 ),
               ),
@@ -2504,46 +2845,16 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Widget _buildMonthlyChart() {
-    // Get data for the last 6 months
-    final now = DateTime.now();
-    List<FlSpot> spots = [];
-    List<String> months = [];
-    double maxExpense = 0;
+    final chartData = _buildExpenseChartSeries();
+    final spots = List.generate(
+      chartData.values.length,
+      (index) => FlSpot(index.toDouble(), chartData.values[index]),
+    );
+    final labels = chartData.labels;
+    final maxExpense = chartData.values.isEmpty
+        ? 0.0
+        : chartData.values.reduce((a, b) => a > b ? a : b);
 
-    for (int i = 5; i >= 0; i--) {
-      final month = DateTime(now.year, now.month - i, 1);
-      final nextMonth = DateTime(now.year, now.month - i + 1, 1);
-
-      // ✅ FIX: Get all transactions from database instead of using filtered _transactions
-      // Use FutureBuilder or make this async, but for now we'll use a sync approach
-      // by getting all transactions that are already loaded
-
-      // Get monthly expense by filtering ALL transactions, not just _transactions
-      double monthlyExpense = 0;
-
-      // We need to get all transactions from database for this chart
-      // Since we can't make this async easily, let's use a different approach
-      // We'll use the stored transactions but get them differently
-
-      // Alternative: Use a class variable to store all transactions
-      monthlyExpense = _allTransactions
-          .where((t) =>
-              t.type == 'expense' &&
-              t.date.isAfter(month.subtract(const Duration(seconds: 1))) &&
-              t.date.isBefore(nextMonth))
-          .fold(0.0, (sum, t) => sum + t.amount);
-
-      // Simpan nilai maksimum untuk scaling
-      if (monthlyExpense > maxExpense) {
-        maxExpense = monthlyExpense;
-      }
-
-      spots.add(FlSpot((5 - i).toDouble(), monthlyExpense));
-      months.add(DateFormat('MMM').format(month));
-    }
-
-    // Rest of the function remains the same...
-    // Jika tidak ada data, tampilkan chart kosong
     if (maxExpense == 0) {
       return Container(
         padding: const EdgeInsets.all(20),
@@ -2626,20 +2937,21 @@ class _MainScreenState extends State<MainScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Pengeluaran 6 Bulan Terakhir',
+                    chartData.title,
                     style: GoogleFonts.poppins(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
                       color: const Color(0xFF333333),
                     ),
                   ),
-                  Text(
-                    'Maksimal: Rp ${NumberFormat('#,###').format(maxExpense)}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      color: Colors.grey,
+                  if (chartData.subtitle.isNotEmpty)
+                    Text(
+                      chartData.subtitle,
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
                     ),
-                  ),
                 ],
               ),
               Container(
@@ -2717,12 +3029,12 @@ class _MainScreenState extends State<MainScreen>
                       showTitles: true,
                       reservedSize: 30,
                       getTitlesWidget: (value, meta) {
-                        if (value.toInt() < months.length &&
+                        if (value.toInt() < labels.length &&
                             value.toInt() >= 0) {
                           return Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
-                              months[value.toInt()],
+                              labels[value.toInt()],
                               style: GoogleFonts.poppins(
                                 fontSize: 11,
                                 color: Colors.grey[600],
@@ -2750,7 +3062,7 @@ class _MainScreenState extends State<MainScreen>
                   ),
                 ),
                 minX: 0,
-                maxX: 5,
+                maxX: (spots.length - 1).toDouble(),
                 minY: 0,
                 maxY: (maxExpense * 1.2)
                     .ceilToDouble(), // Tambah 20% ruang di atas
@@ -2765,7 +3077,7 @@ class _MainScreenState extends State<MainScreen>
                         final amount = barSpot.y;
 
                         return LineTooltipItem(
-                          '${months[monthIndex]}\nRp ${NumberFormat('#,###').format(amount)}',
+                          '${labels[monthIndex]}\nRp ${NumberFormat('#,###').format(amount)}',
                           GoogleFonts.poppins(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -2857,7 +3169,7 @@ class _MainScreenState extends State<MainScreen>
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'Pengeluaran Bulanan - Ketuk titik untuk detail',
+                    chartData.legend,
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       color: const Color(0xFFFF69B4),
@@ -2871,6 +3183,123 @@ class _MainScreenState extends State<MainScreen>
         ],
       ),
     );
+  }
+
+  ChartSeriesData _buildExpenseChartSeries() {
+    final period = _currentPeriodRange();
+
+    switch (_selectedFilter) {
+      case 'weekly':
+        final labels = <String>[];
+        final values = <double>[];
+        for (int index = 0; index < 7; index++) {
+          final day = period.start.add(Duration(days: index));
+          final nextDay = DateTime(day.year, day.month, day.day + 1);
+          labels.add(DateFormat('E').format(day));
+          values.add(
+            _allTransactions
+                .where((t) =>
+                    t.type == 'expense' &&
+                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
+                    t.date.isAfter(day.subtract(const Duration(seconds: 1))) &&
+                    t.date.isBefore(nextDay))
+                .fold(0.0, (sum, t) => sum + t.amount),
+          );
+        }
+        return ChartSeriesData(
+          title: 'Pengeluaran Mingguan',
+          subtitle:
+              '${DateFormat('d MMM').format(period.start)} - ${DateFormat('d MMM').format(period.end)}',
+          legend: 'Pengeluaran per hari dalam minggu aktif',
+          labels: labels,
+          values: values,
+        );
+      case 'monthly':
+        final labels = <String>[];
+        final values = <double>[];
+        for (int dayNumber = 1; dayNumber <= period.end.day; dayNumber++) {
+          final day =
+              DateTime(period.start.year, period.start.month, dayNumber);
+          final nextDay =
+              DateTime(period.start.year, period.start.month, dayNumber + 1);
+          labels.add(dayNumber.toString());
+          values.add(
+            _allTransactions
+                .where((t) =>
+                    t.type == 'expense' &&
+                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
+                    t.date.isAfter(day.subtract(const Duration(seconds: 1))) &&
+                    t.date.isBefore(nextDay))
+                .fold(0.0, (sum, t) => sum + t.amount),
+          );
+        }
+        return ChartSeriesData(
+          title: 'Pengeluaran Bulanan',
+          subtitle: DateFormat('MMMM yyyy').format(period.start),
+          legend: 'Pengeluaran per hari dalam bulan aktif',
+          labels: labels,
+          values: values,
+        );
+      case 'yearly':
+        final labels = <String>[];
+        final values = <double>[];
+        for (int month = 1; month <= 12; month++) {
+          final monthStart = DateTime(period.start.year, month, 1);
+          final nextMonth = DateTime(period.start.year, month + 1, 1);
+          labels.add(DateFormat('MMM').format(monthStart));
+          values.add(
+            _allTransactions
+                .where((t) =>
+                    t.type == 'expense' &&
+                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
+                    t.date.isAfter(
+                        monthStart.subtract(const Duration(seconds: 1))) &&
+                    t.date.isBefore(nextMonth))
+                .fold(0.0, (sum, t) => sum + t.amount),
+          );
+        }
+        return ChartSeriesData(
+          title: 'Pengeluaran Tahunan',
+          subtitle: DateFormat('yyyy').format(period.start),
+          legend: 'Pengeluaran per bulan dalam tahun aktif',
+          labels: labels,
+          values: values,
+        );
+      case 'range':
+        final labels = <String>[];
+        final values = <double>[];
+        final totalDays = period.end.difference(period.start).inDays + 1;
+        for (int index = 0; index < totalDays; index++) {
+          final day = period.start.add(Duration(days: index));
+          final nextDay = DateTime(day.year, day.month, day.day + 1);
+          labels.add(DateFormat('d MMM').format(day));
+          values.add(
+            _allTransactions
+                .where((t) =>
+                    t.type == 'expense' &&
+                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
+                    t.date.isAfter(day.subtract(const Duration(seconds: 1))) &&
+                    t.date.isBefore(nextDay))
+                .fold(0.0, (sum, t) => sum + t.amount),
+          );
+        }
+        return ChartSeriesData(
+          title: 'Pengeluaran Rentang',
+          subtitle:
+              '${DateFormat('d MMM yyyy').format(period.start)} - ${DateFormat('d MMM yyyy').format(period.end)}',
+          legend: 'Pengeluaran per hari dalam rentang terpilih',
+          labels: labels,
+          values: values,
+        );
+      default:
+        return const ChartSeriesData(
+          title: 'Pengeluaran',
+          subtitle: '',
+          legend: 'Pengeluaran',
+          labels: [],
+          values: [],
+        );
+    }
   }
 
   Widget _buildCuteFloatingActionButton(BuildContext context) {

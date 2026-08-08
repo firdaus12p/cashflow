@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:pinkycash_app/main.dart';
@@ -85,11 +86,81 @@ void main() {
     expect(hasSavingBadgeForPeriod(badges, DateTime(2026, 8, 10)), isTrue);
   });
 
+  test('formatSelectedDateRangeLabel formats same and cross-month ranges', () {
+    expect(
+      formatSelectedDateRangeLabel(
+        DateTimeRange(
+          start: DateTime(2026, 8, 1),
+          end: DateTime(2026, 8, 8),
+        ),
+      ),
+      'Aug 1 - 8, 2026',
+    );
+
+    expect(
+      formatSelectedDateRangeLabel(
+        DateTimeRange(
+          start: DateTime(2026, 8, 1),
+          end: DateTime(2026, 9, 5),
+        ),
+      ),
+      'Aug 1 - Sep 5, 2026',
+    );
+  });
+
   testWidgets('PinkyCash app smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester.pumpWidget(const CuteMoneyTrackerApp());
 
     // Verify that the app starts correctly
     expect(find.text('Halo Cantik! 💕'), findsOneWidget);
+  });
+
+  testWidgets('home shows transaction history and second tab shows statistics',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const CuteMoneyTrackerApp());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Riwayat Transaksi 📝'), findsOneWidget);
+    expect(find.text('Statistik'), findsOneWidget);
+    expect(find.text('Harian'), findsOneWidget);
+    expect(find.text('Bulanan'), findsOneWidget);
+    expect(find.text('Tahunan'), findsOneWidget);
+    expect(find.text('Mingguan'), findsNothing);
+    expect(find.text('Rentang'), findsNothing);
+
+    await tester.tap(find.text('Statistik'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Statistik Keuangan 📊'), findsOneWidget);
+    expect(find.text('Mingguan'), findsOneWidget);
+    expect(find.text('Bulanan'), findsWidgets);
+    expect(find.text('Tahunan'), findsWidgets);
+    expect(find.text('Rentang'), findsOneWidget);
+    expect(find.text('Kategori Pengeluaran 🛍️'), findsOneWidget);
+    expect(find.text('Grafik Pengeluaran Mingguan 📊'), findsOneWidget);
+
+    await tester.tap(find.text('Badge'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Badge & Pencapaian 🏆'), findsOneWidget);
+    expect(find.text('Badge Kamu 🎖️'), findsOneWidget);
+    expect(find.text('Statistik Keuangan 📊'), findsNothing);
+  });
+
+  testWidgets('range filter only opens picker from the range action button',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const CuteMoneyTrackerApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Statistik'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Rentang'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pilih Rentang Tanggal'), findsOneWidget);
+    expect(find.text('Pilih rentang tanggal dulu'), findsOneWidget);
+    expect(find.text('Kategori Pengeluaran 🛍️'), findsNothing);
   });
 }
