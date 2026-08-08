@@ -1,11 +1,11 @@
 
-# 💰 Flutter Catatan Keuangan
+# 💰 Cashflow - Flutter Catatan Keuangan
 
-Aplikasi **Flutter Catatan Keuangan** adalah aplikasi pencatat pemasukan dan pengeluaran harian yang sederhana namun fungsional. Cocok digunakan untuk mengelola keuangan pribadi secara efisien dan modern langsung dari perangkat mobile.
+Aplikasi **Cashflow** adalah aplikasi pencatat pemasukan dan pengeluaran harian yang sederhana namun fungsional. Cocok digunakan untuk mengelola keuangan pribadi secara efisien dan modern langsung dari perangkat mobile.
 
 ![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)
 ![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-green)
-![License](https://img.shields.io/github/license/DhaniKWP/flutter-catatan-keuangan)
+![License](https://img.shields.io/github/license/firdaus12p/cashflow)
 
 ---
 
@@ -33,8 +33,8 @@ Aplikasi **Flutter Catatan Keuangan** adalah aplikasi pencatat pemasukan dan pen
 
 1. **Clone repositori ini**
    ```bash
-   git clone https://github.com/DhaniKWP/flutter-catatan-keuangan.git
-   cd flutter-catatan-keungan
+   git clone https://github.com/firdaus12p/cashflow.git
+   cd cashflow
    ```
 
 2. **Install dependencies**
@@ -72,7 +72,7 @@ flutter build apk --release
 
 Kontribusi sangat terbuka! Jika kamu ingin membantu mengembangkan fitur atau memperbaiki bug:
 
-1. Fork repo ini
+1. Fork repo ini di [github.com/firdaus12p/cashflow](https://github.com/firdaus12p/cashflow)
 2. Buat branch fitur (`git checkout -b fitur-baru`)
 3. Commit perubahan (`git commit -m 'Tambah fitur'`)
 4. Push ke branch (`git push origin fitur-baru`)
@@ -83,3 +83,9 @@ Kontribusi sangat terbuka! Jika kamu ingin membantu mengembangkan fitur atau mem
 ## 📄 Lisensi
 
 Project ini menggunakan lisensi [MIT](LICENSE).
+
+---
+
+## 📝 Catatan
+
+Project ini awalnya merupakan fork dari [DhaniKWP/flutter-catatan-keuangan](https://github.com/DhaniKWP/flutter-catatan-keuangan) yang telah dimodifikasi dan dikembangkan lebih lanjut.
