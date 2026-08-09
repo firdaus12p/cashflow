@@ -1,12 +1,12 @@
 name: pinkycash_app
 description: A cute and girly money tracking app
 
-publish_to: 'none'
+publish_to: "none"
 
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ">=3.0.0 <4.0.0"
   flutter: ">=3.10.0"
 
 dependencies:
@@ -19,7 +19,6 @@ dependencies:
   google_fonts: ^6.1.0
   flutter_staggered_animations: ^1.1.1
   fl_chart: ^0.64.0
-  provider: ^6.1.5
 
 dev_dependencies:
   flutter_test:

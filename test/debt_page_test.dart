@@ -188,10 +188,28 @@ void main() {
       await tester.tap(find.byKey(const Key('debt_fab')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('debt_form_page')), findsOneWidget);
+      expect(find.byKey(const Key('debt_form_page')), findsNothing);
+      expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
+      expect(find.byKey(const Key('debt_form_surface')), findsNothing);
       expect(find.byKey(const Key('debt_person_field')), findsOneWidget);
       expect(find.byKey(const Key('debt_amount_field')), findsOneWidget);
       expect(find.byKey(const Key('debt_mode_selector')), findsOneWidget);
+      expect(find.text('Siapa?'), findsOneWidget);
+    });
+
+    testWidgets('sheet debt tidak memakai kotak form tambahan', (tester) async {
+      await tester.pumpWidget(MaterialApp(
+          home: HutangPiutangPage(
+        initialDebts: const [],
+        initialWallets: _fakeWallets,
+        initialBuckets: _fakeBuckets,
+      )));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('debt_fab')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('debt_form_surface')), findsNothing);
     });
 
     testWidgets('mode selector menampilkan helper text Masuk ke saldo',
@@ -244,6 +262,27 @@ void main() {
       expect(find.byKey(const Key('debt_borrowed_date_btn')), findsOneWidget);
       expect(find.byKey(const Key('debt_due_date_btn')), findsOneWidget);
       expect(find.byKey(const Key('debt_note_field')), findsOneWidget);
+    });
+
+    testWidgets(
+        'form tambah menampilkan label yang lebih jelas seperti form transaksi',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+          home: HutangPiutangPage(
+        initialDebts: const [],
+        initialWallets: _fakeWallets,
+        initialBuckets: _fakeBuckets,
+      )));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('debt_fab')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Nama Orang'), findsOneWidget);
+      expect(find.text('Nominal'), findsWidgets);
+      expect(find.text('Tanggal Pinjam'), findsOneWidget);
+      expect(find.text('Jatuh Tempo'), findsOneWidget);
+      expect(find.text('Catatan Tambahan'), findsOneWidget);
     });
 
     testWidgets('submit kosong menampilkan validasi nama pihak',
@@ -355,10 +394,11 @@ void main() {
       await tester.tap(find.byKey(const Key('debt_edit_btn')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('debt_form_page')), findsOneWidget);
+      expect(find.byKey(const Key('debt_form_page')), findsNothing);
       expect(find.text('Edit Hutang / Piutang'), findsOneWidget);
+      expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
       expect(find.text('Budi'), findsWidgets);
-      expect(find.text('Catatan lama'), findsOneWidget);
+      expect(find.text('Catatan lama'), findsWidgets);
     });
 
     testWidgets('detail menampilkan metadata dompet pos dan catatan',
@@ -410,6 +450,20 @@ void main() {
 
       expect(find.byKey(const Key('payment_mode_indicator')), findsOneWidget);
       expect(find.byKey(const Key('payment_bucket_dropdown')), findsOneWidget);
+    });
+
+    testWidgets('payment sheet menampilkan drag handle yang konsisten',
+        (tester) async {
+      final debt = _makeDebt(id: 10, status: 'active', mode: 'note');
+      await tester.pumpWidget(MaterialApp(
+        home: HutangDetailPage(debt: debt, initialPayments: const []),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('debt_pay_btn')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
     });
   });
 }

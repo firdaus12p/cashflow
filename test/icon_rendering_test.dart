@@ -17,9 +17,11 @@ void main() {
   });
 
   Future<void> pumpApp(WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: MainScreen()));
+    await tester.pumpWidget(
+      const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+    );
     await tester.pump();
-    await tester.pumpAndSettle(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
   }
 
   // ---------------------------------------------------------------------------

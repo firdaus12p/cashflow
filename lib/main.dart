@@ -32,7 +32,60 @@ class CurrencyInputFormatter extends TextInputFormatter {
 }
 
 double parseCurrencyInput(String input) {
-  return double.parse(input.replaceAll('.', ''));
+  return tryParseCurrencyInput(input) ?? 0;
+}
+
+double? tryParseCurrencyInput(String input) {
+  final digits = input.replaceAll(RegExp(r'[^\d]'), '');
+  if (digits.isEmpty) return null;
+  return double.tryParse(digits);
+}
+
+final NumberFormat _rupiahNumberFormatter =
+    NumberFormat.decimalPattern('id_ID');
+
+String formatRupiahValue(num amount) {
+  return _rupiahNumberFormatter.format(amount.round());
+}
+
+String formatRupiah(num amount) {
+  return 'Rp ${formatRupiahValue(amount)}';
+}
+
+({DateTime start, DateTime end}) resolveHomeFilterRange(
+  String filter,
+  DateTime referenceDate,
+) {
+  switch (filter) {
+    case 'daily':
+      return (
+        start: DateTime(
+          referenceDate.year,
+          referenceDate.month,
+          referenceDate.day,
+        ),
+        end: DateTime(
+          referenceDate.year,
+          referenceDate.month,
+          referenceDate.day,
+          23,
+          59,
+          59,
+        ),
+      );
+    case 'yearly':
+      return (
+        start: DateTime(referenceDate.year, 1, 1),
+        end: DateTime(referenceDate.year, 12, 31, 23, 59, 59),
+      );
+    case 'monthly':
+    default:
+      return (
+        start: DateTime(referenceDate.year, referenceDate.month, 1),
+        end: DateTime(
+            referenceDate.year, referenceDate.month + 1, 0, 23, 59, 59),
+      );
+  }
 }
 
 double calculateMonthlyExpenseForInsight(
@@ -46,11 +99,33 @@ double calculateMonthlyExpenseForInsight(
 
   return transactions
       .where((t) =>
+          t.affectsBalance &&
           t.type == 'expense' &&
           (selectedWallet == 'All' || t.wallet == selectedWallet) &&
           t.date.isAfter(thisMonthStart.subtract(const Duration(seconds: 1))) &&
           t.date.isBefore(thisMonthEnd.add(const Duration(seconds: 1))))
       .fold(0.0, (sum, t) => sum + t.amount);
+}
+
+double calculateBalanceForWallet(
+  Iterable<Transaction> transactions, {
+  String selectedWallet = 'All',
+}) {
+  return transactions
+      .where((transaction) =>
+          transaction.affectsBalance &&
+          (selectedWallet == 'All' || transaction.wallet == selectedWallet))
+      .fold<double>(0, (sum, transaction) {
+    return sum +
+        (transaction.type == 'income'
+            ? transaction.amount
+            : -transaction.amount);
+  });
+}
+
+Iterable<Transaction> affectingTransactions(
+    Iterable<Transaction> transactions) {
+  return transactions.where((transaction) => transaction.affectsBalance);
 }
 
 bool hasSavingBadgeForPeriod(List<UserBadge> badges, DateTime referenceDate) {
@@ -77,11 +152,31 @@ String formatSelectedDateRangeLabel(DateTimeRange range) {
 }
 
 // BR-08: total persentase pos aktif harus tepat 100% (toleransi floating point ±0.01)
+const double _bucketPercentageTolerance = 0.01;
+
+double getBucketPercentageTotal(List<FinancialBucket> buckets) {
+  return buckets.fold(0.0, (sum, b) => sum + b.allocationPercentage);
+}
+
 bool validateBucketPercentages(List<FinancialBucket> buckets) {
   if (buckets.isEmpty) return false;
-  final total = buckets.fold(0.0, (sum, b) => sum + b.allocationPercentage);
-  return (total - 100.0).abs() < 0.01;
+  final total = getBucketPercentageTotal(buckets);
+  return (total - 100.0).abs() <= _bucketPercentageTolerance;
 }
+
+bool canSaveBucketPercentages(List<FinancialBucket> buckets) {
+  if (buckets.isEmpty) return false;
+  return getBucketPercentageTotal(buckets) <=
+      100.0 + _bucketPercentageTolerance;
+}
+
+bool hasIncompleteBucketConfiguration(List<FinancialBucket> buckets) {
+  return buckets.isNotEmpty && !validateBucketPercentages(buckets);
+}
+
+const String _bucketConfigurationIncompleteText = 'Pos keuangan belum 100%';
+const String _bucketConfigurationIncompleteMessage =
+    'Pos keuangan belum 100%. Selesaikan dulu di halaman Pos Keuangan.';
 
 // BR-09: normalisasi persentase subset pos ke 100%
 // Mengembalikan Map<bucketId, normalizedPercentage>
@@ -1118,9 +1213,201 @@ class DatabaseHelper {
     });
   }
 
+  bool _isDebtLinkedTransaction(Transaction transaction) {
+    return transaction.affectsBalance &&
+        (transaction.category == 'Hutang' || transaction.category == 'Piutang');
+  }
+
+  Future<void> _reverseTransactionAllocationsTxn(
+    DatabaseExecutor txn,
+    int transactionId,
+  ) async {
+    final allocationRows = await txn.query(
+      'transaction_bucket_allocations',
+      where: 'transactionId = ?',
+      whereArgs: [transactionId],
+    );
+    final allocations =
+        allocationRows.map(TransactionBucketAllocation.fromMap).toList();
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    for (final allocation in allocations) {
+      double balanceDelta = 0;
+      if (allocation.role == 'source') {
+        balanceDelta = allocation.allocatedAmount;
+      } else if (allocation.role == 'target') {
+        balanceDelta = -allocation.allocatedAmount;
+      }
+
+      if (balanceDelta != 0) {
+        await txn.rawUpdate(
+          'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
+          [balanceDelta, now, allocation.bucketId],
+        );
+      }
+    }
+
+    await txn.delete(
+      'transaction_bucket_allocations',
+      where: 'transactionId = ?',
+      whereArgs: [transactionId],
+    );
+  }
+
   Future<int> deleteTransaction(int id) async {
     final db = await database;
-    return await db.delete('transactions', where: 'id = ?', whereArgs: [id]);
+    return await db.transaction((txn) async {
+      final transactionRows = await txn.query(
+        'transactions',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (transactionRows.isEmpty) {
+        return 0;
+      }
+
+      final transaction = Transaction.fromMap(transactionRows.first);
+      if (_isDebtLinkedTransaction(transaction)) {
+        throw StateError(
+          'Transactions linked to debt records cannot be deleted directly.',
+        );
+      }
+
+      await _reverseTransactionAllocationsTxn(txn, id);
+
+      return await txn.delete('transactions', where: 'id = ?', whereArgs: [id]);
+    });
+  }
+
+  Future<int> updateTransaction({
+    required int transactionId,
+    required String type,
+    required double amount,
+    required String category,
+    required String description,
+    required DateTime date,
+    required String walletName,
+    int? walletId,
+    bool? affectsBalance,
+    FinancialBucket? sourceBucket,
+    List<FinancialBucket>? subsetBuckets,
+    bool allowWithoutBucketAllocation = false,
+  }) async {
+    final db = await database;
+    return await db.transaction((txn) async {
+      final transactionRows = await txn.query(
+        'transactions',
+        where: 'id = ?',
+        whereArgs: [transactionId],
+        limit: 1,
+      );
+      if (transactionRows.isEmpty) {
+        return 0;
+      }
+
+      final existingTransaction = Transaction.fromMap(transactionRows.first);
+      if (_isDebtLinkedTransaction(existingTransaction)) {
+        throw StateError(
+          'Transactions linked to debt records cannot be updated directly.',
+        );
+      }
+
+      final resolvedAffectsBalance =
+          affectsBalance ?? existingTransaction.affectsBalance;
+      if (resolvedAffectsBalance &&
+          (category == 'Hutang' || category == 'Piutang')) {
+        throw StateError(
+          'Transactions linked to debt records cannot be updated directly.',
+        );
+      }
+
+      final resolvedWalletId = walletId ?? existingTransaction.walletId;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      await _reverseTransactionAllocationsTxn(txn, transactionId);
+
+      final updatedRows = await txn.update(
+        'transactions',
+        {
+          'id': transactionId,
+          'type': type,
+          'amount': amount,
+          'category': category,
+          'description': description,
+          'date': date.millisecondsSinceEpoch,
+          'wallet': walletName,
+          'walletId': resolvedWalletId,
+          'walletNameSnapshot': walletName,
+          'affectsBalance': resolvedAffectsBalance ? 1 : 0,
+        },
+        where: 'id = ?',
+        whereArgs: [transactionId],
+      );
+
+      if (!resolvedAffectsBalance) {
+        return updatedRows;
+      }
+
+      if (type == 'income') {
+        if (subsetBuckets == null || subsetBuckets.isEmpty) {
+          if (allowWithoutBucketAllocation) {
+            return updatedRows;
+          }
+          throw StateError(
+            'Income transactions that affect balance require subset buckets.',
+          );
+        }
+
+        final allocations = allocateIncomeToBuckets(amount, subsetBuckets);
+        final normalized = normalizeSubsetAllocation(subsetBuckets);
+        for (final bucket in subsetBuckets) {
+          final bucketId = bucket.id!;
+          await txn.insert('transaction_bucket_allocations', {
+            'transactionId': transactionId,
+            'bucketId': bucketId,
+            'normalizedPercentage': normalized[bucketId] ?? 0,
+            'allocatedAmount': allocations[bucketId] ?? 0,
+            'role': 'target',
+            'createdDate': now,
+          });
+          await txn.rawUpdate(
+            'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
+            [allocations[bucketId] ?? 0, now, bucketId],
+          );
+        }
+
+        return updatedRows;
+      }
+
+      if (type == 'expense') {
+        if (sourceBucket == null) {
+          if (allowWithoutBucketAllocation) {
+            return updatedRows;
+          }
+          throw StateError(
+            'Expense transactions that affect balance require a source bucket.',
+          );
+        }
+
+        await txn.insert('transaction_bucket_allocations', {
+          'transactionId': transactionId,
+          'bucketId': sourceBucket.id!,
+          'normalizedPercentage': 100.0,
+          'allocatedAmount': amount,
+          'role': 'source',
+          'createdDate': now,
+        });
+        await txn.rawUpdate(
+          'UPDATE financial_buckets SET currentBalance = currentBalance - ?, updatedDate = ? WHERE id = ?',
+          [amount, now, sourceBucket.id!],
+        );
+
+        return updatedRows;
+      }
+
+      throw StateError('Unsupported transaction type: $type');
+    });
   }
 
   // Saving Goals methods
@@ -1197,23 +1484,81 @@ class DatabaseHelper {
     });
   }
 
-  Future<void> purchaseWishlistItem(WishlistItem item) async {
+  Future<int> _insertExpenseWithSourceTxn(
+    DatabaseExecutor txn, {
+    required double amount,
+    required String category,
+    required String description,
+    required DateTime date,
+    required String walletName,
+    required FinancialBucket sourceBucket,
+    int? walletId,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final txId = await txn.insert('transactions', {
+      'type': 'expense',
+      'amount': amount,
+      'category': category,
+      'description': description,
+      'date': date.millisecondsSinceEpoch,
+      'wallet': walletName,
+      'walletId': walletId,
+      'walletNameSnapshot': walletName,
+      'affectsBalance': 1,
+    });
+
+    await txn.insert('transaction_bucket_allocations', {
+      'transactionId': txId,
+      'bucketId': sourceBucket.id!,
+      'normalizedPercentage': 100.0,
+      'allocatedAmount': amount,
+      'role': 'source',
+      'createdDate': now,
+    });
+    await txn.rawUpdate(
+      'UPDATE financial_buckets SET currentBalance = currentBalance - ?, updatedDate = ? WHERE id = ?',
+      [amount, now, sourceBucket.id!],
+    );
+
+    return txId;
+  }
+
+  Future<void> purchaseWishlistItem(
+    WishlistItem item, {
+    FinancialBucket? sourceBucket,
+    required String walletName,
+    int? walletId,
+  }) async {
     if (item.id == null) {
       throw StateError('Wishlist item must have an id before purchase.');
     }
 
     final db = await database;
     await db.transaction((txn) async {
-      final transaction = Transaction(
-        type: 'expense',
-        amount: item.price,
-        category: 'Belanja',
-        description: item.name,
-        date: DateTime.now(),
-        wallet: 'Cash',
-      );
-
-      await txn.insert('transactions', transaction.toMap());
+      if (sourceBucket == null) {
+        await txn.insert('transactions', {
+          'type': 'expense',
+          'amount': item.price,
+          'category': 'Belanja',
+          'description': item.name,
+          'date': DateTime.now().millisecondsSinceEpoch,
+          'wallet': walletName,
+          'walletId': walletId,
+          'walletNameSnapshot': walletName,
+          'affectsBalance': 1,
+        });
+      } else {
+        await _insertExpenseWithSourceTxn(
+          txn,
+          amount: item.price,
+          category: 'Belanja',
+          description: item.name,
+          date: DateTime.now(),
+          walletName: walletName,
+          sourceBucket: sourceBucket,
+          walletId: walletId,
+        );
+      }
       await txn.delete('wishlist', where: 'id = ?', whereArgs: [item.id]);
     });
   }
@@ -1242,12 +1587,73 @@ class DatabaseHelper {
 
   Future<int> updateWallet(Wallet wallet) async {
     final db = await database;
-    return await db.update(
-      'wallets',
-      wallet.toMap(),
-      where: 'id = ?',
-      whereArgs: [wallet.id],
-    );
+    final walletId = wallet.id;
+    if (walletId == null) {
+      return 0;
+    }
+
+    return await db.transaction((txn) async {
+      final existingRows = await txn.query(
+        'wallets',
+        columns: ['name'],
+        where: 'id = ?',
+        whereArgs: [walletId],
+        limit: 1,
+      );
+      final previousName =
+          existingRows.isEmpty ? null : existingRows.first['name'] as String?;
+
+      final updatedRows = await txn.update(
+        'wallets',
+        wallet.toMap(),
+        where: 'id = ?',
+        whereArgs: [walletId],
+      );
+
+      if (previousName != null && previousName != wallet.name) {
+        await txn.rawUpdate(
+          "UPDATE transactions SET walletId = ?, walletNameSnapshot = CASE WHEN walletNameSnapshot IS NULL OR walletNameSnapshot = '' THEN wallet ELSE walletNameSnapshot END WHERE walletId IS NULL AND wallet = ?",
+          [walletId, previousName],
+        );
+      }
+
+      return updatedRows;
+    });
+  }
+
+  Future<int> _countWalletReferences(
+    DatabaseExecutor executor, {
+    required int id,
+    String? name,
+  }) async {
+    final walletName = name?.trim();
+    final transactionCount = walletName == null || walletName.isEmpty
+        ? (Sqflite.firstIntValue(await executor.rawQuery(
+                'SELECT COUNT(*) FROM transactions WHERE walletId = ?',
+                [id])) ??
+            0)
+        : (Sqflite.firstIntValue(await executor.rawQuery(
+                'SELECT COUNT(*) FROM transactions WHERE walletId = ? OR (walletId IS NULL AND wallet = ?)',
+                [id, walletName])) ??
+            0);
+    final debtCount = Sqflite.firstIntValue(await executor.rawQuery(
+          'SELECT COUNT(*) FROM debts WHERE walletId = ?',
+          [id],
+        )) ??
+        0;
+    final paymentCount = Sqflite.firstIntValue(await executor.rawQuery(
+          'SELECT COUNT(*) FROM debt_payments WHERE walletId = ?',
+          [id],
+        )) ??
+        0;
+    return transactionCount + debtCount + paymentCount;
+  }
+
+  Future<int> getWalletReferenceCount(Wallet wallet) async {
+    final walletId = wallet.id;
+    if (walletId == null) return 0;
+    final db = await database;
+    return _countWalletReferences(db, id: walletId, name: wallet.name);
   }
 
   Future<int> archiveWallet(int id) async {
@@ -1262,6 +1668,30 @@ class DatabaseHelper {
 
   Future<int> deleteWallet(int id) async {
     final db = await database;
+    final walletRows = await db.query(
+      'wallets',
+      columns: ['name'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (walletRows.isEmpty) return 0;
+
+    final walletName = walletRows.first['name'] as String?;
+    final referenceCount =
+        await _countWalletReferences(db, id: id, name: walletName);
+    if (referenceCount > 0) {
+      return await db.update(
+        'wallets',
+        {
+          'isArchived': 1,
+          'updatedDate': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    }
+
     return await db.delete('wallets', where: 'id = ?', whereArgs: [id]);
   }
 
@@ -1295,7 +1725,35 @@ class DatabaseHelper {
 
   Future<int> deleteDebt(int id) async {
     final db = await database;
-    return await db.delete('debts', where: 'id = ?', whereArgs: [id]);
+    return await db.transaction((txn) async {
+      final debtRows = await txn.query(
+        'debts',
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (debtRows.isEmpty) {
+        return 0;
+      }
+
+      final debt = Debt.fromMap(debtRows.first);
+      final paymentRows = await txn.query(
+        'debt_payments',
+        where: 'debtId = ?',
+        whereArgs: [id],
+      );
+      final payments = paymentRows.map(DebtPayment.fromMap).toList();
+      final hasBalanceEffects = debt.recordingMode == 'balance' ||
+          payments.any((payment) => payment.recordingMode == 'balance');
+      if (hasBalanceEffects) {
+        throw StateError(
+          'Debt with balance-affecting history cannot be deleted directly.',
+        );
+      }
+
+      await txn.delete('debt_payments', where: 'debtId = ?', whereArgs: [id]);
+      return await txn.delete('debts', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   // DebtPayment CRUD
@@ -1339,6 +1797,23 @@ class DatabaseHelper {
     final now = DateTime.now().millisecondsSinceEpoch;
     final debt = await getDebtById(debtId);
     if (debt == null) return;
+    if (amount <= 0) {
+      throw ArgumentError.value(
+        amount,
+        'amount',
+        'Payment amount must be greater than zero.',
+      );
+    }
+    if (debt.remainingAmount <= 0 || debt.status == 'settled') {
+      throw StateError('Debt is already settled.');
+    }
+    if (amount > debt.remainingAmount + 0.001) {
+      throw RangeError.value(
+        amount,
+        'amount',
+        'Payment amount exceeds the remaining balance.',
+      );
+    }
 
     String resolvedWalletName = walletName;
     if (walletId != null) {
@@ -1350,6 +1825,8 @@ class DatabaseHelper {
       );
       if (walletRows.isNotEmpty) {
         resolvedWalletName = walletRows.first['name'] as String? ?? walletName;
+      } else {
+        resolvedWalletName = 'Dompet tidak aktif';
       }
     }
 
@@ -1588,35 +2065,18 @@ class DatabaseHelper {
     int? walletId,
   }) async {
     final db = await database;
-    final now = DateTime.now().millisecondsSinceEpoch;
 
     return await db.transaction((txn) async {
-      final txId = await txn.insert('transactions', {
-        'type': 'expense',
-        'amount': amount,
-        'category': category,
-        'description': description,
-        'date': date.millisecondsSinceEpoch,
-        'wallet': walletName,
-        'walletId': walletId,
-        'walletNameSnapshot': walletName,
-        'affectsBalance': 1,
-      });
-
-      await txn.insert('transaction_bucket_allocations', {
-        'transactionId': txId,
-        'bucketId': sourceBucket.id!,
-        'normalizedPercentage': 100.0,
-        'allocatedAmount': amount,
-        'role': 'source',
-        'createdDate': now,
-      });
-      await txn.rawUpdate(
-        'UPDATE financial_buckets SET currentBalance = currentBalance - ?, updatedDate = ? WHERE id = ?',
-        [amount, now, sourceBucket.id!],
+      return _insertExpenseWithSourceTxn(
+        txn,
+        amount: amount,
+        category: category,
+        description: description,
+        date: date,
+        walletName: walletName,
+        sourceBucket: sourceBucket,
+        walletId: walletId,
       );
-
-      return txId;
     });
   }
 
@@ -1791,13 +2251,7 @@ class _DompetPageState extends State<DompetPage> {
     if (countFn != null) {
       count = await countFn(wallet);
     } else {
-      final rawDb = await DatabaseHelper().database;
-      count = (await rawDb.rawQuery(
-            'SELECT COUNT(*) as c FROM transactions WHERE walletId = ?',
-            [wallet.id],
-          ))
-              .first['c'] as int? ??
-          0;
+      count = await DatabaseHelper().getWalletReferenceCount(wallet);
     }
 
     if (!mounted) return;
@@ -1812,8 +2266,8 @@ class _DompetPageState extends State<DompetPage> {
           title: Text('Arsipkan Dompet?',
               style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
           content: Text(
-            '"${wallet.name}" punya $count transaksi historis. '
-            'Arsip direkomendasikan agar riwayat tetap terbaca.',
+            '"${wallet.name}" masih dipakai di $count catatan historis. '
+            'Arsip direkomendasikan agar riwayat dan cicilan tetap konsisten.',
             style: GoogleFonts.poppins(fontSize: 14),
           ),
           actions: [
@@ -1829,7 +2283,7 @@ class _DompetPageState extends State<DompetPage> {
                 await DatabaseHelper().deleteWallet(wallet.id!);
                 _loadWallets();
               },
-              child: Text('Hapus dari daftar',
+              child: Text('Keluarkan dari daftar aktif',
                   style: GoogleFonts.poppins(color: Colors.redAccent)),
             ),
             ElevatedButton(
@@ -1885,6 +2339,18 @@ class _DompetPageState extends State<DompetPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Center(
+                child: Container(
+                  key: const Key('sheet_drag_handle'),
+                  width: 50,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
               Text(wallet == null ? 'Tambah Dompet' : 'Edit Dompet',
                   style: GoogleFonts.poppins(
                       fontSize: 18, fontWeight: FontWeight.bold)),
@@ -2170,7 +2636,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
             ),
             const SizedBox(width: 8),
             Text(
-              'Rp ${debt.remainingAmount.toStringAsFixed(0)}',
+              formatRupiah(debt.remainingAmount),
               style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -2188,10 +2654,13 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
   }
 
   Future<void> _showAddDebtSheet(BuildContext context) async {
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => DebtFormPage(
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: DebtFormSheet(
           initialWallets: _wallets.isEmpty ? null : _wallets,
           initialBuckets: _buckets.isEmpty ? null : _buckets,
         ),
@@ -2202,8 +2671,8 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
   }
 }
 
-class DebtFormPage extends StatefulWidget {
-  const DebtFormPage({
+class DebtFormSheet extends StatefulWidget {
+  const DebtFormSheet({
     super.key,
     this.initialDebt,
     this.initialWallets,
@@ -2215,10 +2684,10 @@ class DebtFormPage extends StatefulWidget {
   final List<FinancialBucket>? initialBuckets;
 
   @override
-  State<DebtFormPage> createState() => _DebtFormPageState();
+  State<DebtFormSheet> createState() => _DebtFormSheetState();
 }
 
-class _DebtFormPageState extends State<DebtFormPage> {
+class _DebtFormSheetState extends State<DebtFormSheet> {
   late final TextEditingController _personCtrl;
   late final TextEditingController _amountCtrl;
   late final TextEditingController _noteCtrl;
@@ -2237,7 +2706,7 @@ class _DebtFormPageState extends State<DebtFormPage> {
     final debt = widget.initialDebt;
     _personCtrl = TextEditingController(text: debt?.personName ?? '');
     _amountCtrl = TextEditingController(
-      text: debt != null ? debt.principalAmount.toStringAsFixed(0) : '',
+      text: debt != null ? formatRupiahValue(debt.principalAmount) : '',
     );
     _noteCtrl = TextEditingController(text: debt?.note ?? '');
     _selectedType = debt?.type ?? 'debt';
@@ -2320,7 +2789,7 @@ class _DebtFormPageState extends State<DebtFormPage> {
 
   Future<void> _save() async {
     final person = _personCtrl.text.trim();
-    final amount = double.tryParse(_amountCtrl.text.trim()) ?? 0;
+    final amount = tryParseCurrencyInput(_amountCtrl.text.trim()) ?? 0;
     if (person.isEmpty) {
       _showValidationMessage('Nama pihak tidak boleh kosong');
       return;
@@ -2333,6 +2802,16 @@ class _DebtFormPageState extends State<DebtFormPage> {
     final requiresFinancialBinding = _selectedMode == 'balance';
     if (requiresFinancialBinding && _selectedWallet == null) {
       _showValidationMessage('Pilih dompet untuk mode Masuk ke saldo');
+      return;
+    }
+    if (requiresFinancialBinding && _buckets.isEmpty) {
+      _showValidationMessage(
+          'Buat pos keuangan aktif dulu untuk mode Masuk ke saldo');
+      return;
+    }
+    if (requiresFinancialBinding &&
+        hasIncompleteBucketConfiguration(_buckets)) {
+      _showValidationMessage(_bucketConfigurationIncompleteMessage);
       return;
     }
     if (requiresFinancialBinding && _selectedBucket == null) {
@@ -2385,6 +2864,12 @@ class _DebtFormPageState extends State<DebtFormPage> {
       ));
     } else {
       final paidAmount = existing.principalAmount - existing.remainingAmount;
+      if (amount + 0.001 < paidAmount) {
+        _showValidationMessage(
+          'Nominal total tidak boleh lebih kecil dari yang sudah dibayar.',
+        );
+        return;
+      }
       final updatedRemaining =
           (amount - paidAmount).clamp(0.0, amount).toDouble();
       await db.updateDebt(Debt(
@@ -2414,273 +2899,401 @@ class _DebtFormPageState extends State<DebtFormPage> {
     final isEditMode = widget.initialDebt != null;
     final lockBalanceFields =
         isEditMode && widget.initialDebt!.recordingMode == 'balance';
-    return Scaffold(
-      key: const Key('debt_form_page'),
-      backgroundColor: const Color(0xFFFFF0F5),
-      appBar: AppBar(
-        title: Text(
-          widget.initialDebt == null
-              ? 'Catat Hutang / Piutang'
-              : 'Edit Hutang / Piutang',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-        ),
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (isEditMode)
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(
-                    lockBalanceFields
-                        ? 'Nominal, dompet, dan pos dikunci agar histori saldo tetap konsisten.'
-                        : 'Tipe dan mode pencatatan tetap mengikuti record awal.',
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      color: const Color(0xFF666666),
+      child: SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.82,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+            child: Column(
+              key: const Key('debt_form_sheet'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    key: const Key('sheet_drag_handle'),
+                    width: 50,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                 ),
-              Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: isEditMode
-                          ? null
-                          : () => setState(() => _selectedType = 'debt'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _selectedType == 'debt'
-                              ? Colors.redAccent
-                              : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text('Saya Berhutang',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.poppins(
-                                color: _selectedType == 'debt'
-                                    ? Colors.white
-                                    : Colors.black54,
-                                fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: isEditMode
-                          ? null
-                          : () => setState(() => _selectedType = 'receivable'),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        decoration: BoxDecoration(
-                          color: _selectedType == 'receivable'
-                              ? Colors.green
-                              : Colors.grey[100],
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text('Piutang Saya',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.poppins(
-                                color: _selectedType == 'receivable'
-                                    ? Colors.white
-                                    : Colors.black54,
-                                fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('debt_person_field'),
-                controller: _personCtrl,
-                decoration: InputDecoration(
-                  hintText: 'Nama orang',
-                  hintStyle: GoogleFonts.poppins(),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
+                const SizedBox(height: 20),
+                Text(
+                  widget.initialDebt == null
+                      ? 'Catat Hutang / Piutang'
+                      : 'Edit Hutang / Piutang',
+                  style: GoogleFonts.poppins(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFFFF69B4),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                key: const Key('debt_amount_field'),
-                controller: _amountCtrl,
-                enabled: !lockBalanceFields,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  hintText: 'Nominal',
-                  hintStyle: GoogleFonts.poppins(),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const Key('debt_borrowed_date_btn'),
-                      onPressed: _pickBorrowedDate,
-                      icon: const Icon(Icons.calendar_today_outlined),
-                      label:
-                          Text(DateFormat('dd MMM yyyy').format(_borrowedDate)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const Key('debt_due_date_btn'),
-                      onPressed: _pickDueDate,
-                      icon: const Icon(Icons.event_available_outlined),
-                      label: Text(
-                        _dueDate == null
-                            ? 'Jatuh tempo'
-                            : DateFormat('dd MMM yyyy').format(_dueDate!),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<Wallet>(
-                key: const Key('debt_wallet_dropdown'),
-                value: _selectedWallet,
-                items: _wallets
-                    .map((wallet) => DropdownMenuItem<Wallet>(
-                          value: wallet,
-                          child: Row(
-                            children: [
-                              Icon(
-                                  resolveWalletIcon(
-                                      wallet.iconKey, wallet.name),
-                                  size: 16,
-                                  color: const Color(0xFFFF69B4)),
-                              const SizedBox(width: 8),
-                              Text(wallet.name),
-                            ],
-                          ),
-                        ))
-                    .toList(),
-                onChanged: lockBalanceFields
-                    ? null
-                    : (wallet) => setState(() => _selectedWallet = wallet),
-                decoration: InputDecoration(
-                  labelText: 'Dompet',
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<FinancialBucket>(
-                key: const Key('debt_bucket_dropdown'),
-                value: _selectedBucket,
-                items: _buckets
-                    .map((bucket) => DropdownMenuItem<FinancialBucket>(
-                          value: bucket,
-                          child: Row(
-                            children: [
-                              Icon(bucket.resolvedIcon,
-                                  size: 16, color: const Color(0xFFFF69B4)),
-                              const SizedBox(width: 8),
-                              Text(bucket.name),
-                            ],
-                          ),
-                        ))
-                    .toList(),
-                onChanged: lockBalanceFields
-                    ? null
-                    : (bucket) => setState(() => _selectedBucket = bucket),
-                decoration: InputDecoration(
-                  labelText: 'Pos Keuangan',
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                key: const Key('debt_note_field'),
-                controller: _noteCtrl,
-                minLines: 2,
-                maxLines: 4,
-                decoration: InputDecoration(
-                  hintText: 'Catatan',
-                  hintStyle: GoogleFonts.poppins(),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Column(
-                key: const Key('debt_mode_selector'),
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Mode Pencatatan',
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  _debtModeOption(
-                    value: 'balance',
-                    label: 'Masuk ke saldo',
-                    helper: 'Memengaruhi saldo dompet dan statistik keuangan',
-                    enabled: !isEditMode,
-                  ),
-                  const SizedBox(height: 6),
-                  _debtModeOption(
-                    value: 'note',
-                    label: 'Catatan saja',
-                    helper: 'Hanya mencatat — tidak mengubah saldo dompet',
-                    enabled: !isEditMode,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  key: const Key('debt_save_btn'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF69B4),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  onPressed: _save,
-                  child: Text(isEditMode ? 'Simpan Perubahan' : 'Simpan',
+                const SizedBox(height: 20),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Informasi Utama',
                       style: GoogleFonts.poppins(
-                          color: Colors.white, fontWeight: FontWeight.w600)),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF333333),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (isEditMode)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          lockBalanceFields
+                              ? 'Nominal, dompet, dan pos dikunci agar histori saldo tetap konsisten.'
+                              : 'Tipe dan mode pencatatan tetap mengikuti record awal.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: const Color(0xFF666666),
+                          ),
+                        ),
+                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: isEditMode
+                                ? null
+                                : () => setState(() => _selectedType = 'debt'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _selectedType == 'debt'
+                                    ? Colors.redAccent
+                                    : Colors.grey[100],
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text('Saya Berhutang',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.poppins(
+                                      color: _selectedType == 'debt'
+                                          ? Colors.white
+                                          : Colors.black54,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: isEditMode
+                                ? null
+                                : () => setState(
+                                    () => _selectedType = 'receivable'),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              decoration: BoxDecoration(
+                                color: _selectedType == 'receivable'
+                                    ? Colors.green
+                                    : Colors.grey[100],
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text('Piutang Saya',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.poppins(
+                                      color: _selectedType == 'receivable'
+                                          ? Colors.white
+                                          : Colors.black54,
+                                      fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Nama Orang',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF333333),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const Key('debt_person_field'),
+                      controller: _personCtrl,
+                      decoration: InputDecoration(
+                        hintText: 'Siapa?',
+                        hintStyle: GoogleFonts.poppins(),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Nominal',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF333333),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const Key('debt_amount_field'),
+                      controller: _amountCtrl,
+                      enabled: !lockBalanceFields,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [CurrencyInputFormatter()],
+                      decoration: InputDecoration(
+                        hintText: 'Nominal',
+                        hintStyle: GoogleFonts.poppins(),
+                        prefixText: 'Rp ',
+                        prefixStyle: GoogleFonts.poppins(
+                          color: const Color(0xFFFF69B4),
+                          fontWeight: FontWeight.bold,
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Tanggal Pinjam',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF333333),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                key: const Key('debt_borrowed_date_btn'),
+                                onPressed: _pickBorrowedDate,
+                                icon: const Icon(Icons.calendar_today_outlined),
+                                label: Text(DateFormat('dd MMM yyyy')
+                                    .format(_borrowedDate)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Jatuh Tempo',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF333333),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                key: const Key('debt_due_date_btn'),
+                                onPressed: _pickDueDate,
+                                icon:
+                                    const Icon(Icons.event_available_outlined),
+                                label: Text(
+                                  _dueDate == null
+                                      ? 'Jatuh tempo'
+                                      : DateFormat('dd MMM yyyy')
+                                          .format(_dueDate!),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Dompet',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF333333),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<Wallet>(
+                      key: const Key('debt_wallet_dropdown'),
+                      value: _selectedWallet,
+                      items: _wallets
+                          .map((wallet) => DropdownMenuItem<Wallet>(
+                                value: wallet,
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                        resolveWalletIcon(
+                                            wallet.iconKey, wallet.name),
+                                        size: 16,
+                                        color: const Color(0xFFFF69B4)),
+                                    const SizedBox(width: 8),
+                                    Text(wallet.name),
+                                  ],
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: lockBalanceFields
+                          ? null
+                          : (wallet) =>
+                              setState(() => _selectedWallet = wallet),
+                      decoration: InputDecoration(
+                        hintText: 'Pilih dompet',
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Pos Keuangan',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF333333),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<FinancialBucket>(
+                      key: const Key('debt_bucket_dropdown'),
+                      value: _selectedBucket,
+                      items: _buckets
+                          .map((bucket) => DropdownMenuItem<FinancialBucket>(
+                                value: bucket,
+                                child: Row(
+                                  children: [
+                                    Icon(bucket.resolvedIcon,
+                                        size: 16,
+                                        color: const Color(0xFFFF69B4)),
+                                    const SizedBox(width: 8),
+                                    Text(bucket.name),
+                                  ],
+                                ),
+                              ))
+                          .toList(),
+                      onChanged: lockBalanceFields
+                          ? null
+                          : (bucket) =>
+                              setState(() => _selectedBucket = bucket),
+                      decoration: InputDecoration(
+                        hintText: 'Pilih pos keuangan',
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Catatan Tambahan',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF333333),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const Key('debt_note_field'),
+                      controller: _noteCtrl,
+                      minLines: 2,
+                      maxLines: 4,
+                      decoration: InputDecoration(
+                        hintText: 'Catatan',
+                        hintStyle: GoogleFonts.poppins(),
+                        filled: true,
+                        fillColor: Colors.grey[100],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Column(
+                      key: const Key('debt_mode_selector'),
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Mode Pencatatan',
+                            style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 8),
+                        _debtModeOption(
+                          value: 'balance',
+                          label: 'Masuk ke saldo',
+                          helper:
+                              'Memengaruhi saldo dompet dan statistik keuangan',
+                          enabled: !isEditMode,
+                        ),
+                        const SizedBox(height: 6),
+                        _debtModeOption(
+                          value: 'note',
+                          label: 'Catatan saja',
+                          helper:
+                              'Hanya mencatat — tidak mengubah saldo dompet',
+                          enabled: !isEditMode,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        key: const Key('debt_save_btn'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF69B4),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        onPressed: _save,
+                        child: Text(isEditMode ? 'Simpan Perubahan' : 'Simpan',
+                            style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -2837,10 +3450,14 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
             key: const Key('debt_edit_btn'),
             icon: const Icon(Icons.edit_outlined),
             onPressed: () async {
-              await Navigator.push<void>(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DebtFormPage(
+              await showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (ctx) => Padding(
+                  padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(ctx).viewInsets.bottom),
+                  child: DebtFormSheet(
                     initialDebt: _debt,
                     initialWallets:
                         _availableWallets.isEmpty ? null : _availableWallets,
@@ -2855,8 +3472,15 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
           IconButton(
             icon: const Icon(Icons.delete_outline),
             onPressed: () async {
-              await DatabaseHelper().deleteDebt(_debt.id!);
-              if (mounted) Navigator.pop(context);
+              try {
+                await DatabaseHelper().deleteDebt(_debt.id!);
+                if (mounted) Navigator.pop(context);
+              } on StateError {
+                _showSnackBarMessage(
+                  'Catatan yang sudah memengaruhi saldo tidak bisa dihapus langsung.',
+                  backgroundColor: Colors.red,
+                );
+              }
             },
           ),
         ],
@@ -2906,7 +3530,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Sisa: Rp ${_debt.remainingAmount.toStringAsFixed(0)}',
+                        'Sisa: ${formatRupiah(_debt.remainingAmount)}',
                         style: GoogleFonts.poppins(
                             color: Colors.white, fontWeight: FontWeight.w600),
                       ),
@@ -2922,8 +3546,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
             ),
             const SizedBox(height: 20),
             // Metadata
-            _metaRow('Nominal awal',
-                'Rp ${_debt.principalAmount.toStringAsFixed(0)}'),
+            _metaRow('Nominal awal', formatRupiah(_debt.principalAmount)),
             _metaRow('Tanggal pinjam',
                 DateFormat('dd MMM yyyy').format(_debt.borrowedDate)),
             _metaRow(
@@ -3011,12 +3634,29 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: ListTile(
           leading: const Icon(Icons.check_circle_outline, color: Colors.green),
-          title: Text('Rp ${p.amount.toStringAsFixed(0)}',
+          title: Text(formatRupiah(p.amount),
               style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
           subtitle: Text(DateFormat('dd MMM yyyy').format(p.paymentDate),
               style: GoogleFonts.poppins(fontSize: 12)),
         ),
       );
+
+  void _showSnackBarMessage(
+    String message, {
+    Color backgroundColor = const Color(0xFFFF69B4),
+  }) {
+    if (!mounted) return;
+
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.poppins()),
+        backgroundColor: backgroundColor,
+      ),
+    );
+  }
 
   void _showPaymentSheet(BuildContext context) {
     final amountCtrl = TextEditingController();
@@ -3047,6 +3687,18 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Center(
+                child: Container(
+                  key: const Key('sheet_drag_handle'),
+                  width: 50,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
               Text('Catat Pembayaran',
                   style: GoogleFonts.poppins(
                       fontSize: 18, fontWeight: FontWeight.bold)),
@@ -3146,9 +3798,15 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                 key: const Key('payment_amount_field'),
                 controller: amountCtrl,
                 keyboardType: TextInputType.number,
+                inputFormatters: [CurrencyInputFormatter()],
                 decoration: InputDecoration(
                   hintText: 'Nominal cicilan',
                   hintStyle: GoogleFonts.poppins(),
+                  prefixText: 'Rp ',
+                  prefixStyle: GoogleFonts.poppins(
+                    color: const Color(0xFFFF69B4),
+                    fontWeight: FontWeight.bold,
+                  ),
                   filled: true,
                   fillColor: Colors.grey[100],
                   border: OutlineInputBorder(
@@ -3169,21 +3827,75 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                   onPressed: () async {
-                    final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
-                    if (amount <= 0) return;
-                    if (_debt.recordingMode == 'balance' &&
-                        selectedBucket == null) {
+                    final amount =
+                        tryParseCurrencyInput(amountCtrl.text.trim()) ?? 0;
+                    if (amount <= 0) {
+                      _showSnackBarMessage(
+                        'Nominal cicilan harus lebih besar dari 0.',
+                        backgroundColor: Colors.red,
+                      );
                       return;
                     }
-                    await DatabaseHelper().recordDebtPayment(
-                      debtId: _debt.id!,
-                      amount: amount,
-                      paymentDate: DateTime.now(),
-                      recordingMode: _debt.recordingMode,
-                      walletId: _debt.walletId,
-                      bucketId: _debt.bucketId,
-                      affectedBucket: selectedBucket,
-                    );
+                    if (amount > _debt.remainingAmount) {
+                      _showSnackBarMessage(
+                        'Nominal cicilan melebihi sisa yang harus dibayar.',
+                        backgroundColor: Colors.red,
+                      );
+                      return;
+                    }
+                    if (_debt.recordingMode == 'balance' &&
+                        _availableBuckets.isEmpty) {
+                      _showSnackBarMessage(
+                        'Buat pos keuangan aktif dulu untuk pembayaran ini.',
+                        backgroundColor: Colors.red,
+                      );
+                      return;
+                    }
+                    if (_debt.recordingMode == 'balance' &&
+                        hasIncompleteBucketConfiguration(_availableBuckets)) {
+                      _showSnackBarMessage(
+                        _bucketConfigurationIncompleteMessage,
+                        backgroundColor: Colors.red,
+                      );
+                      return;
+                    }
+                    if (_debt.recordingMode == 'balance' &&
+                        selectedBucket == null) {
+                      _showSnackBarMessage(
+                        'Pilih pos keuangan untuk pembayaran ini.',
+                        backgroundColor: Colors.red,
+                      );
+                      return;
+                    }
+                    try {
+                      await DatabaseHelper().recordDebtPayment(
+                        debtId: _debt.id!,
+                        amount: amount,
+                        paymentDate: DateTime.now(),
+                        recordingMode: _debt.recordingMode,
+                        walletId: _debt.walletId,
+                        bucketId: _debt.bucketId,
+                        affectedBucket: selectedBucket,
+                      );
+                    } on RangeError {
+                      _showSnackBarMessage(
+                        'Nominal cicilan melebihi sisa yang harus dibayar.',
+                        backgroundColor: Colors.red,
+                      );
+                      return;
+                    } on ArgumentError {
+                      _showSnackBarMessage(
+                        'Nominal cicilan tidak valid.',
+                        backgroundColor: Colors.red,
+                      );
+                      return;
+                    } on StateError {
+                      _showSnackBarMessage(
+                        'Catatan ini sudah lunas.',
+                        backgroundColor: Colors.red,
+                      );
+                      return;
+                    }
                     if (ctx.mounted) Navigator.pop(ctx);
                     _refresh();
                   },
@@ -3259,7 +3971,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
             child: Chip(
               key: const Key('bucket_percent_indicator'),
               label: Text(
-                '${_buckets.fold(0.0, (s, b) => s + b.allocationPercentage).toStringAsFixed(0)}%',
+                '${getBucketPercentageTotal(_buckets).toStringAsFixed(0)}%',
                 style: GoogleFonts.poppins(
                     fontWeight: FontWeight.bold, color: Colors.white),
               ),
@@ -3322,7 +4034,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
         title: Text(bucket.name,
             style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
         subtitle: Text(
-          '${bucket.allocationPercentage.toStringAsFixed(1)}% · Rp ${bucket.currentBalance.toStringAsFixed(0)}',
+          '${bucket.allocationPercentage.toStringAsFixed(1)}% · ${formatRupiah(bucket.currentBalance)}',
           style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
         ),
         trailing: Row(
@@ -3386,6 +4098,18 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Center(
+                  child: Container(
+                    key: const Key('sheet_drag_handle'),
+                    width: 50,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
                 Text(
                     bucket == null
                         ? 'Tambah Pos Keuangan'
@@ -3489,11 +4213,11 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                         ),
                       ];
 
-                      if (!validateBucketPercentages(draftBuckets)) {
+                      if (!canSaveBucketPercentages(draftBuckets)) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              'Total persentase semua pos harus tepat 100%.',
+                              'Total persentase semua pos tidak boleh lebih dari 100%.',
                               style: GoogleFonts.poppins(),
                             ),
                             backgroundColor: Colors.red,
@@ -3655,7 +4379,21 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
 
 // Main Screen with Enhanced Navigation
 class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+  const MainScreen({
+    super.key,
+    @visibleForTesting this.skipInitialLoad = false,
+    @visibleForTesting this.initialTransactions,
+    @visibleForTesting this.initialAllTransactions,
+  });
+
+  @visibleForTesting
+  final bool skipInitialLoad;
+
+  @visibleForTesting
+  final List<Transaction>? initialTransactions;
+
+  @visibleForTesting
+  final List<Transaction>? initialAllTransactions;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -3671,7 +4409,7 @@ class _MainScreenState extends State<MainScreen>
   List<UserBadge> _badges = [];
   List<Transaction> _allTransactions = [];
   List<FinancialBucket> _activeBuckets = [];
-  String _selectedHomeFilter = 'daily';
+  String _selectedHomeFilter = 'monthly';
   String _selectedHomeWallet = 'All';
   String _selectedFilter = 'weekly';
   String _selectedWallet = 'All';
@@ -3771,7 +4509,7 @@ class _MainScreenState extends State<MainScreen>
     });
   }
 
-  Future<void> _shiftSelectedPeriod(int direction) async {
+  void _shiftSelectedPeriod(int direction) {
     setState(() {
       switch (_selectedFilter) {
         case 'weekly':
@@ -3808,7 +4546,15 @@ class _MainScreenState extends State<MainScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 5, vsync: this);
-    _loadAllData();
+    _transactions =
+        List<Transaction>.from(widget.initialTransactions ?? const []);
+    _allTransactions =
+        List<Transaction>.from(widget.initialAllTransactions ?? const []);
+    if (!widget.skipInitialLoad &&
+        widget.initialTransactions == null &&
+        widget.initialAllTransactions == null) {
+      _loadAllData();
+    }
   }
 
   void _showSnackBarMessage(
@@ -3898,30 +4644,13 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Future<void> _loadTransactions() async {
-    DateTime now = DateTime.now();
-    DateTime start;
-    DateTime end = DateTime(now.year, now.month, now.day, 23, 59, 59);
-
-    switch (_selectedHomeFilter) {
-      case 'daily':
-        start = DateTime(now.year, now.month, now.day);
-        break;
-      case 'monthly':
-        start = DateTime(now.year, now.month, 1);
-        end = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
-        break;
-      case 'yearly':
-        start = DateTime(now.year, 1, 1);
-        end = DateTime(now.year, 12, 31, 23, 59, 59);
-        break;
-      default:
-        start = DateTime(now.year, now.month, now.day);
-    }
+    final now = DateTime.now();
+    final range = resolveHomeFilterRange(_selectedHomeFilter, now);
 
     final transactions = await _dbHelper.getFilteredTransactions(
       wallet: _selectedHomeWallet,
-      startDate: start,
-      endDate: end,
+      startDate: range.start,
+      endDate: range.end,
     );
 
     if (!mounted) return;
@@ -3947,7 +4676,7 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Future<void> _checkAndAwardBadges() async {
-    final allTransactions = _allTransactions;
+    final allTransactions = affectingTransactions(_allTransactions).toList();
     // Skip seluruh pengecekan badge bila tidak ada transaksi sama sekali.
     if (allTransactions.isEmpty) return;
     final badges = await _dbHelper.getBadges();
@@ -3972,10 +4701,12 @@ class _MainScreenState extends State<MainScreen>
 
     final monthlyTransactions =
         await _dbHelper.getTransactionsByDateRange(startMonth, endMonth);
-    final monthlyIncome = monthlyTransactions
+    final effectiveMonthlyTransactions =
+        affectingTransactions(monthlyTransactions).toList();
+    final monthlyIncome = effectiveMonthlyTransactions
         .where((t) => t.type == 'income')
         .fold(0.0, (sum, t) => sum + t.amount);
-    final monthlyExpense = monthlyTransactions
+    final monthlyExpense = effectiveMonthlyTransactions
         .where((t) => t.type == 'expense')
         .fold(0.0, (sum, t) => sum + t.amount);
 
@@ -4214,7 +4945,7 @@ class _MainScreenState extends State<MainScreen>
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 18),
+            Icon(icon, size: 20),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
@@ -4234,13 +4965,17 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Widget _buildDashboard() {
-    double totalIncome = _transactions
+    final effectiveTransactions = affectingTransactions(_transactions);
+    double totalIncome = effectiveTransactions
         .where((t) => t.type == 'income')
         .fold(0, (sum, t) => sum + t.amount);
-    double totalExpense = _transactions
+    double totalExpense = effectiveTransactions
         .where((t) => t.type == 'expense')
         .fold(0, (sum, t) => sum + t.amount);
-    double balance = totalIncome - totalExpense;
+    double balance = calculateBalanceForWallet(
+      _allTransactions,
+      selectedWallet: _selectedHomeWallet,
+    );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -4250,11 +4985,7 @@ class _MainScreenState extends State<MainScreen>
           _buildHomeFilterSection(),
           const SizedBox(height: 16),
 
-          // Quick menu — entry point fitur baru yang tidak ada di bottom nav
-          _buildHomeQuickMenu(),
-          const SizedBox(height: 16),
-
-          // Wallet filter
+          // Filter wallet mengikuti filter periode agar kontrol Home terbaca berurutan.
           SizedBox(
             key: const Key('wallet_filter_row'),
             height: 45,
@@ -4278,6 +5009,10 @@ class _MainScreenState extends State<MainScreen>
 
           // Balance card
           _buildBalanceCard(balance, totalIncome, totalExpense),
+          const SizedBox(height: 18),
+
+          // Quick menu — entry point fitur baru yang tidak ada di bottom nav
+          _buildHomeQuickMenu(),
           const SizedBox(height: 25),
 
           // Analytics insight
@@ -4379,11 +5114,11 @@ class _MainScreenState extends State<MainScreen>
   String _statisticsPeriodLabel() {
     switch (_selectedFilter) {
       case 'weekly':
-        return 'Pengeluaran Mingguan';
+        return 'Pengeluaran Minggu';
       case 'monthly':
-        return 'Pengeluaran Bulanan';
+        return 'Pengeluaran Bulan';
       case 'yearly':
-        return 'Pengeluaran Tahunan';
+        return 'Pengeluaran Tahun';
       case 'range':
         return 'Pengeluaran Rentang';
       default:
@@ -4435,11 +5170,11 @@ class _MainScreenState extends State<MainScreen>
     final storedWallet = _activeWallets.where((item) => item.name == wallet);
     final walletRecord = storedWallet.isNotEmpty ? storedWallet.first : null;
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         setState(() {
           _selectedHomeWallet = wallet;
         });
-        _loadTransactions();
+        await _loadTransactions();
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -4483,7 +5218,7 @@ class _MainScreenState extends State<MainScreen>
   Widget _buildHomeQuickMenu() {
     return SizedBox(
       key: const Key('home_quick_menu'),
-      height: 90,
+      height: 104,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -4495,7 +5230,12 @@ class _MainScreenState extends State<MainScreen>
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => DompetPage(initialWallets: _activeWallets),
+                  builder: (_) => DompetPage(
+                    initialWallets:
+                        widget.skipInitialLoad || _activeWallets.isNotEmpty
+                            ? _activeWallets
+                            : null,
+                  ),
                 ),
               ).then((_) => _loadWallets()),
             ),
@@ -4517,7 +5257,7 @@ class _MainScreenState extends State<MainScreen>
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const PosKeuanganPage()),
-              ),
+              ).then((_) => _loadBuckets()),
             ),
           ],
         ),
@@ -4531,12 +5271,14 @@ class _MainScreenState extends State<MainScreen>
     required String label,
     required VoidCallback onTap,
   }) {
+    final shortLabel = label == 'Pos Keuangan' ? 'Pos keu..' : label;
     return GestureDetector(
       key: itemKey,
       onTap: onTap,
       child: Container(
-        width: 90,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+        width: 96,
+        height: 84,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
@@ -4550,18 +5292,19 @@ class _MainScreenState extends State<MainScreen>
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: const Color(0xFFFF69B4), size: 26),
-            const SizedBox(height: 6),
+            Icon(icon, color: const Color(0xFFFF69B4), size: 24),
+            const SizedBox(height: 8),
             Text(
-              label,
+              shortLabel,
               style: GoogleFonts.poppins(
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: const Color(0xFF333333),
               ),
               textAlign: TextAlign.center,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ],
@@ -4651,7 +5394,7 @@ class _MainScreenState extends State<MainScreen>
       final matchesPeriod =
           t.date.isAfter(period.start.subtract(const Duration(seconds: 1))) &&
               t.date.isBefore(period.end.add(const Duration(seconds: 1)));
-      return matchesWallet && matchesPeriod;
+      return t.affectsBalance && matchesWallet && matchesPeriod;
     }).toList();
   }
 
@@ -4727,7 +5470,7 @@ class _MainScreenState extends State<MainScreen>
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Rp ${NumberFormat('#,###').format(goal.currentAmount)} / Rp ${NumberFormat('#,###').format(goal.targetAmount)}',
+                      '${formatRupiah(goal.currentAmount)} / ${formatRupiah(goal.targetAmount)}',
                       style: GoogleFonts.poppins(
                         fontSize: 10,
                         color: Colors.grey,
@@ -4764,15 +5507,15 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  Widget _buildHomeFilterButton(String filter, String label, String emoji) {
+  Widget _buildHomeFilterButton(String filter, String label, IconData icon) {
     bool isSelected = _selectedHomeFilter == filter;
     return Expanded(
       child: GestureDetector(
-        onTap: () {
+        onTap: () async {
           setState(() {
             _selectedHomeFilter = filter;
           });
-          _loadTransactions();
+          await _loadTransactions();
         },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -4788,13 +5531,25 @@ class _MainScreenState extends State<MainScreen>
             ],
           ),
           child: Center(
-            child: Text(
-              label,
-              style: GoogleFonts.poppins(
-                color: isSelected ? Colors.white : const Color(0xFFFF69B4),
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 16,
+                  color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -4802,38 +5557,51 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  Widget _buildStatisticsFilterButton(String filter, String label) {
+  Widget _buildStatisticsFilterButton(
+      String filter, String label, IconData icon) {
     bool isSelected = _selectedFilter == filter;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedFilter = filter;
-          });
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.pink.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: GoogleFonts.poppins(
-                color: isSelected ? Colors.white : const Color(0xFFFF69B4),
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedFilter = filter;
+        });
+      },
+      child: Container(
+        width: 120,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.pink.withValues(alpha: 0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+                style: GoogleFonts.poppins(
+                  color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -4844,11 +5612,14 @@ class _MainScreenState extends State<MainScreen>
       height: 50,
       child: Row(
         children: [
-          _buildHomeFilterButton('daily', 'Harian', '📅'),
+          _buildHomeFilterButton(
+              'daily', 'Harian', Icons.calendar_today_outlined),
           const SizedBox(width: 10),
-          _buildHomeFilterButton('monthly', 'Bulanan', '📆'),
+          _buildHomeFilterButton(
+              'monthly', 'Bulanan', Icons.calendar_view_month_outlined),
           const SizedBox(width: 10),
-          _buildHomeFilterButton('yearly', 'Tahunan', '🗓️'),
+          _buildHomeFilterButton(
+              'yearly', 'Tahunan', Icons.date_range_outlined),
         ],
       ),
     );
@@ -4862,16 +5633,23 @@ class _MainScreenState extends State<MainScreen>
       children: [
         Container(
           height: 50,
-          child: Row(
-            children: [
-              _buildStatisticsFilterButton('weekly', 'Mingguan'),
-              const SizedBox(width: 10),
-              _buildStatisticsFilterButton('monthly', 'Bulanan'),
-              const SizedBox(width: 10),
-              _buildStatisticsFilterButton('yearly', 'Tahunan'),
-              const SizedBox(width: 10),
-              _buildStatisticsFilterButton('range', 'Rentang'),
-            ],
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildStatisticsFilterButton(
+                    'weekly', 'Minggu', Icons.view_week_outlined),
+                const SizedBox(width: 10),
+                _buildStatisticsFilterButton(
+                    'monthly', 'Bulan', Icons.calendar_view_month_outlined),
+                const SizedBox(width: 10),
+                _buildStatisticsFilterButton(
+                    'yearly', 'Tahun', Icons.date_range_outlined),
+                const SizedBox(width: 10),
+                _buildStatisticsFilterButton(
+                    'range', 'Rentang', Icons.date_range_outlined),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 20),
@@ -5011,7 +5789,7 @@ class _MainScreenState extends State<MainScreen>
           const SizedBox(height: 10),
           FittedBox(
             child: Text(
-              'Rp ${NumberFormat('#,###').format(balance)}',
+              formatRupiah(balance),
               style: GoogleFonts.poppins(
                 color: Colors.white,
                 fontSize: 32,
@@ -5052,7 +5830,7 @@ class _MainScreenState extends State<MainScreen>
                       const SizedBox(height: 5),
                       FittedBox(
                         child: Text(
-                          'Rp ${NumberFormat('#,###').format(income)}',
+                          formatRupiah(income),
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontSize: 14,
@@ -5095,7 +5873,7 @@ class _MainScreenState extends State<MainScreen>
                       const SizedBox(height: 5),
                       FittedBox(
                         child: Text(
-                          'Rp ${NumberFormat('#,###').format(expense)}',
+                          formatRupiah(expense),
                           style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontSize: 14,
@@ -5337,113 +6115,384 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  Widget _buildTransactionItem(Transaction transaction) {
+  Widget _buildTransactionActionBackground({
+    required Color color,
+    required IconData icon,
+    required String label,
+    required Alignment alignment,
+  }) {
+    final isStartAligned = alignment == Alignment.centerLeft;
     return Container(
-      margin: const EdgeInsets.only(bottom: 15),
-      padding: const EdgeInsets.all(20),
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: color.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment:
+            isStartAligned ? CrossAxisAlignment.start : CrossAxisAlignment.end,
+        children: [
+          Icon(icon, color: color, size: 28),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              color: color,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
-      child: Row(
+    );
+  }
+
+  Widget _buildTransactionDetailInfo({
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: transaction.type == 'income'
-                  ? Colors.green.withValues(alpha: 0.1)
-                  : Colors.red.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Icon(
-              transaction.type == 'income'
-                  ? Icons.arrow_downward
-                  : Icons.arrow_upward,
-              color: transaction.type == 'income' ? Colors.green : Colors.red,
-              size: 24,
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey,
             ),
           ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  transaction.description,
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
-                  ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF333333),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openTransactionDetail(Transaction transaction) async {
+    final action = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (detailContext) {
+          final accentColor =
+              transaction.type == 'income' ? Colors.green : Colors.red;
+          final typeLabel =
+              transaction.type == 'income' ? 'Pemasukan' : 'Pengeluaran';
+          final amountLabel =
+              '${transaction.type == 'income' ? '+' : '-'} ${formatRupiah(transaction.amount)}';
+
+          return Scaffold(
+            key: const Key('transaction_detail_page'),
+            backgroundColor: const Color(0xFFFFF0F5),
+            appBar: AppBar(
+              title: Text(
+                'Detail Transaksi',
+                style: GoogleFonts.poppins(
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF333333),
                 ),
-                const SizedBox(height: 5),
-                Row(
+              ),
+              backgroundColor: Colors.transparent,
+              foregroundColor: const Color(0xFF333333),
+              elevation: 0,
+            ),
+            body: SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text(
-                      transaction.category,
-                      style: GoogleFonts.poppins(
-                        fontSize: 8,
-                        color: Colors.grey,
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.pink.withValues(alpha: 0.12),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: accentColor.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: Icon(
+                              transaction.type == 'income'
+                                  ? Icons.arrow_downward
+                                  : Icons.arrow_upward,
+                              color: accentColor,
+                              size: 28,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            transaction.description,
+                            style: GoogleFonts.poppins(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF333333),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            amountLabel,
+                            style: GoogleFonts.poppins(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              color: accentColor,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(height: 18),
+                    _buildTransactionDetailInfo(
+                      label: 'Tipe',
+                      value: typeLabel,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildTransactionDetailInfo(
+                      label: 'Kategori',
+                      value: transaction.category,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildTransactionDetailInfo(
+                      label: 'Dompet',
+                      value: transaction.wallet,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildTransactionDetailInfo(
+                      label: 'Tanggal',
+                      value: DateFormat('dd MMM yyyy, HH:mm')
+                          .format(transaction.date),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            key: const Key('transaction_detail_delete_btn'),
+                            onPressed: transaction.id == null
+                                ? null
+                                : () => Navigator.pop(detailContext, 'delete'),
+                            icon: const Icon(Icons.delete_outline),
+                            label: Text(
+                              'Hapus',
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.red,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              side: const BorderSide(color: Colors.red),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            key: const Key('transaction_detail_edit_btn'),
+                            onPressed: () =>
+                                Navigator.pop(detailContext, 'edit'),
+                            icon: const Icon(Icons.edit_outlined),
+                            label: Text(
+                              'Edit',
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF69B4),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+
+    if (!mounted || action == null) return;
+
+    if (action == 'edit') {
+      await _showTransactionDialog(initialTransaction: transaction);
+      return;
+    }
+
+    if (action == 'delete' && transaction.id != null) {
+      _deleteTransaction(transaction.id!);
+    }
+  }
+
+  Widget _buildTransactionItem(Transaction transaction) {
+    final accentColor =
+        transaction.type == 'income' ? Colors.green : Colors.red;
+    final card = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: transaction.id == null
+            ? null
+            : () => _openTransactionDetail(transaction),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.pink.withValues(alpha: 0.1),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Icon(
+                  transaction.type == 'income'
+                      ? Icons.arrow_downward
+                      : Icons.arrow_upward,
+                  color: accentColor,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      '• ${transaction.wallet}',
+                      transaction.description,
                       style: GoogleFonts.poppins(
-                        fontSize: 8,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF333333),
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Text(
+                          transaction.category,
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '• ${transaction.wallet}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 10,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      DateFormat('dd MMM yyyy, HH:mm').format(transaction.date),
+                      style: GoogleFonts.poppins(
+                        fontSize: 10,
                         color: Colors.grey,
                       ),
                     ),
                   ],
                 ),
-                Text(
-                  DateFormat('dd MMM yyyy, HH:mm').format(transaction.date),
-                  style: GoogleFonts.poppins(
-                    fontSize: 8,
-                    color: Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
+              ),
+              const SizedBox(width: 12),
               Text(
-                '${transaction.type == 'income' ? '+' : '-'} Rp ${NumberFormat('#,###').format(transaction.amount)}',
+                '${transaction.type == 'income' ? '+' : '-'} ${formatRupiah(transaction.amount)}',
                 style: GoogleFonts.poppins(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color:
-                      transaction.type == 'income' ? Colors.green : Colors.red,
-                ),
-              ),
-              const SizedBox(height: 5),
-              GestureDetector(
-                onTap: () => _deleteTransaction(transaction.id!),
-                child: Container(
-                  padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.delete_outline,
-                    color: Colors.red,
-                    size: 16,
-                  ),
+                  color: accentColor,
                 ),
               ),
             ],
           ),
-        ],
+        ),
+      ),
+    );
+
+    if (transaction.id == null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 15),
+        child: card,
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 15),
+      child: Dismissible(
+        key: Key('transaction_history_item_${transaction.id}'),
+        direction: DismissDirection.horizontal,
+        confirmDismiss: (direction) async {
+          if (direction == DismissDirection.startToEnd) {
+            _deleteTransaction(transaction.id!);
+            return false;
+          }
+
+          _showTransactionDialog(initialTransaction: transaction);
+          return false;
+        },
+        background: _buildTransactionActionBackground(
+          color: Colors.red,
+          icon: Icons.delete_outline,
+          label: 'Delete',
+          alignment: Alignment.centerLeft,
+        ),
+        secondaryBackground: _buildTransactionActionBackground(
+          color: const Color(0xFF29C7E8),
+          icon: Icons.edit_outlined,
+          label: 'Edit',
+          alignment: Alignment.centerRight,
+        ),
+        child: card,
       ),
     );
   }
@@ -5703,7 +6752,7 @@ class _MainScreenState extends State<MainScreen>
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  'Rp ${NumberFormat('#,###').format(item.price)}',
+                  formatRupiah(item.price),
                   style: GoogleFonts.poppins(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -5845,7 +6894,7 @@ class _MainScreenState extends State<MainScreen>
                 child: _buildStatItem(
                   Icons.trending_up_rounded,
                   'Pemasukan',
-                  'Rp ${NumberFormat('#,###').format(totalIncome)}',
+                  formatRupiah(totalIncome),
                 ),
               ),
               Container(width: 1, height: 50, color: Colors.white30),
@@ -5853,7 +6902,7 @@ class _MainScreenState extends State<MainScreen>
                 child: _buildStatItem(
                   Icons.trending_down_rounded,
                   'Pengeluaran',
-                  'Rp ${NumberFormat('#,###').format(totalExpense)}',
+                  formatRupiah(totalExpense),
                 ),
               ),
             ],
@@ -6180,21 +7229,12 @@ class _MainScreenState extends State<MainScreen>
                   leftTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
-                      reservedSize: 60,
+                      reservedSize: 84,
                       interval: yInterval,
                       getTitlesWidget: (value, meta) {
                         if (value == 0) return const Text('');
 
-                        String label;
-                        if (value >= 1000000) {
-                          label =
-                              '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
-                        } else if (value >= 1000) {
-                          label =
-                              '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 0)}K';
-                        } else {
-                          label = value.toStringAsFixed(0);
-                        }
+                        final label = formatRupiahValue(value);
 
                         return Padding(
                           padding: const EdgeInsets.only(right: 8),
@@ -6264,7 +7304,7 @@ class _MainScreenState extends State<MainScreen>
                         final amount = barSpot.y;
 
                         return LineTooltipItem(
-                          '${labels[monthIndex]}\nRp ${NumberFormat('#,###').format(amount)}',
+                          '${labels[monthIndex]}\n${formatRupiah(amount)}',
                           GoogleFonts.poppins(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -6374,6 +7414,7 @@ class _MainScreenState extends State<MainScreen>
 
   ChartSeriesData _buildExpenseChartSeries() {
     final period = _currentPeriodRange();
+    final effectiveTransactions = affectingTransactions(_allTransactions);
 
     switch (_selectedFilter) {
       case 'weekly':
@@ -6384,7 +7425,7 @@ class _MainScreenState extends State<MainScreen>
           final nextDay = DateTime(day.year, day.month, day.day + 1);
           labels.add(DateFormat('E').format(day));
           values.add(
-            _allTransactions
+            effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
                     (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
@@ -6411,7 +7452,7 @@ class _MainScreenState extends State<MainScreen>
               DateTime(period.start.year, period.start.month, dayNumber + 1);
           labels.add(dayNumber.toString());
           values.add(
-            _allTransactions
+            effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
                     (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
@@ -6435,7 +7476,7 @@ class _MainScreenState extends State<MainScreen>
           final nextMonth = DateTime(period.start.year, month + 1, 1);
           labels.add(DateFormat('MMM').format(monthStart));
           values.add(
-            _allTransactions
+            effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
                     (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
@@ -6461,7 +7502,7 @@ class _MainScreenState extends State<MainScreen>
           final nextDay = DateTime(day.year, day.month, day.day + 1);
           labels.add(DateFormat('d MMM').format(day));
           values.add(
-            _allTransactions
+            effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
                     (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
@@ -6649,7 +7690,7 @@ class _MainScreenState extends State<MainScreen>
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      'Target: Rp ${NumberFormat('#,###').format(goal.targetAmount)}',
+                      'Target: ${formatRupiah(goal.targetAmount)}',
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         color: Colors.grey,
@@ -6745,7 +7786,7 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   Text(
-                    'Rp ${NumberFormat('#,###').format(goal.currentAmount)}',
+                    formatRupiah(goal.currentAmount),
                     style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -6807,18 +7848,24 @@ class _MainScreenState extends State<MainScreen>
 
   // Dialog Methods
   void _showAddTransactionDialog() {
-    final TextEditingController amountController = TextEditingController();
-    final TextEditingController descriptionController = TextEditingController();
-    String selectedType = 'expense';
-    String selectedCategory = 'Makanan';
-    String selectedWallet =
-        _activeWallets.isNotEmpty ? _activeWallets.first.name : 'Cash';
-    FinancialBucket? selectedExpenseBucket =
-        _activeBuckets.isNotEmpty ? _activeBuckets.first : null;
-    final Set<int> selectedIncomeBucketIds = _activeBuckets
-        .where((bucket) => bucket.id != null)
-        .map((bucket) => bucket.id!)
-        .toSet();
+    _showTransactionDialog();
+  }
+
+  Future<void> _showTransactionDialog({
+    Transaction? initialTransaction,
+  }) async {
+    final isEditing = initialTransaction != null;
+    final affectsBalance = initialTransaction?.affectsBalance ?? true;
+    final now = DateTime.now();
+    final TextEditingController amountController = TextEditingController(
+      text: isEditing
+          ? CurrencyInputFormatter.format(initialTransaction.amount.round())
+          : '',
+    );
+    final TextEditingController descriptionController = TextEditingController(
+      text: initialTransaction?.description ?? '',
+    );
+    String selectedType = initialTransaction?.type ?? 'expense';
 
     final List<String> expenseCategories = [
       'Makanan',
@@ -6840,12 +7887,109 @@ class _MainScreenState extends State<MainScreen>
       'Lainnya'
     ];
 
-    showModalBottomSheet(
+    void ensureCategoryPresent(List<String> categories, String? category) {
+      if (category != null && !categories.contains(category)) {
+        categories.insert(0, category);
+      }
+    }
+
+    if (selectedType == 'income') {
+      ensureCategoryPresent(incomeCategories, initialTransaction?.category);
+    } else {
+      ensureCategoryPresent(expenseCategories, initialTransaction?.category);
+    }
+
+    String selectedCategory = initialTransaction?.category ??
+        (selectedType == 'income'
+            ? incomeCategories.first
+            : expenseCategories.first);
+
+    final availableWallets = List<Wallet>.from(_activeWallets);
+    final fallbackWalletName = initialTransaction?.wallet ?? 'Cash';
+    if (!availableWallets.any((wallet) => wallet.name == fallbackWalletName)) {
+      availableWallets.insert(
+        0,
+        Wallet(
+          name: fallbackWalletName,
+          createdDate: now,
+          updatedDate: now,
+        ),
+      );
+    }
+    if (availableWallets.isEmpty) {
+      availableWallets.add(
+        Wallet(
+          name: fallbackWalletName,
+          createdDate: now,
+          updatedDate: now,
+        ),
+      );
+    }
+
+    String selectedWallet = availableWallets
+        .firstWhere(
+          (wallet) => wallet.name == fallbackWalletName,
+          orElse: () => availableWallets.first,
+        )
+        .name;
+
+    final hasNoActiveBuckets = _activeBuckets.isEmpty;
+    final bucketConfigurationIncomplete =
+        hasIncompleteBucketConfiguration(_activeBuckets);
+
+    FinancialBucket? selectedExpenseBucket =
+        _activeBuckets.isNotEmpty ? _activeBuckets.first : null;
+    final Set<int> selectedIncomeBucketIds = <int>{};
+
+    if (isEditing &&
+        initialTransaction.id != null &&
+        _activeBuckets.isNotEmpty) {
+      final allocations = await _dbHelper.getTransactionBucketAllocations(
+        initialTransaction.id!,
+      );
+      if (selectedType == 'income') {
+        selectedIncomeBucketIds.addAll(
+          allocations
+              .where((allocation) => allocation.role == 'target')
+              .map((allocation) => allocation.bucketId),
+        );
+      } else {
+        final sourceAllocations = allocations
+            .where((allocation) => allocation.role == 'source')
+            .toList();
+        if (sourceAllocations.isNotEmpty) {
+          final matchingBuckets = _activeBuckets
+              .where((bucket) => bucket.id == sourceAllocations.first.bucketId)
+              .toList();
+          if (matchingBuckets.isNotEmpty) {
+            selectedExpenseBucket = matchingBuckets.first;
+          }
+        }
+      }
+    } else {
+      selectedIncomeBucketIds.addAll(
+        _activeBuckets
+            .where((bucket) => bucket.id != null)
+            .map((bucket) => bucket.id!),
+      );
+    }
+
+    if (selectedType == 'income' &&
+        selectedIncomeBucketIds.isEmpty &&
+        affectsBalance) {
+      selectedIncomeBucketIds.addAll(
+        _activeBuckets
+            .where((bucket) => bucket.id != null)
+            .map((bucket) => bucket.id!),
+      );
+    }
+
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => Container(
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setState) => Container(
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.only(
@@ -6860,7 +8004,7 @@ class _MainScreenState extends State<MainScreen>
                 left: 20,
                 right: 20,
                 top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -6868,6 +8012,7 @@ class _MainScreenState extends State<MainScreen>
                 children: [
                   Center(
                     child: Container(
+                      key: const Key('sheet_drag_handle'),
                       width: 50,
                       height: 5,
                       decoration: BoxDecoration(
@@ -6878,7 +8023,7 @@ class _MainScreenState extends State<MainScreen>
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    'Tambah Transaksi 💰',
+                    isEditing ? 'Edit Transaksi' : 'Tambah Transaksi 💰',
                     style: GoogleFonts.poppins(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -6886,8 +8031,6 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   const SizedBox(height: 25),
-
-                  // Type selection
                   Text(
                     'Tipe Transaksi',
                     style: GoogleFonts.poppins(
@@ -6901,15 +8044,20 @@ class _MainScreenState extends State<MainScreen>
                     children: [
                       Expanded(
                         child: GestureDetector(
-                          onTap: () => setState(() {
-                            selectedType = 'expense';
-                            if (!expenseCategories.contains(selectedCategory)) {
-                              selectedCategory = expenseCategories.first;
-                            }
-                            if (_activeBuckets.isNotEmpty) {
-                              selectedExpenseBucket ??= _activeBuckets.first;
-                            }
-                          }),
+                          onTap: !affectsBalance
+                              ? null
+                              : () => setState(() {
+                                    selectedType = 'expense';
+                                    if (!expenseCategories
+                                        .contains(selectedCategory)) {
+                                      selectedCategory =
+                                          expenseCategories.first;
+                                    }
+                                    if (_activeBuckets.isNotEmpty) {
+                                      selectedExpenseBucket ??=
+                                          _activeBuckets.first;
+                                    }
+                                  }),
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 15),
                             decoration: BoxDecoration(
@@ -6951,19 +8099,23 @@ class _MainScreenState extends State<MainScreen>
                       const SizedBox(width: 15),
                       Expanded(
                         child: GestureDetector(
-                          onTap: () => setState(() {
-                            selectedType = 'income';
-                            if (!incomeCategories.contains(selectedCategory)) {
-                              selectedCategory = incomeCategories.first;
-                            }
-                            if (selectedIncomeBucketIds.isEmpty) {
-                              selectedIncomeBucketIds.addAll(
-                                _activeBuckets
-                                    .where((bucket) => bucket.id != null)
-                                    .map((bucket) => bucket.id!),
-                              );
-                            }
-                          }),
+                          onTap: !affectsBalance
+                              ? null
+                              : () => setState(() {
+                                    selectedType = 'income';
+                                    if (!incomeCategories
+                                        .contains(selectedCategory)) {
+                                      selectedCategory = incomeCategories.first;
+                                    }
+                                    if (selectedIncomeBucketIds.isEmpty) {
+                                      selectedIncomeBucketIds.addAll(
+                                        _activeBuckets
+                                            .where(
+                                                (bucket) => bucket.id != null)
+                                            .map((bucket) => bucket.id!),
+                                      );
+                                    }
+                                  }),
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 15),
                             decoration: BoxDecoration(
@@ -7005,8 +8157,6 @@ class _MainScreenState extends State<MainScreen>
                     ],
                   ),
                   const SizedBox(height: 20),
-
-                  // Amount input
                   Text(
                     'Jumlah',
                     style: GoogleFonts.poppins(
@@ -7040,8 +8190,6 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // Category selection
                   Text(
                     'Kategori',
                     style: GoogleFonts.poppins(
@@ -7062,12 +8210,15 @@ class _MainScreenState extends State<MainScreen>
                       child: DropdownButton<String>(
                         value: selectedCategory,
                         isExpanded: true,
-                        icon: const Icon(Icons.keyboard_arrow_down,
-                            color: Color(0xFFFF69B4)),
+                        icon: const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: Color(0xFFFF69B4),
+                        ),
                         style:
                             GoogleFonts.poppins(color: const Color(0xFF333333)),
                         onChanged: (String? newValue) {
-                          setState(() => selectedCategory = newValue!);
+                          if (newValue == null) return;
+                          setState(() => selectedCategory = newValue);
                         },
                         items: (selectedType == 'expense'
                                 ? expenseCategories
@@ -7082,8 +8233,6 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // Wallet selection
                   Text(
                     'Dompet',
                     style: GoogleFonts.poppins(
@@ -7104,23 +8253,30 @@ class _MainScreenState extends State<MainScreen>
                       child: DropdownButton<String>(
                         value: selectedWallet,
                         isExpanded: true,
-                        icon: const Icon(Icons.keyboard_arrow_down,
-                            color: Color(0xFFFF69B4)),
+                        icon: const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: Color(0xFFFF69B4),
+                        ),
                         style:
                             GoogleFonts.poppins(color: const Color(0xFF333333)),
                         onChanged: (String? newValue) {
-                          setState(() => selectedWallet = newValue!);
+                          if (newValue == null) return;
+                          setState(() => selectedWallet = newValue);
                         },
-                        items: _activeWallets
-                            .map<DropdownMenuItem<String>>((Wallet w) {
+                        items: availableWallets
+                            .map<DropdownMenuItem<String>>((Wallet wallet) {
                           return DropdownMenuItem<String>(
-                            value: w.name,
+                            value: wallet.name,
                             child: Row(
                               children: [
-                                Icon(resolveWalletIcon(w.iconKey, w.name),
-                                    size: 16, color: const Color(0xFFFF69B4)),
+                                Icon(
+                                  resolveWalletIcon(
+                                      wallet.iconKey, wallet.name),
+                                  size: 16,
+                                  color: const Color(0xFFFF69B4),
+                                ),
                                 const SizedBox(width: 8),
-                                Text(w.name),
+                                Text(wallet.name),
                               ],
                             ),
                           );
@@ -7129,7 +8285,6 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   const SizedBox(height: 20),
-
                   Container(
                     key: const Key('transaction_bucket_section'),
                     child: Column(
@@ -7144,7 +8299,23 @@ class _MainScreenState extends State<MainScreen>
                           ),
                         ),
                         const SizedBox(height: 10),
-                        if (selectedType == 'income')
+                        if (!affectsBalance)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: Text(
+                              'Transaksi ini hanya catatan dan tidak memengaruhi saldo pos.',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          )
+                        else if (selectedType == 'income')
                           Container(
                             key: const Key('income_bucket_selector'),
                             width: double.infinity,
@@ -7153,58 +8324,83 @@ class _MainScreenState extends State<MainScreen>
                               color: Colors.grey.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(15),
                             ),
-                            child: _activeBuckets.isEmpty
+                            child: bucketConfigurationIncomplete
                                 ? Text(
-                                    'Belum ada pos keuangan aktif',
+                                    _bucketConfigurationIncompleteText,
                                     style: GoogleFonts.poppins(
                                       fontSize: 12,
                                       color: Colors.grey,
                                     ),
                                   )
-                                : Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: _activeBuckets.map((bucket) {
-                                      final bucketId = bucket.id!;
-                                      final isSelected = selectedIncomeBucketIds
-                                          .contains(bucketId);
-                                      return FilterChip(
-                                        label: Text(bucket.name),
-                                        selected: isSelected,
-                                        onSelected: (selected) {
-                                          setState(() {
-                                            if (selected) {
+                                : hasNoActiveBuckets
+                                    ? Text(
+                                        'Belum ada pos keuangan aktif. Transaksi tetap bisa disimpan tanpa alokasi pos.',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          color: Colors.grey,
+                                        ),
+                                      )
+                                    : Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: _activeBuckets.map((bucket) {
+                                          final bucketId = bucket.id!;
+                                          final isSelected =
                                               selectedIncomeBucketIds
-                                                  .add(bucketId);
-                                            } else {
-                                              selectedIncomeBucketIds
-                                                  .remove(bucketId);
-                                            }
-                                          });
-                                        },
-                                      );
-                                    }).toList(),
-                                  ),
+                                                  .contains(bucketId);
+                                          return FilterChip(
+                                            label: Text(bucket.name),
+                                            selected: isSelected,
+                                            onSelected: (selected) {
+                                              setState(() {
+                                                if (selected) {
+                                                  selectedIncomeBucketIds
+                                                      .add(bucketId);
+                                                } else {
+                                                  selectedIncomeBucketIds
+                                                      .remove(bucketId);
+                                                }
+                                              });
+                                            },
+                                          );
+                                        }).toList(),
+                                      ),
+                          )
+                        else if (bucketConfigurationIncomplete ||
+                            hasNoActiveBuckets)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: Text(
+                              bucketConfigurationIncomplete
+                                  ? _bucketConfigurationIncompleteText
+                                  : 'Belum ada pos keuangan aktif. Transaksi tetap bisa disimpan tanpa pos sumber.',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
+                            ),
                           )
                         else
                           DropdownButtonFormField<FinancialBucket>(
                             key: const Key('expense_bucket_dropdown'),
                             value: selectedExpenseBucket,
                             items: _activeBuckets
-                                .map((bucket) =>
-                                    DropdownMenuItem<FinancialBucket>(
-                                      value: bucket,
-                                      child: Text(bucket.name),
-                                    ))
+                                .map(
+                                  (bucket) => DropdownMenuItem<FinancialBucket>(
+                                    value: bucket,
+                                    child: Text(bucket.name),
+                                  ),
+                                )
                                 .toList(),
-                            onChanged: _activeBuckets.isEmpty
-                                ? null
-                                : (bucket) => setState(
-                                    () => selectedExpenseBucket = bucket),
+                            onChanged: (bucket) =>
+                                setState(() => selectedExpenseBucket = bucket),
                             decoration: InputDecoration(
-                              hintText: _activeBuckets.isEmpty
-                                  ? 'Belum ada pos keuangan aktif'
-                                  : 'Pilih pos sumber',
+                              hintText: 'Pilih pos sumber',
                               hintStyle: GoogleFonts.poppins(),
                               filled: true,
                               fillColor: Colors.grey.withValues(alpha: 0.1),
@@ -7218,8 +8414,6 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   const SizedBox(height: 20),
-
-                  // Description input
                   Text(
                     'Keterangan',
                     style: GoogleFonts.poppins(
@@ -7246,34 +8440,25 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   const SizedBox(height: 30),
-
-                  // Save button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: () async {
-                        if (amountController.text.isEmpty ||
-                            descriptionController.text.isEmpty) {
+                        if (amountController.text.isEmpty) {
                           _showSnackBarMessage(
-                            'Jumlah dan keterangan wajib diisi.',
+                            'Jumlah wajib diisi.',
                             backgroundColor: Colors.red,
                           );
                           return;
                         }
 
                         try {
-                          if (_activeBuckets.isEmpty) {
-                            _showSnackBarMessage(
-                              'Buat pos keuangan aktif dulu.',
-                              backgroundColor: Colors.red,
-                            );
-                            return;
-                          }
-
                           final amount =
                               parseCurrencyInput(amountController.text);
-                          final now = DateTime.now();
-                          final selectedWalletModel = _activeWallets
+                          final description = descriptionController.text.trim();
+                          final transactionDate =
+                              initialTransaction?.date ?? DateTime.now();
+                          final selectedWalletModel = availableWallets
                               .where((wallet) => wallet.name == selectedWallet)
                               .cast<Wallet?>()
                               .firstWhere(
@@ -7281,53 +8466,192 @@ class _MainScreenState extends State<MainScreen>
                                 orElse: () => null,
                               );
 
-                          if (selectedType == 'income') {
-                            final subsetBuckets = _activeBuckets
-                                .where((bucket) =>
-                                    bucket.id != null &&
-                                    selectedIncomeBucketIds.contains(bucket.id))
-                                .toList();
-                            if (subsetBuckets.isEmpty) {
+                          if (!affectsBalance) {
+                            if (initialTransaction?.id == null) {
                               _showSnackBarMessage(
-                                'Pilih minimal satu pos tujuan.',
+                                'Transaksi catatan tidak bisa dibuat dari form ini.',
                                 backgroundColor: Colors.red,
                               );
                               return;
                             }
-                            await _dbHelper.saveIncomeWithAllocations(
+
+                            await _dbHelper.updateTransaction(
+                              transactionId: initialTransaction!.id!,
+                              type: selectedType,
                               amount: amount,
                               category: selectedCategory,
-                              description: descriptionController.text,
-                              date: now,
+                              description: description,
+                              date: transactionDate,
                               walletName: selectedWallet,
-                              subsetBuckets: subsetBuckets,
                               walletId: selectedWalletModel?.id,
+                              affectsBalance: false,
                             );
+                          } else if (selectedType == 'income') {
+                            if (bucketConfigurationIncomplete) {
+                              _showSnackBarMessage(
+                                _bucketConfigurationIncompleteMessage,
+                                backgroundColor: Colors.red,
+                              );
+                              return;
+                            }
+
+                            if (hasNoActiveBuckets) {
+                              if (isEditing) {
+                                await _dbHelper.updateTransaction(
+                                  transactionId: initialTransaction.id!,
+                                  type: selectedType,
+                                  amount: amount,
+                                  category: selectedCategory,
+                                  description: description,
+                                  date: transactionDate,
+                                  walletName: selectedWallet,
+                                  walletId: selectedWalletModel?.id,
+                                  affectsBalance: true,
+                                  allowWithoutBucketAllocation: true,
+                                );
+                              } else {
+                                await _dbHelper.insertTransaction(
+                                  Transaction(
+                                    type: selectedType,
+                                    amount: amount,
+                                    category: selectedCategory,
+                                    description: description,
+                                    date: transactionDate,
+                                    wallet: selectedWallet,
+                                    walletId: selectedWalletModel?.id,
+                                    walletNameSnapshot: selectedWallet,
+                                    affectsBalance: true,
+                                  ),
+                                );
+                              }
+                            } else {
+                              final subsetBuckets = _activeBuckets
+                                  .where((bucket) =>
+                                      bucket.id != null &&
+                                      selectedIncomeBucketIds
+                                          .contains(bucket.id))
+                                  .toList();
+                              if (subsetBuckets.isEmpty) {
+                                _showSnackBarMessage(
+                                  'Pilih minimal satu pos tujuan.',
+                                  backgroundColor: Colors.red,
+                                );
+                                return;
+                              }
+
+                              if (isEditing) {
+                                await _dbHelper.updateTransaction(
+                                  transactionId: initialTransaction.id!,
+                                  type: selectedType,
+                                  amount: amount,
+                                  category: selectedCategory,
+                                  description: description,
+                                  date: transactionDate,
+                                  walletName: selectedWallet,
+                                  walletId: selectedWalletModel?.id,
+                                  affectsBalance: true,
+                                  subsetBuckets: subsetBuckets,
+                                );
+                              } else {
+                                await _dbHelper.saveIncomeWithAllocations(
+                                  amount: amount,
+                                  category: selectedCategory,
+                                  description: description,
+                                  date: transactionDate,
+                                  walletName: selectedWallet,
+                                  subsetBuckets: subsetBuckets,
+                                  walletId: selectedWalletModel?.id,
+                                );
+                              }
+                            }
                           } else {
-                            if (selectedExpenseBucket == null) {
+                            if (bucketConfigurationIncomplete) {
                               _showSnackBarMessage(
-                                'Pilih satu pos sumber.',
+                                _bucketConfigurationIncompleteMessage,
                                 backgroundColor: Colors.red,
                               );
                               return;
                             }
-                            await _dbHelper.saveExpenseWithSource(
-                              amount: amount,
-                              category: selectedCategory,
-                              description: descriptionController.text,
-                              date: now,
-                              walletName: selectedWallet,
-                              sourceBucket: selectedExpenseBucket!,
-                              walletId: selectedWalletModel?.id,
-                            );
+
+                            if (hasNoActiveBuckets) {
+                              if (isEditing) {
+                                await _dbHelper.updateTransaction(
+                                  transactionId: initialTransaction.id!,
+                                  type: selectedType,
+                                  amount: amount,
+                                  category: selectedCategory,
+                                  description: description,
+                                  date: transactionDate,
+                                  walletName: selectedWallet,
+                                  walletId: selectedWalletModel?.id,
+                                  affectsBalance: true,
+                                  allowWithoutBucketAllocation: true,
+                                );
+                              } else {
+                                await _dbHelper.insertTransaction(
+                                  Transaction(
+                                    type: selectedType,
+                                    amount: amount,
+                                    category: selectedCategory,
+                                    description: description,
+                                    date: transactionDate,
+                                    wallet: selectedWallet,
+                                    walletId: selectedWalletModel?.id,
+                                    walletNameSnapshot: selectedWallet,
+                                    affectsBalance: true,
+                                  ),
+                                );
+                              }
+                            } else {
+                              if (selectedExpenseBucket == null) {
+                                _showSnackBarMessage(
+                                  'Pilih satu pos sumber.',
+                                  backgroundColor: Colors.red,
+                                );
+                                return;
+                              }
+
+                              if (isEditing) {
+                                await _dbHelper.updateTransaction(
+                                  transactionId: initialTransaction.id!,
+                                  type: selectedType,
+                                  amount: amount,
+                                  category: selectedCategory,
+                                  description: description,
+                                  date: transactionDate,
+                                  walletName: selectedWallet,
+                                  walletId: selectedWalletModel?.id,
+                                  affectsBalance: true,
+                                  sourceBucket: selectedExpenseBucket!,
+                                );
+                              } else {
+                                await _dbHelper.saveExpenseWithSource(
+                                  amount: amount,
+                                  category: selectedCategory,
+                                  description: description,
+                                  date: transactionDate,
+                                  walletName: selectedWallet,
+                                  sourceBucket: selectedExpenseBucket!,
+                                  walletId: selectedWalletModel?.id,
+                                );
+                              }
+                            }
                           }
 
                           await _loadAllData();
 
-                          if (!context.mounted) return;
-                          Navigator.pop(context);
+                          if (!sheetContext.mounted) return;
+                          Navigator.pop(sheetContext);
                           _showSnackBarMessage(
-                              'Transaksi berhasil ditambahkan!');
+                            isEditing
+                                ? 'Transaksi berhasil diperbarui!'
+                                : 'Transaksi berhasil ditambahkan!',
+                          );
+                        } on StateError catch (_) {
+                          _showSnackBarMessage(
+                            'Transaksi dari hutang/piutang harus dikelola dari halaman hutang/piutang.',
+                            backgroundColor: Colors.red,
+                          );
                         } on Exception catch (_) {
                           _showSnackBarMessage(
                             'Transaksi gagal disimpan. Coba lagi.',
@@ -7343,7 +8667,7 @@ class _MainScreenState extends State<MainScreen>
                         ),
                       ),
                       child: Text(
-                        'Simpan Transaksi',
+                        isEditing ? 'Update Transaksi' : 'Simpan Transaksi',
                         style: GoogleFonts.poppins(
                           color: Colors.white,
                           fontSize: 16,
@@ -7406,6 +8730,7 @@ class _MainScreenState extends State<MainScreen>
               children: [
                 Center(
                   child: Container(
+                    key: const Key('sheet_drag_handle'),
                     width: 50,
                     height: 5,
                     decoration: BoxDecoration(
@@ -7697,6 +9022,7 @@ class _MainScreenState extends State<MainScreen>
               children: [
                 Center(
                   child: Container(
+                    key: const Key('sheet_drag_handle'),
                     width: 50,
                     height: 5,
                     decoration: BoxDecoration(
@@ -8052,6 +9378,7 @@ class _MainScreenState extends State<MainScreen>
                         // Handle bar
                         Center(
                           child: Container(
+                            key: const Key('sheet_drag_handle'),
                             width: 50,
                             height: 5,
                             decoration: BoxDecoration(
@@ -8096,7 +9423,7 @@ class _MainScreenState extends State<MainScreen>
                                       ),
                                     ),
                                     Text(
-                                      'Rp ${NumberFormat('#,###').format(goal.currentAmount)} / Rp ${NumberFormat('#,###').format(goal.targetAmount)}',
+                                      '${formatRupiah(goal.currentAmount)} / ${formatRupiah(goal.targetAmount)}',
                                       style: GoogleFonts.poppins(
                                         fontSize: 12,
                                         color: Colors.white70,
@@ -8168,14 +9495,14 @@ class _MainScreenState extends State<MainScreen>
 
                         Row(
                           children: [
-                            _buildQuickAmountButton(
-                                '50K', 50000, amountController),
+                            _buildQuickAmountButton(formatRupiahValue(50000),
+                                50000, amountController),
                             const SizedBox(width: 10),
-                            _buildQuickAmountButton(
-                                '100K', 100000, amountController),
+                            _buildQuickAmountButton(formatRupiahValue(100000),
+                                100000, amountController),
                             const SizedBox(width: 10),
-                            _buildQuickAmountButton(
-                                '500K', 500000, amountController),
+                            _buildQuickAmountButton(formatRupiahValue(500000),
+                                500000, amountController),
                           ],
                         ),
                         const SizedBox(height: 30),
@@ -8213,7 +9540,7 @@ class _MainScreenState extends State<MainScreen>
 
                                 Navigator.pop(context);
                                 _showSnackBarMessage(
-                                  'Berhasil menambah Rp ${NumberFormat('#,###').format(amount)} ke ${goal.name}! 💰',
+                                  'Berhasil menambah ${formatRupiah(amount)} ke ${goal.name}! 💰',
                                 );
                               } on Exception catch (_) {
                                 _showSnackBarMessage(
@@ -8314,6 +9641,14 @@ class _MainScreenState extends State<MainScreen>
                 Navigator.pop(context);
                 _showSnackBarMessage(
                   'Transaksi berhasil dihapus! 🗑️',
+                  backgroundColor: Colors.red,
+                );
+              } on StateError {
+                if (!context.mounted) return;
+
+                Navigator.pop(context);
+                _showSnackBarMessage(
+                  'Transaksi dari hutang/piutang harus dikelola dari halaman hutang/piutang.',
                   backgroundColor: Colors.red,
                 );
               } on Exception catch (_) {
@@ -8445,77 +9780,159 @@ class _MainScreenState extends State<MainScreen>
   }
 
   void _buyWishlistItem(WishlistItem item) {
-    showDialog(
+    final bucketConfigurationIncomplete =
+        hasIncompleteBucketConfiguration(_activeBuckets);
+    if (_activeWallets.isEmpty) {
+      _showSnackBarMessage(
+        'Aktifkan minimal satu dompet dulu sebelum membeli item wishlist.',
+        backgroundColor: Colors.red,
+      );
+      return;
+    }
+    if (bucketConfigurationIncomplete) {
+      _showSnackBarMessage(
+        _bucketConfigurationIncompleteMessage,
+        backgroundColor: Colors.red,
+      );
+      return;
+    }
+
+    Wallet selectedWallet =
+        _activeWallets.where((wallet) => wallet.name == 'Cash').isNotEmpty
+            ? _activeWallets.firstWhere((wallet) => wallet.name == 'Cash')
+            : _activeWallets.first;
+    FinancialBucket? selectedBucket =
+        _activeBuckets.where((bucket) => bucket.name == 'Belanja').isNotEmpty
+            ? _activeBuckets.firstWhere((bucket) => bucket.name == 'Belanja')
+            : (_activeBuckets.isNotEmpty ? _activeBuckets.first : null);
+
+    showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(
-          'Beli Item? 🛒',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Kamu mau beli ${item.name}?',
-              style: GoogleFonts.poppins(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Beli Item? 🛒',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Kamu mau beli ${item.name}?',
+                  style: GoogleFonts.poppins(),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Harga: ${formatRupiah(item.price)}',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFFFF69B4),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _activeBuckets.isEmpty
+                      ? 'Belum ada pos keuangan aktif. Pembelian tetap dicatat tanpa pos sumber.'
+                      : 'Pilih dompet dan pos sumber supaya saldo tetap konsisten.',
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Dompet',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<Wallet>(
+                  value: selectedWallet,
+                  items: _activeWallets
+                      .map(
+                        (wallet) => DropdownMenuItem<Wallet>(
+                          value: wallet,
+                          child: Text(wallet.name),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (wallet) {
+                    if (wallet == null) return;
+                    setDialogState(() => selectedWallet = wallet);
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (_activeBuckets.isNotEmpty) ...[
+                  Text(
+                    'Pos Sumber',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<FinancialBucket>(
+                    value: selectedBucket,
+                    items: _activeBuckets
+                        .map(
+                          (bucket) => DropdownMenuItem<FinancialBucket>(
+                            value: bucket,
+                            child: Text(bucket.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (bucket) {
+                      if (bucket == null) return;
+                      setDialogState(() => selectedBucket = bucket);
+                    },
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(height: 10),
-            Text(
-              'Harga: Rp ${NumberFormat('#,###').format(item.price)}',
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.bold,
-                color: const Color(0xFFFF69B4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(
+                'Batal',
+                style: GoogleFonts.poppins(color: Colors.grey),
               ),
             ),
-            const SizedBox(height: 10),
-            Text(
-              'Item akan dihapus dari wishlist dan ditambahkan sebagai transaksi pengeluaran.',
-              style: GoogleFonts.poppins(
-                fontSize: 12,
-                color: Colors.grey,
+            TextButton(
+              onPressed: () async {
+                try {
+                  await _dbHelper.purchaseWishlistItem(
+                    item,
+                    walletName: selectedWallet.name,
+                    walletId: selectedWallet.id,
+                    sourceBucket: selectedBucket,
+                  );
+                  await _loadAllData();
+
+                  if (!mounted || !dialogContext.mounted) return;
+
+                  Navigator.pop(dialogContext);
+                  _showSnackBarMessage(
+                    'Yeay! ${item.name} berhasil dibeli! 🛒✨',
+                    backgroundColor: Colors.green,
+                  );
+                } on Exception catch (_) {
+                  _showSnackBarMessage(
+                    'Pembelian wishlist gagal diproses. Coba lagi.',
+                    backgroundColor: Colors.red,
+                  );
+                }
+              },
+              child: Text(
+                'Beli Sekarang',
+                style: GoogleFonts.poppins(
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-              textAlign: TextAlign.center,
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Batal',
-              style: GoogleFonts.poppins(color: Colors.grey),
-            ),
-          ),
-          TextButton(
-            onPressed: () async {
-              try {
-                await _dbHelper.purchaseWishlistItem(item);
-                await _loadAllData();
-
-                if (!context.mounted) return;
-
-                Navigator.pop(context);
-                _showSnackBarMessage(
-                  'Yeay! ${item.name} berhasil dibeli! 🛒✨',
-                  backgroundColor: Colors.green,
-                );
-              } on Exception catch (_) {
-                _showSnackBarMessage(
-                  'Pembelian wishlist gagal diproses. Coba lagi.',
-                  backgroundColor: Colors.red,
-                );
-              }
-            },
-            child: Text(
-              'Beli Sekarang',
-              style: GoogleFonts.poppins(
-                color: Colors.green,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

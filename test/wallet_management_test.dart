@@ -176,6 +176,40 @@ void main() {
       expect(updated.any((w) => w.name == 'Nama Lama'), isFalse);
     });
 
+    test(
+        'updateWallet membackfill walletId untuk transaksi legacy sebelum rename',
+        () async {
+      final db = DatabaseHelper();
+      final rawDb = await db.database;
+
+      final now = DateTime.now();
+      final walletId = await db.insertWallet(
+          Wallet(name: 'Nama Lama', createdDate: now, updatedDate: now));
+
+      await rawDb.insert('transactions', {
+        'type': 'expense',
+        'amount': 45000.0,
+        'category': 'Makanan',
+        'description': 'Legacy transaksi',
+        'date': now.millisecondsSinceEpoch,
+        'wallet': 'Nama Lama',
+        'walletNameSnapshot': '',
+        'affectsBalance': 1,
+      });
+
+      await db.updateWallet(Wallet(
+        id: walletId,
+        name: 'Nama Baru',
+        createdDate: now,
+        updatedDate: now,
+      ));
+
+      final rows = await rawDb.query('transactions');
+      expect(rows.single['walletId'], walletId);
+      expect(rows.single['walletNameSnapshot'], 'Nama Lama');
+      expect(rows.single['wallet'], 'Nama Lama');
+    });
+
     test('getActiveWallets setelah archive tidak mengandung wallet tersebut',
         () async {
       final db = DatabaseHelper();
@@ -186,6 +220,68 @@ void main() {
 
       final actives = await db.getActiveWallets();
       expect(actives.any((w) => w.name == 'E-Wallet'), isFalse);
+    });
+
+    test('getWalletReferenceCount menghitung transaksi legacy tanpa walletId',
+        () async {
+      final db = DatabaseHelper();
+      final rawDb = await db.database;
+
+      final now = DateTime.now();
+      final walletId = await db.insertWallet(Wallet(
+        name: 'Legacy Wallet',
+        createdDate: now,
+        updatedDate: now,
+      ));
+
+      await rawDb.insert('transactions', {
+        'type': 'expense',
+        'amount': 25000.0,
+        'category': 'Makanan',
+        'description': 'Legacy transaksi',
+        'date': now.millisecondsSinceEpoch,
+        'wallet': 'Legacy Wallet',
+        'walletNameSnapshot': 'Legacy Wallet',
+        'affectsBalance': 1,
+      });
+
+      final wallet =
+          (await db.getWallets()).firstWhere((w) => w.id == walletId);
+      final referenceCount = await db.getWalletReferenceCount(wallet);
+      expect(referenceCount, 1);
+    });
+
+    test('deleteWallet mengarsipkan dompet bila masih direferensikan debt',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final now = DateTime.now();
+      final walletId = await db.insertWallet(Wallet(
+        name: 'Dompet Debt',
+        createdDate: now,
+        updatedDate: now,
+      ));
+
+      await db.insertDebt(Debt(
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 150000,
+        remainingAmount: 150000,
+        borrowedDate: now,
+        recordingMode: 'balance',
+        walletId: walletId,
+        createdDate: now,
+        updatedDate: now,
+      ));
+
+      await db.deleteWallet(walletId);
+
+      final allWallets = await db.getWallets();
+      final storedWallet = allWallets.firstWhere((w) => w.id == walletId);
+      final activeWallets = await db.getActiveWallets();
+      expect(storedWallet.isArchived, isTrue);
+      expect(activeWallets.any((w) => w.id == walletId), isFalse);
     });
   });
 

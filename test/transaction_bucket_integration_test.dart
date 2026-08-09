@@ -258,5 +258,232 @@ void main() {
         closeTo(initialBalance - expenseAmount, 0.01),
       );
     });
+
+    test(
+        'deleteTransaction mengembalikan saldo pos dan menghapus allocation expense',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final bucket =
+          await _freshBucket(db, name: 'Belanja', pct: 100, balance: 200000);
+
+      final txId = await db.saveExpenseWithSource(
+        amount: 50000,
+        category: 'Belanja',
+        description: 'Belanja wishlist',
+        date: _now,
+        walletName: 'Cash',
+        sourceBucket: bucket,
+      );
+
+      await db.deleteTransaction(txId);
+
+      final updated = await db.getFinancialBuckets();
+      final updatedBucket = updated.firstWhere((x) => x.id == bucket.id);
+      final allocations = await db.getTransactionBucketAllocations(txId);
+      final transactions = await db.getTransactions();
+
+      expect(updatedBucket.currentBalance, closeTo(200000, 0.01));
+      expect(allocations, isEmpty);
+      expect(transactions.any((t) => t.id == txId), isFalse);
+    });
+
+    test(
+        'deleteTransaction mengembalikan saldo pos dan menghapus allocation income',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final b1 = await _freshBucket(db, name: 'A', pct: 70, balance: 0);
+      final b2 = await _freshBucket(db, name: 'B', pct: 30, balance: 0);
+
+      final txId = await db.saveIncomeWithAllocations(
+        amount: 1000000,
+        category: 'Gaji',
+        description: 'Gaji bulanan',
+        date: _now,
+        walletName: 'Cash',
+        subsetBuckets: [b1, b2],
+      );
+
+      await db.deleteTransaction(txId);
+
+      final buckets = await db.getFinancialBuckets();
+      final updatedB1 = buckets.firstWhere((b) => b.id == b1.id);
+      final updatedB2 = buckets.firstWhere((b) => b.id == b2.id);
+      final allocations = await db.getTransactionBucketAllocations(txId);
+
+      expect(updatedB1.currentBalance, closeTo(0, 0.01));
+      expect(updatedB2.currentBalance, closeTo(0, 0.01));
+      expect(allocations, isEmpty);
+    });
+
+    test(
+        'updateTransaction expense membalik pos lama lalu menerapkan pos sumber baru',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final belanja =
+          await _freshBucket(db, name: 'Belanja', pct: 100, balance: 250000);
+      final transport =
+          await _freshBucket(db, name: 'Transport', pct: 100, balance: 200000);
+
+      final txId = await db.saveExpenseWithSource(
+        amount: 50000,
+        category: 'Belanja',
+        description: 'Belanja mingguan',
+        date: _now,
+        walletName: 'Cash',
+        sourceBucket: belanja,
+      );
+
+      await db.updateTransaction(
+        transactionId: txId,
+        type: 'expense',
+        amount: 80000,
+        category: 'Transport',
+        description: 'Naik taksi',
+        date: _now.add(const Duration(hours: 2)),
+        walletName: 'Cash',
+        sourceBucket: transport,
+      );
+
+      final buckets = await db.getFinancialBuckets();
+      final updatedBelanja = buckets.firstWhere((b) => b.id == belanja.id);
+      final updatedTransport = buckets.firstWhere((b) => b.id == transport.id);
+      final allocations = await db.getTransactionBucketAllocations(txId);
+      final updatedTx =
+          (await db.getTransactions()).firstWhere((t) => t.id == txId);
+
+      expect(updatedBelanja.currentBalance, closeTo(250000, 0.01));
+      expect(updatedTransport.currentBalance, closeTo(120000, 0.01));
+      expect(allocations.length, 1);
+      expect(allocations.first.role, 'source');
+      expect(allocations.first.bucketId, transport.id);
+      expect(updatedTx.category, 'Transport');
+      expect(updatedTx.description, 'Naik taksi');
+      expect(updatedTx.amount, closeTo(80000, 0.01));
+    });
+
+    test(
+        'updateTransaction income mengganti allocation lama dengan subset baru',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final tabungan =
+          await _freshBucket(db, name: 'Tabungan', pct: 100, balance: 0);
+      final belanja =
+          await _freshBucket(db, name: 'Belanja', pct: 75, balance: 0);
+      final sedekah =
+          await _freshBucket(db, name: 'Sedekah', pct: 25, balance: 0);
+
+      final txId = await db.saveIncomeWithAllocations(
+        amount: 100000,
+        category: 'Gaji',
+        description: 'Gaji awal',
+        date: _now,
+        walletName: 'Cash',
+        subsetBuckets: [tabungan],
+      );
+
+      await db.updateTransaction(
+        transactionId: txId,
+        type: 'income',
+        amount: 500000,
+        category: 'Bonus',
+        description: 'Bonus tahunan',
+        date: _now.add(const Duration(days: 1)),
+        walletName: 'Cash',
+        subsetBuckets: [belanja, sedekah],
+      );
+
+      final buckets = await db.getFinancialBuckets();
+      final updatedTabungan = buckets.firstWhere((b) => b.id == tabungan.id);
+      final updatedBelanja = buckets.firstWhere((b) => b.id == belanja.id);
+      final updatedSedekah = buckets.firstWhere((b) => b.id == sedekah.id);
+      final allocations = await db.getTransactionBucketAllocations(txId);
+      final updatedTx =
+          (await db.getTransactions()).firstWhere((t) => t.id == txId);
+
+      expect(updatedTabungan.currentBalance, closeTo(0, 0.01));
+      expect(updatedBelanja.currentBalance, closeTo(375000, 0.01));
+      expect(updatedSedekah.currentBalance, closeTo(125000, 0.01));
+      expect(allocations.length, 2);
+      expect(allocations.every((a) => a.role == 'target'), isTrue);
+      expect(allocations.any((a) => a.bucketId == tabungan.id), isFalse);
+      expect(updatedTx.category, 'Bonus');
+      expect(updatedTx.description, 'Bonus tahunan');
+      expect(updatedTx.amount, closeTo(500000, 0.01));
+    });
+
+    test(
+        'purchaseWishlistItem mengurangi saldo pos sumber dan menghapus wishlist',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final wallet =
+          (await db.getActiveWallets()).firstWhere((w) => w.name == 'Cash');
+      final bucket =
+          await _freshBucket(db, name: 'Belanja', pct: 100, balance: 300000);
+      final itemId = await db.insertWishlistItem(WishlistItem(
+        name: 'Sepatu Baru',
+        price: 120000,
+        priority: 'high',
+        createdDate: _now,
+      ));
+      final item =
+          (await db.getWishlistItems()).firstWhere((i) => i.id == itemId);
+
+      await db.purchaseWishlistItem(
+        item,
+        walletName: wallet.name,
+        walletId: wallet.id,
+        sourceBucket: bucket,
+      );
+
+      final updatedBucket =
+          (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucket.id);
+      final wishlistItems = await db.getWishlistItems();
+      final transactions = await db.getTransactions();
+      final tx = transactions.firstWhere((t) => t.description == 'Sepatu Baru');
+      final allocations = await db.getTransactionBucketAllocations(tx.id!);
+
+      expect(updatedBucket.currentBalance, closeTo(180000, 0.01));
+      expect(wishlistItems.any((i) => i.id == itemId), isFalse);
+      expect(tx.walletId, wallet.id);
+      expect(tx.category, 'Belanja');
+      expect(allocations.length, 1);
+      expect(allocations.first.role, 'source');
+      expect(allocations.first.bucketId, bucket.id);
+    });
+
+    test('deleteTransaction menolak transaksi yang berasal dari flow hutang',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final bucket = await _freshBucket(db, name: 'Dana', pct: 100, balance: 0);
+      final txId = await db.saveIncomeWithAllocations(
+        amount: 250000,
+        category: 'Hutang',
+        description: 'Hutang dari Budi',
+        date: _now,
+        walletName: 'Cash',
+        subsetBuckets: [bucket],
+      );
+
+      await expectLater(db.deleteTransaction(txId), throwsA(isA<StateError>()));
+
+      final allocations = await db.getTransactionBucketAllocations(txId);
+      final updatedBucket =
+          (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucket.id);
+
+      expect(allocations.length, 1);
+      expect(updatedBucket.currentBalance, closeTo(250000, 0.01));
+    });
   });
 }

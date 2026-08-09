@@ -152,6 +152,71 @@ void main() {
       expect(await db.getDebtById(id), isNull);
     });
 
+    test('deleteDebt juga menghapus pembayaran note-only turunannya', () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final id = await db.insertDebt(_debt(mode: 'note'));
+      await db.recordDebtPayment(
+        debtId: id,
+        amount: 50000,
+        paymentDate: _now,
+        recordingMode: 'note',
+      );
+
+      await db.deleteDebt(id);
+
+      expect(await db.getDebtById(id), isNull);
+      expect(await db.getDebtPaymentsByDebt(id), isEmpty);
+    });
+
+    test('deleteDebt menolak debt balance yang sudah memengaruhi saldo',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final walletId = await db.insertWallet(Wallet(
+        name: 'Cash Baru',
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+      final bucketId = await db.insertFinancialBucket(FinancialBucket(
+        name: 'Dana',
+        allocationPercentage: 100,
+        currentBalance: 0,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+      final bucket =
+          (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucketId);
+
+      await db.saveIncomeWithAllocations(
+        amount: 200000,
+        category: 'Hutang',
+        description: 'Hutang dari Budi',
+        date: _now,
+        walletName: 'Cash Baru',
+        subsetBuckets: [bucket],
+        walletId: walletId,
+      );
+
+      final id = await db.insertDebt(Debt(
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 200000,
+        remainingAmount: 200000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: walletId,
+        bucketId: bucketId,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      await expectLater(db.deleteDebt(id), throwsA(isA<StateError>()));
+      expect(await db.getDebtById(id), isNotNull);
+    });
+
     test('insertDebtPayment + getDebtPaymentsByDebt mengembalikan cicilan',
         () async {
       final db = DatabaseHelper();
@@ -230,6 +295,30 @@ void main() {
       final payments = await db.getDebtPaymentsByDebt(id);
       expect(payments.length, 1);
       expect(payments.first.amount, 50000.0);
+    });
+
+    test('menolak cicilan yang melebihi sisa kewajiban', () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final id =
+          await db.insertDebt(_debt(principal: 200000, remaining: 50000));
+
+      await expectLater(
+        db.recordDebtPayment(
+          debtId: id,
+          amount: 60000,
+          paymentDate: _now,
+          recordingMode: 'note',
+        ),
+        throwsA(isA<RangeError>()),
+      );
+
+      final updated = (await db.getDebtById(id))!;
+      final payments = await db.getDebtPaymentsByDebt(id);
+      expect(updated.remainingAmount, closeTo(50000, 0.01));
+      expect(updated.status, 'active');
+      expect(payments, isEmpty);
     });
   });
 }

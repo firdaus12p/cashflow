@@ -251,13 +251,10 @@ void main() {
         ),
       ];
 
-      // calculateMonthlyExpenseForInsight menjumlahkan seluruh expense
-      // (field affectsBalance tidak difilter di helper ini — helper hanya
-      // melihat type=expense dan filter wallet/bulan)
-      // Regresi test ini memastikan helper tidak crash dengan field baru
       final result = calculateMonthlyExpenseForInsight(txs, now);
-      expect(result, isNonNegative,
-          reason: 'Helper tidak boleh crash dengan field affectsBalance baru');
+      expect(result, 100000,
+          reason:
+              'Transaksi catatan saja tidak boleh memengaruhi insight expense');
     });
 
     test('validateBucketPercentages akurat dengan floating point real-world',
@@ -404,6 +401,39 @@ void main() {
       expect(find.byKey(const Key('bucket_edit_btn')), findsOneWidget);
     });
 
+    testWidgets(
+        'PosKeuanganPage mengizinkan simpan pos bertahap selama total belum melebihi 100%',
+        (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: PosKeuanganPage(initialBuckets: [])),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('pos_fab')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('bucket_name_field')),
+        'Tabungan',
+      );
+      await tester.enterText(
+        find.byKey(const Key('bucket_pct_field')),
+        '30',
+      );
+
+      await tester.tap(find.byKey(const Key('bucket_save_btn')));
+      await tester.pumpAndSettle();
+
+      final savedBuckets = await DatabaseHelper().getFinancialBuckets();
+      expect(savedBuckets, hasLength(1));
+      expect(savedBuckets.single.name, 'Tabungan');
+      expect(savedBuckets.single.allocationPercentage, 30);
+      expect(
+        find.text('Total persentase semua pos tidak boleh lebih dari 100%.'),
+        findsNothing,
+      );
+    });
+
     testWidgets('HutangPiutangPage menampilkan list dengan tipe label benar',
         (tester) async {
       final debts = [
@@ -495,9 +525,11 @@ void main() {
     });
 
     testWidgets('Quick menu ada dan berisi 3 item fitur baru', (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: MainScreen()));
+      await tester.pumpWidget(
+        const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+      );
       await tester.pump();
-      await tester.pumpAndSettle(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('home_quick_menu')), findsOneWidget);
       expect(
@@ -515,15 +547,17 @@ void main() {
       expect(
           find.descendant(
             of: find.byKey(const Key('home_quick_menu')),
-            matching: find.text('Pos Keuangan'),
+            matching: find.text('Pos keu..'),
           ),
           findsOneWidget);
     });
 
     testWidgets('Tab bar memiliki 5 tab dengan ikon Material', (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: MainScreen()));
+      await tester.pumpWidget(
+        const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+      );
       await tester.pump();
-      await tester.pumpAndSettle(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
 
       // 5 tab dengan label text
       expect(find.text('Home'), findsOneWidget);
@@ -535,14 +569,63 @@ void main() {
       // Tab bar menggunakan Material icons (bukan emoji)
       expect(find.byIcon(Icons.home_rounded), findsWidgets);
       expect(find.byIcon(Icons.bar_chart_rounded), findsWidgets);
+
+      final homeIcon =
+          tester.widget<Icon>(find.byIcon(Icons.home_rounded).first);
+      final statsIcon =
+          tester.widget<Icon>(find.byIcon(Icons.bar_chart_rounded).first);
+      expect(homeIcon.size, 20);
+      expect(statsIcon.size, 20);
+    });
+
+    testWidgets('sheet transaksi utama menampilkan drag handle',
+        (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(FloatingActionButton).first);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
+    });
+
+    testWidgets('sheet tambah dompet menampilkan drag handle', (tester) async {
+      final wallets = [
+        Wallet(id: 1, name: 'Cash', createdDate: _now2, updatedDate: _now2),
+      ];
+      await tester
+          .pumpWidget(MaterialApp(home: DompetPage(initialWallets: wallets)));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('dompet_fab')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
+    });
+
+    testWidgets('sheet tambah pos keuangan menampilkan drag handle',
+        (tester) async {
+      await tester.pumpWidget(
+          const MaterialApp(home: PosKeuanganPage(initialBuckets: [])));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('pos_fab')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
     });
 
     testWidgets(
         'form transaksi menampilkan opsi bucket untuk expense dan income',
         (tester) async {
-      await tester.pumpWidget(const MaterialApp(home: MainScreen()));
+      await tester.pumpWidget(
+        const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+      );
       await tester.pump();
-      await tester.pumpAndSettle(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byType(FloatingActionButton).first);
       await tester.pumpAndSettle();

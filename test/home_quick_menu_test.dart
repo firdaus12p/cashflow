@@ -17,9 +17,11 @@ void main() {
   });
 
   Future<void> pumpApp(WidgetTester tester) async {
-    await tester.pumpWidget(const MaterialApp(home: MainScreen()));
+    await tester.pumpWidget(
+      const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+    );
     await tester.pump();
-    await tester.pumpAndSettle(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
   }
 
   group('Quick Menu Home — keberadaan dan isi', () {
@@ -27,6 +29,19 @@ void main() {
       await pumpApp(tester);
 
       expect(find.byKey(const Key('home_quick_menu')), findsOneWidget);
+    });
+
+    testWidgets('quick menu berada di bawah saldo dan di atas analisa',
+        (tester) async {
+      await pumpApp(tester);
+
+      final balanceY = tester.getCenter(find.text('Saldo Kamu')).dy;
+      final quickMenuY =
+          tester.getCenter(find.byKey(const Key('home_quick_menu'))).dy;
+      final analyticsY = tester.getCenter(find.text('Analisa Keuangan')).dy;
+
+      expect(quickMenuY, greaterThan(balanceY));
+      expect(quickMenuY, lessThan(analyticsY));
     });
 
     testWidgets('quick menu berisi item Dompet', (tester) async {
@@ -59,7 +74,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('home_quick_menu')),
-          matching: find.text('Pos Keuangan'),
+          matching: find.text('Pos keu..'),
         ),
         findsOneWidget,
       );
@@ -75,6 +90,62 @@ void main() {
             w is SingleChildScrollView && w.scrollDirection == Axis.horizontal),
       );
       expect(scrollable, findsOneWidget);
+    });
+
+    testWidgets('semua item quick menu punya ukuran kartu yang seragam',
+        (tester) async {
+      await pumpApp(tester);
+
+      final dompetSize =
+          tester.getSize(find.byKey(const Key('quick_menu_dompet')));
+      final hutangSize =
+          tester.getSize(find.byKey(const Key('quick_menu_hutang_piutang')));
+      final posSize =
+          tester.getSize(find.byKey(const Key('quick_menu_pos_keuangan')));
+
+      expect(hutangSize.width, dompetSize.width);
+      expect(posSize.width, dompetSize.width);
+      expect(hutangSize.height, dompetSize.height);
+      expect(posSize.height, dompetSize.height);
+    });
+
+    testWidgets('label quick menu panjang tetap satu baris dengan ellipsis',
+        (tester) async {
+      await pumpApp(tester);
+
+      final posLabel = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('quick_menu_pos_keuangan')),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is Text && widget.data == 'Pos keu..',
+          ),
+        ),
+      );
+
+      expect(posLabel.maxLines, 1);
+      expect(posLabel.overflow, TextOverflow.ellipsis);
+    });
+  });
+
+  group('Phase 10 — filter layout dan ikon', () {
+    testWidgets('filter wallet berada di bawah filter Harian Bulanan Tahunan',
+        (tester) async {
+      await pumpApp(tester);
+
+      final periodFilterY = tester.getCenter(find.text('Harian')).dy;
+      final walletFilterY =
+          tester.getCenter(find.byKey(const Key('wallet_filter_row'))).dy;
+
+      expect(walletFilterY, greaterThan(periodFilterY));
+    });
+
+    testWidgets('filter Home menampilkan ikon pada Harian Bulanan Tahunan',
+        (tester) async {
+      await pumpApp(tester);
+
+      expect(find.byIcon(Icons.calendar_today_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.calendar_view_month_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.date_range_outlined), findsOneWidget);
     });
   });
 
@@ -134,6 +205,7 @@ void main() {
     testWidgets('tap Dompet membuka DompetPage', (tester) async {
       await pumpApp(tester);
 
+      await tester.ensureVisible(find.byKey(const Key('quick_menu_dompet')));
       await tester.tap(find.byKey(const Key('quick_menu_dompet')));
       await tester.pumpAndSettle();
 
@@ -143,6 +215,8 @@ void main() {
     testWidgets('tap Hutang/Piutang membuka HutangPiutangPage', (tester) async {
       await pumpApp(tester);
 
+      await tester
+          .ensureVisible(find.byKey(const Key('quick_menu_hutang_piutang')));
       await tester.tap(find.byKey(const Key('quick_menu_hutang_piutang')));
       await tester.pumpAndSettle();
 
@@ -152,6 +226,8 @@ void main() {
     testWidgets('tap Pos Keuangan membuka PosKeuanganPage', (tester) async {
       await pumpApp(tester);
 
+      await tester
+          .ensureVisible(find.byKey(const Key('quick_menu_pos_keuangan')));
       await tester.tap(find.byKey(const Key('quick_menu_pos_keuangan')));
       await tester.pumpAndSettle();
 
