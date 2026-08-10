@@ -362,14 +362,17 @@ void main() {
     expect(find.byType(MainScreen), findsOneWidget);
   });
 
-  testWidgets('home shows transaction history and second tab shows statistics',
+  testWidgets('home shell menampilkan tab baru dan navigasi inti tetap hidup',
       (WidgetTester tester) async {
     await tester
         .pumpWidget(const MaterialApp(home: MainScreen(skipInitialLoad: true)));
     await tester.pumpAndSettle();
 
     expect(find.text('Riwayat Transaksi'), findsOneWidget);
+    expect(find.text('Beranda'), findsOneWidget);
     expect(find.text('Statistik'), findsOneWidget);
+    expect(find.text('Target Tabungan'), findsOneWidget);
+    expect(find.text('Wishlist Belanja'), findsOneWidget);
     expect(find.text('Harian'), findsOneWidget);
     expect(find.text('Bulanan'), findsOneWidget);
     expect(find.text('Tahunan'), findsOneWidget);
@@ -390,12 +393,16 @@ void main() {
     expect(find.text('Kategori Pengeluaran'), findsOneWidget);
     expect(find.text('Grafik Pengeluaran Minggu'), findsOneWidget);
 
-    await tester.tap(find.text('Badge'));
+    await tester.tap(find.text('Target Tabungan').first);
     await tester.pumpAndSettle();
 
-    expect(find.text('Badge & Pencapaian'), findsOneWidget);
-    expect(find.text('Badge Kamu'), findsOneWidget);
+    expect(find.text('+ Goal Baru'), findsOneWidget);
     expect(find.text('Statistik Keuangan'), findsNothing);
+
+    await tester.tap(find.text('Wishlist Belanja').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('+ Tambah Item'), findsOneWidget);
   });
 
   testWidgets('transaction history metadata uses larger readable typography',

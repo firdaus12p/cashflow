@@ -25,11 +25,12 @@ void main() {
   }
 
   // ---------------------------------------------------------------------------
-  // Tab bar: emoji fungsional harus diganti dengan Material icons
+  // Bottom shell: ikon fungsional harus tetap memakai Material icons
   // ---------------------------------------------------------------------------
 
-  group('Tab bar — migrasi ikon', () {
-    testWidgets('tab Home memakai ikon Material bukan emoji', (tester) async {
+  group('Bottom shell — migrasi ikon', () {
+    testWidgets('tab Beranda memakai ikon Material bukan emoji',
+        (tester) async {
       await pumpApp(tester);
 
       expect(find.byIcon(Icons.home_rounded), findsWidgets);
@@ -41,50 +42,55 @@ void main() {
       expect(find.byIcon(Icons.bar_chart_rounded), findsWidgets);
     });
 
-    testWidgets('tab Goal memakai ikon Material', (tester) async {
+    testWidgets('tab Target Tabungan memakai ikon Material', (tester) async {
       await pumpApp(tester);
 
       expect(find.byIcon(Icons.flag_rounded), findsWidgets);
     });
 
-    testWidgets('tab Wish memakai ikon Material', (tester) async {
+    testWidgets('tab Wishlist Belanja memakai ikon Material', (tester) async {
       await pumpApp(tester);
 
       expect(find.byIcon(Icons.shopping_bag_outlined), findsWidgets);
     });
 
-    testWidgets('tab Badge memakai ikon Material', (tester) async {
+    testWidgets('aksi tambah transaksi tengah memakai ikon Material',
+        (tester) async {
       await pumpApp(tester);
 
-      expect(find.byIcon(Icons.emoji_events_rounded), findsWidgets);
+      expect(find.byIcon(Icons.add_rounded), findsWidgets);
     });
 
-    testWidgets('tab bar tidak lagi berisi emoji 💰', (tester) async {
+    testWidgets('quick menu Badge memakai ikon Material', (tester) async {
       await pumpApp(tester);
 
-      // Setelah migrasi, emoji string tidak boleh ada sebagai ikon fungsional
-      // di TabBar (cari di seluruh tree karena emoji hanya ada di tab saat ini)
-      final tabBar = find.byType(TabBar);
+      expect(find.byIcon(Icons.emoji_events_outlined), findsWidgets);
+    });
+
+    testWidgets('dock bawah tidak lagi berisi emoji 💰', (tester) async {
+      await pumpApp(tester);
+
+      final tabBar = find.byKey(const Key('bottom_nav_bar'));
       expect(
         find.descendant(of: tabBar, matching: find.text('💰')),
         findsNothing,
       );
     });
 
-    testWidgets('tab bar tidak lagi berisi emoji 📊', (tester) async {
+    testWidgets('dock bawah tidak lagi berisi emoji 📊', (tester) async {
       await pumpApp(tester);
 
-      final tabBar = find.byType(TabBar);
+      final tabBar = find.byKey(const Key('bottom_nav_bar'));
       expect(
         find.descendant(of: tabBar, matching: find.text('📊')),
         findsNothing,
       );
     });
 
-    testWidgets('tab bar tidak lagi berisi emoji 🎯', (tester) async {
+    testWidgets('dock bawah tidak lagi berisi emoji 🎯', (tester) async {
       await pumpApp(tester);
 
-      final tabBar = find.byType(TabBar);
+      final tabBar = find.byKey(const Key('bottom_nav_bar'));
       expect(
         find.descendant(of: tabBar, matching: find.text('🎯')),
         findsNothing,

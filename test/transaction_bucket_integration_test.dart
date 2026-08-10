@@ -26,9 +26,11 @@ void main() {
     required String name,
     required double pct,
     double balance = 0,
+    int? walletId = 1,
   }) async {
     final id = await db.insertFinancialBucket(FinancialBucket(
       name: name,
+      walletId: walletId,
       allocationPercentage: pct,
       currentBalance: balance,
       createdDate: _now,
@@ -123,6 +125,71 @@ void main() {
       final updated = await db.getFinancialBuckets();
       final updatedB = updated.firstWhere((x) => x.id == b.id);
       expect(updatedB.currentBalance, closeTo(300000, 0.01));
+    });
+
+    test('income lintas wallet ditolak', () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final cashBucket = await _freshBucket(
+        db,
+        name: 'Tabungan Cash',
+        pct: 60,
+        walletId: 1,
+      );
+      final bankBucket = await _freshBucket(
+        db,
+        name: 'Tabungan Bank',
+        pct: 40,
+        walletId: 2,
+      );
+
+      await expectLater(
+        db.saveIncomeWithAllocations(
+          amount: 500000,
+          category: 'Gaji',
+          description: 'Lintas dompet',
+          date: _now,
+          walletName: 'Cash',
+          walletId: 1,
+          subsetBuckets: [cashBucket, bankBucket],
+        ),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('income menurunkan wallet dari bucket target, bukan input manual',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final activeWallets = await db.getActiveWallets();
+      final cashWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Cash');
+      final bankWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Bank');
+
+      final bankBucket = await _freshBucket(
+        db,
+        name: 'Tabungan Bank',
+        pct: 100,
+        walletId: bankWallet.id,
+      );
+
+      final txId = await db.saveIncomeWithAllocations(
+        amount: 250000,
+        category: 'Gaji',
+        description: 'Harus ikut Bank',
+        date: _now,
+        walletName: 'Cash',
+        walletId: cashWallet.id,
+        subsetBuckets: [bankBucket],
+      );
+
+      final tx = (await db.getTransactions()).firstWhere((t) => t.id == txId);
+      expect(tx.walletId, bankWallet.id);
+      expect(tx.wallet, 'Bank');
+      expect(tx.walletNameSnapshot, 'Bank');
     });
   });
 
@@ -459,6 +526,47 @@ void main() {
       expect(allocations.length, 1);
       expect(allocations.first.role, 'source');
       expect(allocations.first.bucketId, bucket.id);
+    });
+
+    test('purchaseWishlistItem menurunkan wallet dari bucket sumber', () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final activeWallets = await db.getActiveWallets();
+      final cashWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Cash');
+      final bankWallet = await db.insertWallet(Wallet(
+        name: 'Bank Custom',
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+      final bankBucket = await _freshBucket(
+        db,
+        name: 'Belanja Bank',
+        pct: 100,
+        balance: 300000,
+        walletId: bankWallet,
+      );
+      final itemId = await db.insertWishlistItem(WishlistItem(
+        name: 'Tas Baru',
+        price: 100000,
+        priority: 'high',
+        createdDate: _now,
+      ));
+      final item =
+          (await db.getWishlistItems()).firstWhere((i) => i.id == itemId);
+
+      await db.purchaseWishlistItem(
+        item,
+        walletName: cashWallet.name,
+        walletId: cashWallet.id,
+        sourceBucket: bankBucket,
+      );
+
+      final tx = (await db.getTransactions())
+          .firstWhere((t) => t.description == 'Tas Baru');
+      expect(tx.walletId, bankWallet);
+      expect(tx.wallet, 'Bank Custom');
     });
 
     test('deleteTransaction menolak transaksi yang berasal dari flow hutang',

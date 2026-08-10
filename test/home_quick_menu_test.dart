@@ -21,7 +21,8 @@ void main() {
       const MaterialApp(home: MainScreen(skipInitialLoad: true)),
     );
     await tester.pump();
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 16));
   }
 
   group('Quick Menu Home — keberadaan dan isi', () {
@@ -35,7 +36,8 @@ void main() {
         (tester) async {
       await pumpApp(tester);
 
-      final balanceY = tester.getCenter(find.text('Saldo Kamu')).dy;
+      final balanceY =
+          tester.getCenter(find.byKey(const Key('home_balance_title'))).dy;
       final quickMenuY =
           tester.getCenter(find.byKey(const Key('home_quick_menu'))).dy;
       final analyticsY = tester.getCenter(find.text('Analisa Keuangan')).dy;
@@ -80,6 +82,18 @@ void main() {
       );
     });
 
+    testWidgets('quick menu berisi item Badge', (tester) async {
+      await pumpApp(tester);
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('home_quick_menu')),
+          matching: find.text('Badge'),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('quick menu bisa digeser horizontal', (tester) async {
       await pumpApp(tester);
 
@@ -102,11 +116,15 @@ void main() {
           tester.getSize(find.byKey(const Key('quick_menu_hutang_piutang')));
       final posSize =
           tester.getSize(find.byKey(const Key('quick_menu_pos_keuangan')));
+      final badgeSize =
+          tester.getSize(find.byKey(const Key('quick_menu_badge_pencapaian')));
 
       expect(hutangSize.width, dompetSize.width);
       expect(posSize.width, dompetSize.width);
+      expect(badgeSize.width, dompetSize.width);
       expect(hutangSize.height, dompetSize.height);
       expect(posSize.height, dompetSize.height);
+      expect(badgeSize.height, dompetSize.height);
     });
 
     testWidgets('label quick menu panjang tetap satu baris dengan ellipsis',
@@ -163,37 +181,49 @@ void main() {
       );
     });
 
-    testWidgets('Goal tidak ada di quick menu', (tester) async {
+    testWidgets('Beranda tidak ada di quick menu', (tester) async {
       await pumpApp(tester);
 
       expect(
         find.descendant(
           of: find.byKey(const Key('home_quick_menu')),
-          matching: find.text('Goal'),
+          matching: find.text('Beranda'),
         ),
         findsNothing,
       );
     });
 
-    testWidgets('Wish tidak ada di quick menu', (tester) async {
+    testWidgets('Target Tabungan tidak ada di quick menu', (tester) async {
       await pumpApp(tester);
 
       expect(
         find.descendant(
           of: find.byKey(const Key('home_quick_menu')),
-          matching: find.text('Wish'),
+          matching: find.text('Target Tabungan'),
         ),
         findsNothing,
       );
     });
 
-    testWidgets('Badge tidak ada di quick menu', (tester) async {
+    testWidgets('Wishlist Belanja tidak ada di quick menu', (tester) async {
       await pumpApp(tester);
 
       expect(
         find.descendant(
           of: find.byKey(const Key('home_quick_menu')),
-          matching: find.text('Badge'),
+          matching: find.text('Wishlist Belanja'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('Tambah Transaksi tidak ada di quick menu', (tester) async {
+      await pumpApp(tester);
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('home_quick_menu')),
+          matching: find.text('Tambah Transaksi'),
         ),
         findsNothing,
       );
@@ -232,6 +262,18 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('page_pos_keuangan')), findsOneWidget);
+    });
+
+    testWidgets('tap Badge membuka BadgePencapaianPage', (tester) async {
+      await pumpApp(tester);
+
+      await tester
+          .ensureVisible(find.byKey(const Key('quick_menu_badge_pencapaian')));
+      await tester.tap(find.byKey(const Key('quick_menu_badge_pencapaian')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('page_badge_pencapaian')), findsOneWidget);
+      expect(find.text('Badge & Pencapaian'), findsWidgets);
     });
   });
 }

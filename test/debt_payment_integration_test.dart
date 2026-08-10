@@ -46,9 +46,11 @@ void main() {
     required String name,
     double pct = 100,
     double balance = 500000,
+    int? walletId,
   }) async {
     final id = await db.insertFinancialBucket(FinancialBucket(
       name: name,
+      walletId: walletId,
       allocationPercentage: pct,
       currentBalance: balance,
       createdDate: _now,
@@ -237,6 +239,52 @@ void main() {
       final totalAfter = buckets.fold(0.0, (s, b) => s + b.currentBalance);
 
       expect(totalAfter, closeTo(totalBefore, 0.01));
+    });
+
+    test('cicilan balance menurunkan wallet dari bucket yang dipilih',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final activeWallets = await db.getActiveWallets();
+      final cashWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Cash');
+      final bankWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Bank');
+
+      final bankBucket = await _insertBucket(
+        db,
+        name: 'Cicilan Bank',
+        balance: 300000,
+        walletId: bankWallet.id,
+      );
+      final debtId = await db.insertDebt(Debt(
+        type: 'debt',
+        personName: 'Andi',
+        principalAmount: 200000,
+        remainingAmount: 200000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: cashWallet.id,
+        bucketId: bankBucket.id,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      await db.recordDebtPayment(
+        debtId: debtId,
+        amount: 50000,
+        paymentDate: _now,
+        recordingMode: 'balance',
+        walletId: cashWallet.id,
+        affectedBucket: bankBucket,
+        walletName: cashWallet.name,
+      );
+
+      final tx = (await db.getTransactions())
+          .firstWhere((t) => t.description == 'Pembayaran hutang Andi');
+      expect(tx.walletId, bankWallet.id);
+      expect(tx.wallet, 'Bank');
     });
   });
 }

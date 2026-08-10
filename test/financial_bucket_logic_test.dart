@@ -36,6 +36,22 @@ void main() {
         updatedDate: _now,
       );
 
+  FinancialBucket _bucketWithWallet(
+    int id,
+    double pct, {
+    required int walletId,
+    double balance = 0,
+  }) =>
+      FinancialBucket(
+        id: id,
+        name: 'Bucket $id',
+        walletId: walletId,
+        allocationPercentage: pct,
+        currentBalance: balance,
+        createdDate: _now,
+        updatedDate: _now,
+      );
+
   group('validateBucketPercentages — BR-08', () {
     test('total tepat 100% diterima', () {
       expect(
@@ -148,6 +164,32 @@ void main() {
     });
   });
 
+  group('bucketsShareSameWallet — FEAT-07', () {
+    test('dua bucket dalam wallet yang sama diterima', () {
+      expect(
+        bucketsShareSameWallet([
+          _bucketWithWallet(1, 60, walletId: 1),
+          _bucketWithWallet(2, 40, walletId: 1),
+        ]),
+        isTrue,
+      );
+    });
+
+    test('bucket lintas wallet ditolak', () {
+      expect(
+        bucketsShareSameWallet([
+          _bucketWithWallet(1, 60, walletId: 1),
+          _bucketWithWallet(2, 40, walletId: 2),
+        ]),
+        isFalse,
+      );
+    });
+
+    test('subset kosong ditolak', () {
+      expect(bucketsShareSameWallet(const []), isFalse);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // executeBucketTransfer — BR-12: transfer tidak mengubah total saldo
   // Pakai test() bukan testWidgets() karena ini DB-level, bukan UI.
@@ -255,6 +297,80 @@ void main() {
       expect(transfers.first.amount, 100.0);
       expect(transfers.first.fromBucketId, idA);
       expect(transfers.first.toBucketId, idB);
+    });
+
+    test(
+        'transfer lintas dompet mencatat snapshot wallet dan mutasi wallet internal',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final activeWallets = await db.getActiveWallets();
+      final cashWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Cash');
+      final bankWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Bank');
+
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 500000,
+        category: 'Gaji',
+        description: 'Saldo awal Cash',
+        date: _now,
+        wallet: 'Cash',
+        walletId: 1,
+        walletNameSnapshot: 'Cash',
+      ));
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 100000,
+        category: 'Gaji',
+        description: 'Saldo awal Bank',
+        date: _now,
+        wallet: 'Bank',
+        walletId: 2,
+        walletNameSnapshot: 'Bank',
+      ));
+
+      final idA = await db.insertFinancialBucket(FinancialBucket(
+        name: 'Sumber Cash',
+        walletId: cashWallet.id,
+        allocationPercentage: 100,
+        currentBalance: 500000,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+      final idB = await db.insertFinancialBucket(FinancialBucket(
+        name: 'Tujuan Bank',
+        walletId: bankWallet.id,
+        allocationPercentage: 100,
+        currentBalance: 100000,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      await db.executeBucketTransfer(
+        fromBucketId: idA,
+        toBucketId: idB,
+        amount: 100000,
+        transferDate: _now,
+      );
+
+      final transfers = await db.getBucketTransfers();
+      final txs = await db.getTransactions();
+      final cashBalance = calculateBalanceForWallet(
+        txs,
+        selectedWallet: 'Cash',
+      );
+      final bankBalance = calculateBalanceForWallet(
+        txs,
+        selectedWallet: 'Bank',
+      );
+
+      expect(transfers.single.fromWalletIdSnapshot, cashWallet.id);
+      expect(transfers.single.toWalletIdSnapshot, bankWallet.id);
+      expect(cashBalance, closeTo(400000, 0.01));
+      expect(bankBalance, closeTo(200000, 0.01));
     });
   });
 }
