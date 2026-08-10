@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:pinkycash_app/main.dart';
+import 'package:cashflow/main.dart';
 
 void main() {
   const shortTimeout = Timeout(Duration(seconds: 10));

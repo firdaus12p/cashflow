@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
-import 'package:pinkycash_app/main.dart';
+import 'package:cashflow/main.dart';
 
 // Wallet objects yang dipakai di widget tests tanpa menyentuh DB sama sekali.
 // sqflite_ffi menggunakan real isolate — await-nya tidak bisa di-resolve

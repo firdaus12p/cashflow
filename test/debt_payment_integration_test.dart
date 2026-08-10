@@ -3,7 +3,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
-import 'package:pinkycash_app/main.dart';
+import 'package:cashflow/main.dart';
 
 // Semua test di sini pakai test() bukan testWidgets() — DB-level tests.
 // sqflite_ffi pakai real isolate, tidak bisa di-await di fake-async zone.

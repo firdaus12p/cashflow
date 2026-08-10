@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
-import 'package:pinkycash_app/main.dart';
+import 'package:cashflow/main.dart';
 
 // Pure Dart Debt objects — tidak ada DB call di dalam testWidgets
 // (sqflite_ffi pakai real isolate, tidak bisa di-await di fake-async zone)

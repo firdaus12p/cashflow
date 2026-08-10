@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
-import 'package:pinkycash_app/main.dart';
+import 'package:cashflow/main.dart';
 
 void main() {
   const shortInteractionTimeout = Timeout(Duration(seconds: 5));
@@ -353,7 +353,7 @@ void main() {
     );
   });
 
-  testWidgets('PinkyCash app smoke test', (WidgetTester tester) async {
+  testWidgets('cashflow app smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
     await tester
         .pumpWidget(const MaterialApp(home: MainScreen(skipInitialLoad: true)));

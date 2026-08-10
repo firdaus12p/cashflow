@@ -284,16 +284,16 @@ class ChartSeriesData {
 }
 
 void main() {
-  runApp(const CuteMoneyTrackerApp());
+  runApp(const CashflowApp());
 }
 
-class CuteMoneyTrackerApp extends StatelessWidget {
-  const CuteMoneyTrackerApp({super.key});
+class CashflowApp extends StatelessWidget {
+  const CashflowApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Cute Money Tracker',
+      title: 'cashflow',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.pink,

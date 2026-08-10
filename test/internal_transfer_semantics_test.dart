@@ -2,7 +2,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:pinkycash_app/main.dart';
+import 'package:cashflow/main.dart';
 
 void main() {
   final now = DateTime(2026, 8, 10);

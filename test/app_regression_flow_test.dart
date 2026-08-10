@@ -8,7 +8,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
-import 'package:pinkycash_app/main.dart';
+import 'package:cashflow/main.dart';
 
 void main() {
   setUpAll(() {
