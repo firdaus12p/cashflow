@@ -277,151 +277,157 @@ class _DompetPageState extends State<DompetPage> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModal) => Container(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
-            top: 24,
-            left: 24,
-            right: 24,
-          ),
           decoration: const BoxDecoration(
             color: AppPalette.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  key: const Key('sheet_drag_handle'),
-                  width: 50,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: AppPalette.border,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 24,
+                top: 24,
+                left: 24,
+                right: 24,
               ),
-              const SizedBox(height: 20),
-              Text(
-                wallet == null ? 'Tambah Dompet' : 'Edit Dompet',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                key: const Key('wallet_name_field'),
-                controller: nameCtrl,
-                autofocus: wallet == null,
-                decoration: InputDecoration(
-                  hintText: 'Nama dompet',
-                  hintStyle: GoogleFonts.poppins(),
-                  filled: true,
-                  fillColor: AppPalette.surfaceMuted,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                ),
-                style: GoogleFonts.poppins(),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Ikon Dompet',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: availableWalletIcons.entries.map((entry) {
-                  final isSelected = selectedIconKey == entry.key;
-                  return GestureDetector(
-                    key: Key('wallet_icon_${entry.key}'),
-                    onTap: () => setModal(() => selectedIconKey = entry.key),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
                     child: Container(
-                      padding: const EdgeInsets.all(12),
+                      key: const Key('sheet_drag_handle'),
+                      width: 50,
+                      height: 5,
                       decoration: BoxDecoration(
-                        color: isSelected
-                            ? AppPalette.primary.withValues(alpha: 0.12)
-                            : AppPalette.surfaceMuted,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected
-                              ? AppPalette.primary
-                              : AppPalette.border,
-                        ),
+                        color: AppPalette.border,
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Icon(
-                        entry.value,
-                        color: isSelected
-                            ? AppPalette.primary
-                            : AppPalette.textSecondary,
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  key: const Key('wallet_save_btn'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppPalette.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: () async {
-                    final name = nameCtrl.text.trim();
-                    if (name.isEmpty) return;
-                    final now = DateTime.now();
-                    if (wallet == null) {
-                      await DatabaseHelper().insertWallet(
-                        Wallet(
-                          name: name,
-                          iconKey: selectedIconKey,
-                          createdDate: now,
-                          updatedDate: now,
-                        ),
-                      );
-                    } else {
-                      await DatabaseHelper().updateWallet(
-                        Wallet(
-                          id: wallet.id,
-                          name: name,
-                          iconKey: selectedIconKey,
-                          color: wallet.color,
-                          isArchived: wallet.isArchived,
-                          createdDate: wallet.createdDate,
-                          updatedDate: now,
-                        ),
-                      );
-                    }
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    _loadWallets();
-                  },
-                  child: Text(
-                    'Simpan',
+                  const SizedBox(height: 20),
+                  Text(
+                    wallet == null ? 'Tambah Dompet' : 'Edit Dompet',
                     style: GoogleFonts.poppins(
-                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    key: const Key('wallet_name_field'),
+                    controller: nameCtrl,
+                    autofocus: wallet == null,
+                    decoration: InputDecoration(
+                      hintText: 'Nama dompet',
+                      hintStyle: GoogleFonts.poppins(),
+                      filled: true,
+                      fillColor: AppPalette.surfaceMuted,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                    style: GoogleFonts.poppins(),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Ikon Dompet',
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: availableWalletIcons.entries.map((entry) {
+                      final isSelected = selectedIconKey == entry.key;
+                      return GestureDetector(
+                        key: Key('wallet_icon_${entry.key}'),
+                        onTap: () =>
+                            setModal(() => selectedIconKey = entry.key),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppPalette.primary.withValues(alpha: 0.12)
+                                : AppPalette.surfaceMuted,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppPalette.primary
+                                  : AppPalette.border,
+                            ),
+                          ),
+                          child: Icon(
+                            entry.value,
+                            color: isSelected
+                                ? AppPalette.primary
+                                : AppPalette.textSecondary,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      key: const Key('wallet_save_btn'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppPalette.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () async {
+                        final name = nameCtrl.text.trim();
+                        if (name.isEmpty) return;
+                        final now = DateTime.now();
+                        if (wallet == null) {
+                          await DatabaseHelper().insertWallet(
+                            Wallet(
+                              name: name,
+                              iconKey: selectedIconKey,
+                              createdDate: now,
+                              updatedDate: now,
+                            ),
+                          );
+                        } else {
+                          await DatabaseHelper().updateWallet(
+                            Wallet(
+                              id: wallet.id,
+                              name: name,
+                              iconKey: selectedIconKey,
+                              color: wallet.color,
+                              isArchived: wallet.isArchived,
+                              createdDate: wallet.createdDate,
+                              updatedDate: now,
+                            ),
+                          );
+                        }
+                        if (ctx.mounted) Navigator.pop(ctx);
+                        _loadWallets();
+                      },
+                      child: Text(
+                        'Simpan',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),

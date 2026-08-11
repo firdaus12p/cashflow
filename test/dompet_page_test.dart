@@ -100,6 +100,37 @@ void main() {
       expect(find.byKey(const Key('wallet_icon_cash')), findsOneWidget);
     });
 
+    testWidgets('sheet tambah dompet menghormati inset bawah sistem',
+        (tester) async {
+      const mediaQueryData = MediaQueryData(
+        size: Size(400, 800),
+        viewPadding: EdgeInsets.only(bottom: 24),
+      );
+
+      await tester.pumpWidget(
+        MediaQuery(
+          data: mediaQueryData,
+          child: MaterialApp(
+            home: DompetPage(initialWallets: _fakeWallets),
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      await tester.tap(find.byKey(const Key('dompet_fab')));
+      await tester.pumpAndSettle();
+
+      final saveButtonRect = tester.getRect(
+        find.byKey(const Key('wallet_save_btn')),
+      );
+      expect(
+        saveButtonRect.bottom,
+        lessThanOrEqualTo(
+          mediaQueryData.size.height - mediaQueryData.viewPadding.bottom,
+        ),
+      );
+    });
+
     testWidgets('form edit dompet muncul setelah tap tombol edit',
         (tester) async {
       await _pumpDompetPage(tester, initialWallets: _fakeWallets);

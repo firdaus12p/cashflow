@@ -5230,252 +5230,277 @@ class _MainScreenState extends State<MainScreen>
               topRight: Radius.circular(25),
             ),
           ),
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 20,
-              right: 20,
-              top: 20,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    key: const Key('sheet_drag_handle'),
-                    width: 50,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'Buat Target Tabungan 🎯',
-                  style: GoogleFonts.poppins(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: AppPalette.primary,
-                  ),
-                ),
-                const SizedBox(height: 25),
-
-                // Name input
-                Text(
-                  'Nama Target',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppPalette.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppPalette.surfaceMuted,
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: TextField(
-                    controller: nameController,
-                    style: GoogleFonts.poppins(),
-                    decoration: InputDecoration(
-                      hintText: 'Contoh: iPhone baru, Liburan ke Bali',
-                      hintStyle:
-                          GoogleFonts.poppins(color: AppPalette.textSecondary),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(20),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Target amount
-                Text(
-                  'Target Jumlah',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppPalette.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppPalette.surfaceMuted,
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: TextField(
-                    controller: targetController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [CurrencyInputFormatter()],
-                    style: GoogleFonts.poppins(),
-                    decoration: InputDecoration(
-                      hintText: 'Masukkan target jumlah',
-                      hintStyle:
-                          GoogleFonts.poppins(color: AppPalette.textSecondary),
-                      prefixText: 'Rp ',
-                      prefixStyle: GoogleFonts.poppins(
-                        color: AppPalette.primary,
-                        fontWeight: FontWeight.bold,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      key: const Key('sheet_drag_handle'),
+                      width: 50,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.all(20),
                     ),
                   ),
-                ),
-                const SizedBox(height: 20),
-
-                // Emoji selection
-                Text(
-                  'Pilih Emoji',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppPalette.textPrimary,
+                  const SizedBox(height: 20),
+                  Text(
+                    'Buat Target Tabungan 🎯',
+                    style: GoogleFonts.poppins(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: AppPalette.primary,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  height: 60,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: emojiOptions.length,
-                    itemBuilder: (context, index) {
-                      final emoji = emojiOptions[index];
-                      return GestureDetector(
-                        onTap: () => setState(() => selectedEmoji = emoji),
-                        child: Container(
-                          margin: const EdgeInsets.only(right: 10),
-                          padding: const EdgeInsets.all(15),
-                          decoration: BoxDecoration(
-                            color: selectedEmoji == emoji
-                                ? AppPalette.primary.withValues(alpha: 0.2)
-                                : AppPalette.surfaceMuted,
-                            borderRadius: BorderRadius.circular(15),
-                            border: Border.all(
-                              color: selectedEmoji == emoji
-                                  ? AppPalette.primary
-                                  : Colors.transparent,
-                              width: 2,
+                  const SizedBox(height: 25),
+
+                  Expanded(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Name input
+                          Text(
+                            'Nama Target',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppPalette.textPrimary,
                             ),
                           ),
-                          child:
-                              Text(emoji, style: const TextStyle(fontSize: 24)),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Target date (optional)
-                Text(
-                  'Target Tanggal (Opsional)',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppPalette.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                GestureDetector(
-                  onTap: () async {
-                    final date = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.now().add(const Duration(days: 30)),
-                      firstDate: DateTime.now(),
-                      lastDate:
-                          DateTime.now().add(const Duration(days: 365 * 5)),
-                    );
-                    if (date != null) {
-                      setState(() => selectedDate = date);
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: AppPalette.surfaceMuted,
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today,
-                            color: AppPalette.primary),
-                        const SizedBox(width: 15),
-                        Text(
-                          selectedDate != null
-                              ? DateFormat('dd MMM yyyy').format(selectedDate!)
-                              : 'Pilih tanggal target',
-                          style: GoogleFonts.poppins(
-                            color: selectedDate != null
-                                ? AppPalette.textPrimary
-                                : AppPalette.textSecondary,
+                          const SizedBox(height: 10),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppPalette.surfaceMuted,
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: TextField(
+                              controller: nameController,
+                              style: GoogleFonts.poppins(),
+                              decoration: InputDecoration(
+                                hintText:
+                                    'Contoh: iPhone baru, Liburan ke Bali',
+                                hintStyle: GoogleFonts.poppins(
+                                  color: AppPalette.textSecondary,
+                                ),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.all(20),
+                              ),
+                            ),
                           ),
+                          const SizedBox(height: 20),
+
+                          // Target amount
+                          Text(
+                            'Target Jumlah',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppPalette.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppPalette.surfaceMuted,
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: TextField(
+                              controller: targetController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [CurrencyInputFormatter()],
+                              style: GoogleFonts.poppins(),
+                              decoration: InputDecoration(
+                                hintText: 'Masukkan target jumlah',
+                                hintStyle: GoogleFonts.poppins(
+                                  color: AppPalette.textSecondary,
+                                ),
+                                prefixText: 'Rp ',
+                                prefixStyle: GoogleFonts.poppins(
+                                  color: AppPalette.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.all(20),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Emoji selection
+                          Text(
+                            'Pilih Emoji',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppPalette.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: 60,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: emojiOptions.length,
+                              itemBuilder: (context, index) {
+                                final emoji = emojiOptions[index];
+                                return GestureDetector(
+                                  onTap: () =>
+                                      setState(() => selectedEmoji = emoji),
+                                  child: Container(
+                                    margin: const EdgeInsets.only(right: 10),
+                                    padding: const EdgeInsets.all(15),
+                                    decoration: BoxDecoration(
+                                      color: selectedEmoji == emoji
+                                          ? AppPalette.primary
+                                              .withValues(alpha: 0.2)
+                                          : AppPalette.surfaceMuted,
+                                      borderRadius: BorderRadius.circular(15),
+                                      border: Border.all(
+                                        color: selectedEmoji == emoji
+                                            ? AppPalette.primary
+                                            : Colors.transparent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      emoji,
+                                      style: const TextStyle(fontSize: 24),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          // Target date (optional)
+                          Text(
+                            'Target Tanggal (Opsional)',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppPalette.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          GestureDetector(
+                            onTap: () async {
+                              final date = await showDatePicker(
+                                context: context,
+                                initialDate: DateTime.now().add(
+                                  const Duration(days: 30),
+                                ),
+                                firstDate: DateTime.now(),
+                                lastDate: DateTime.now().add(
+                                  const Duration(days: 365 * 5),
+                                ),
+                              );
+                              if (date != null) {
+                                setState(() => selectedDate = date);
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(20),
+                              decoration: BoxDecoration(
+                                color: AppPalette.surfaceMuted,
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.calendar_today,
+                                    color: AppPalette.primary,
+                                  ),
+                                  const SizedBox(width: 15),
+                                  Text(
+                                    selectedDate != null
+                                        ? DateFormat('dd MMM yyyy')
+                                            .format(selectedDate!)
+                                        : 'Pilih tanggal target',
+                                    style: GoogleFonts.poppins(
+                                      color: selectedDate != null
+                                          ? AppPalette.textPrimary
+                                          : AppPalette.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Save button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        if (nameController.text.isEmpty ||
+                            targetController.text.isEmpty) {
+                          _showSnackBarMessage(
+                            'Nama target dan jumlah wajib diisi.',
+                            backgroundColor: Colors.red,
+                          );
+                          return;
+                        }
+
+                        try {
+                          final goal = SavingGoal(
+                            name: nameController.text,
+                            targetAmount:
+                                parseCurrencyInput(targetController.text),
+                            emoji: selectedEmoji,
+                            createdDate: DateTime.now(),
+                            targetDate: selectedDate,
+                          );
+
+                          await _dbHelper.insertSavingGoal(goal);
+                          await _loadAllData();
+
+                          if (!context.mounted) return;
+                          Navigator.pop(context);
+                          _showSnackBarMessage(
+                              'Target tabungan berhasil dibuat! 🎯');
+                        } on Exception catch (_) {
+                          _showSnackBarMessage(
+                            'Target tabungan gagal disimpan. Coba lagi.',
+                            backgroundColor: Colors.red,
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppPalette.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Spacer(),
-
-                // Save button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      if (nameController.text.isEmpty ||
-                          targetController.text.isEmpty) {
-                        _showSnackBarMessage(
-                          'Nama target dan jumlah wajib diisi.',
-                          backgroundColor: Colors.red,
-                        );
-                        return;
-                      }
-
-                      try {
-                        final goal = SavingGoal(
-                          name: nameController.text,
-                          targetAmount:
-                              parseCurrencyInput(targetController.text),
-                          emoji: selectedEmoji,
-                          createdDate: DateTime.now(),
-                          targetDate: selectedDate,
-                        );
-
-                        await _dbHelper.insertSavingGoal(goal);
-                        await _loadAllData();
-
-                        if (!context.mounted) return;
-                        Navigator.pop(context);
-                        _showSnackBarMessage(
-                            'Target tabungan berhasil dibuat! 🎯');
-                      } on Exception catch (_) {
-                        _showSnackBarMessage(
-                          'Target tabungan gagal disimpan. Coba lagi.',
-                          backgroundColor: Colors.red,
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppPalette.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
                       ),
-                    ),
-                    child: Text(
-                      'Buat Target 🎯',
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                      child: Text(
+                        'Buat Target 🎯',
+                        style: GoogleFonts.poppins(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -5551,358 +5576,363 @@ class _MainScreenState extends State<MainScreen>
                 topRight: Radius.circular(25),
               ),
             ),
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      key: const Key('sheet_drag_handle'),
-                      width: 50,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  if (sheetFeedbackMessage != null) ...[
-                    Container(
-                      key: const Key('wishlist_sheet_feedback'),
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: sheetFeedbackColor.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: sheetFeedbackColor.withValues(alpha: 0.3),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        key: const Key('sheet_drag_handle'),
+                        width: 50,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline_rounded,
-                            size: 18,
-                            color: sheetFeedbackColor,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              sheetFeedbackMessage!,
-                              style: GoogleFonts.poppins(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: sheetFeedbackColor,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                     ),
-                    const SizedBox(height: 16),
-                  ],
-                  Text(
-                    'Tambah ke Wishlist 🛍️',
-                    style: GoogleFonts.poppins(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: AppPalette.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 25),
-
-                  // BAGIAN FORM DALAM SCROLLABLE
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Name input
-                          Text(
-                            'Nama Barang',
-                            style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppPalette.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppPalette.surfaceMuted,
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                            child: TextField(
-                              controller: nameController,
-                              style: GoogleFonts.poppins(),
-                              decoration: InputDecoration(
-                                hintText: 'Contoh: Dress cantik, Sepatu heels',
-                                hintStyle: GoogleFonts.poppins(
-                                  color: AppPalette.textSecondary,
-                                ),
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.all(20),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Price input
-                          Text(
-                            'Harga',
-                            style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppPalette.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppPalette.surfaceMuted,
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                            child: TextField(
-                              controller: priceController,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [CurrencyInputFormatter()],
-                              style: GoogleFonts.poppins(),
-                              decoration: InputDecoration(
-                                hintText: 'Masukkan harga',
-                                hintStyle: GoogleFonts.poppins(
-                                  color: AppPalette.textSecondary,
-                                ),
-                                prefixText: 'Rp ',
-                                prefixStyle: GoogleFonts.poppins(
-                                  color: AppPalette.primary,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.all(20),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Emoji selection
-                          Text(
-                            'Pilih Emoji',
-                            style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppPalette.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            height: 60,
-                            child: ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: emojiOptions.length,
-                              itemBuilder: (context, index) {
-                                final emoji = emojiOptions[index];
-                                return GestureDetector(
-                                  onTap: () =>
-                                      setState(() => selectedEmoji = emoji),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(right: 10),
-                                    padding: const EdgeInsets.all(15),
-                                    decoration: BoxDecoration(
-                                      color: selectedEmoji == emoji
-                                          ? AppPalette.primary
-                                              .withValues(alpha: 0.2)
-                                          : AppPalette.surfaceMuted,
-                                      borderRadius: BorderRadius.circular(15),
-                                      border: Border.all(
-                                        color: selectedEmoji == emoji
-                                            ? AppPalette.primary
-                                            : Colors.transparent,
-                                        width: 2,
-                                      ),
-                                    ),
-                                    child: Text(emoji,
-                                        style: const TextStyle(fontSize: 24)),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Priority selection
-                          Text(
-                            'Prioritas',
-                            style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppPalette.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Column(
-                            children: priorities.map((priority) {
-                              return GestureDetector(
-                                onTap: () => setState(
-                                    () => selectedPriority = priority['value']),
-                                child: Container(
-                                  margin: const EdgeInsets.only(bottom: 10),
-                                  padding: const EdgeInsets.all(15),
-                                  decoration: BoxDecoration(
-                                    color: selectedPriority == priority['value']
-                                        ? priority['color']
-                                            .withValues(alpha: 0.1)
-                                        : Colors.grey.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(15),
-                                    border: Border.all(
-                                      color:
-                                          selectedPriority == priority['value']
-                                              ? priority['color']
-                                              : Colors.transparent,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 20,
-                                        height: 20,
-                                        decoration: BoxDecoration(
-                                          color: priority['color'],
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 15),
-                                      Text(
-                                        priority['label'],
-                                        style: GoogleFonts.poppins(
-                                          color: selectedPriority ==
-                                                  priority['value']
-                                              ? priority['color']
-                                              : Colors.grey[700],
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(
-                              height: 30), // Extra space sebelum tombol
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  // TOMBOL SELALU TERLIHAT DI BAWAH (TIDAK IKUT SCROLL)
-                  Container(
-                    padding: const EdgeInsets.only(top: 20),
-                    decoration: BoxDecoration(
-                      color: AppPalette.surface,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppPalette.border.withValues(alpha: 0.8),
-                          blurRadius: 10,
-                          offset: const Offset(0, -5),
+                    const SizedBox(height: 20),
+                    if (sheetFeedbackMessage != null) ...[
+                      Container(
+                        key: const Key('wishlist_sheet_feedback'),
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
                         ),
-                      ],
-                    ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          clearSheetFeedback();
-                          // Validasi input
-                          if (nameController.text.isEmpty) {
-                            showSheetFeedback(
-                              'Nama barang tidak boleh kosong!',
-                            );
-                            return;
-                          }
-
-                          if (priceController.text.isEmpty) {
-                            showSheetFeedback(
-                              'Harga tidak boleh kosong!',
-                            );
-                            return;
-                          }
-
-                          try {
-                            final item = WishlistItem(
-                              name: nameController.text.trim(),
-                              price: parseCurrencyInput(priceController.text),
-                              emoji: selectedEmoji,
-                              priority: selectedPriority,
-                              createdDate: DateTime.now(),
-                            );
-
-                            // Simpan ke database
-                            await _dbHelper.insertWishlistItem(item);
-
-                            // Refresh data
-                            await _loadAllData();
-
-                            // Tutup dialog jika context masih valid
-                            if (context.mounted) {
-                              Navigator.pop(context);
-                            }
-
-                            _showSnackBarMessage(
-                              '✅ ${item.emoji} ${item.name} berhasil ditambahkan!',
-                            );
-                          } on FormatException {
-                            _showSnackBarMessage(
-                              'Format harga tidak valid! Masukkan angka saja.',
-                              backgroundColor: AppPalette.danger,
-                            );
-                          } on Exception catch (_) {
-                            _showSnackBarMessage(
-                              'Wishlist gagal disimpan. Coba lagi.',
-                              backgroundColor: AppPalette.danger,
-                            );
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppPalette.primary,
-                          padding: const EdgeInsets.symmetric(vertical: 18),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(15),
+                        decoration: BoxDecoration(
+                          color: sheetFeedbackColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: sheetFeedbackColor.withValues(alpha: 0.3),
                           ),
-                          elevation: 8,
-                          shadowColor:
-                              AppPalette.primary.withValues(alpha: 0.4),
                         ),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text('🛍️', style: TextStyle(fontSize: 20)),
+                            Icon(
+                              Icons.info_outline_rounded,
+                              size: 18,
+                              color: sheetFeedbackColor,
+                            ),
                             const SizedBox(width: 10),
-                            Text(
-                              'Tambah ke Wishlist',
-                              style: GoogleFonts.poppins(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
+                            Expanded(
+                              child: Text(
+                                sheetFeedbackMessage!,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: sheetFeedbackColor,
+                                ),
                               ),
                             ),
                           ],
                         ),
                       ),
+                      const SizedBox(height: 16),
+                    ],
+                    Text(
+                      'Tambah ke Wishlist 🛍️',
+                      style: GoogleFonts.poppins(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: AppPalette.primary,
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 25),
+
+                    // BAGIAN FORM DALAM SCROLLABLE
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Name input
+                            Text(
+                              'Nama Barang',
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppPalette.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: AppPalette.surfaceMuted,
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              child: TextField(
+                                controller: nameController,
+                                style: GoogleFonts.poppins(),
+                                decoration: InputDecoration(
+                                  hintText:
+                                      'Contoh: Dress cantik, Sepatu heels',
+                                  hintStyle: GoogleFonts.poppins(
+                                    color: AppPalette.textSecondary,
+                                  ),
+                                  border: InputBorder.none,
+                                  contentPadding: const EdgeInsets.all(20),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Price input
+                            Text(
+                              'Harga',
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppPalette.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: AppPalette.surfaceMuted,
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              child: TextField(
+                                controller: priceController,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [CurrencyInputFormatter()],
+                                style: GoogleFonts.poppins(),
+                                decoration: InputDecoration(
+                                  hintText: 'Masukkan harga',
+                                  hintStyle: GoogleFonts.poppins(
+                                    color: AppPalette.textSecondary,
+                                  ),
+                                  prefixText: 'Rp ',
+                                  prefixStyle: GoogleFonts.poppins(
+                                    color: AppPalette.primary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  border: InputBorder.none,
+                                  contentPadding: const EdgeInsets.all(20),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Emoji selection
+                            Text(
+                              'Pilih Emoji',
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppPalette.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              height: 60,
+                              child: ListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: emojiOptions.length,
+                                itemBuilder: (context, index) {
+                                  final emoji = emojiOptions[index];
+                                  return GestureDetector(
+                                    onTap: () =>
+                                        setState(() => selectedEmoji = emoji),
+                                    child: Container(
+                                      margin: const EdgeInsets.only(right: 10),
+                                      padding: const EdgeInsets.all(15),
+                                      decoration: BoxDecoration(
+                                        color: selectedEmoji == emoji
+                                            ? AppPalette.primary
+                                                .withValues(alpha: 0.2)
+                                            : AppPalette.surfaceMuted,
+                                        borderRadius: BorderRadius.circular(15),
+                                        border: Border.all(
+                                          color: selectedEmoji == emoji
+                                              ? AppPalette.primary
+                                              : Colors.transparent,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Text(emoji,
+                                          style: const TextStyle(fontSize: 24)),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+
+                            // Priority selection
+                            Text(
+                              'Prioritas',
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppPalette.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Column(
+                              children: priorities.map((priority) {
+                                return GestureDetector(
+                                  onTap: () => setState(() =>
+                                      selectedPriority = priority['value']),
+                                  child: Container(
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    padding: const EdgeInsets.all(15),
+                                    decoration: BoxDecoration(
+                                      color: selectedPriority ==
+                                              priority['value']
+                                          ? priority['color']
+                                              .withValues(alpha: 0.1)
+                                          : Colors.grey.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(15),
+                                      border: Border.all(
+                                        color: selectedPriority ==
+                                                priority['value']
+                                            ? priority['color']
+                                            : Colors.transparent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 20,
+                                          height: 20,
+                                          decoration: BoxDecoration(
+                                            color: priority['color'],
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 15),
+                                        Text(
+                                          priority['label'],
+                                          style: GoogleFonts.poppins(
+                                            color: selectedPriority ==
+                                                    priority['value']
+                                                ? priority['color']
+                                                : Colors.grey[700],
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(
+                                height: 30), // Extra space sebelum tombol
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    // TOMBOL SELALU TERLIHAT DI BAWAH (TIDAK IKUT SCROLL)
+                    Container(
+                      padding: const EdgeInsets.only(top: 20),
+                      decoration: BoxDecoration(
+                        color: AppPalette.surface,
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppPalette.border.withValues(alpha: 0.8),
+                            blurRadius: 10,
+                            offset: const Offset(0, -5),
+                          ),
+                        ],
+                      ),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            clearSheetFeedback();
+                            // Validasi input
+                            if (nameController.text.isEmpty) {
+                              showSheetFeedback(
+                                'Nama barang tidak boleh kosong!',
+                              );
+                              return;
+                            }
+
+                            if (priceController.text.isEmpty) {
+                              showSheetFeedback(
+                                'Harga tidak boleh kosong!',
+                              );
+                              return;
+                            }
+
+                            try {
+                              final item = WishlistItem(
+                                name: nameController.text.trim(),
+                                price: parseCurrencyInput(priceController.text),
+                                emoji: selectedEmoji,
+                                priority: selectedPriority,
+                                createdDate: DateTime.now(),
+                              );
+
+                              // Simpan ke database
+                              await _dbHelper.insertWishlistItem(item);
+
+                              // Refresh data
+                              await _loadAllData();
+
+                              // Tutup dialog jika context masih valid
+                              if (context.mounted) {
+                                Navigator.pop(context);
+                              }
+
+                              _showSnackBarMessage(
+                                '✅ ${item.emoji} ${item.name} berhasil ditambahkan!',
+                              );
+                            } on FormatException {
+                              _showSnackBarMessage(
+                                'Format harga tidak valid! Masukkan angka saja.',
+                                backgroundColor: AppPalette.danger,
+                              );
+                            } on Exception catch (_) {
+                              _showSnackBarMessage(
+                                'Wishlist gagal disimpan. Coba lagi.',
+                                backgroundColor: AppPalette.danger,
+                              );
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppPalette.primary,
+                            padding: const EdgeInsets.symmetric(vertical: 18),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            elevation: 8,
+                            shadowColor:
+                                AppPalette.primary.withValues(alpha: 0.4),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text('🛍️', style: TextStyle(fontSize: 20)),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Tambah ke Wishlist',
+                                style: GoogleFonts.poppins(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -5936,6 +5966,7 @@ class _MainScreenState extends State<MainScreen>
               ),
             ),
             child: SafeArea(
+              top: false,
               child: SingleChildScrollView(
                 controller: scrollController,
                 padding: EdgeInsets.only(

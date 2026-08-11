@@ -228,6 +228,84 @@ void main() {
     );
   });
 
+  testWidgets('sheet target tabungan menghormati inset bawah sistem',
+      (WidgetTester tester) async {
+    const mediaQueryData = MediaQueryData(
+      size: Size(400, 800),
+      viewPadding: EdgeInsets.only(bottom: 24),
+    );
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: mediaQueryData,
+        child: MaterialApp(
+          home: MainScreen(
+            skipInitialLoad: true,
+            initialHomeBalanceSourceType: 'total',
+            initialHomeBalanceVisibilityHidden: false,
+            persistHomeHeroPreferences: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bottom_nav_target_tabungan')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('+ Goal Baru'));
+    await tester.pumpAndSettle();
+
+    final saveButtonRect = tester.getRect(
+      find.widgetWithText(ElevatedButton, 'Buat Target 🎯'),
+    );
+    expect(
+      saveButtonRect.bottom,
+      lessThanOrEqualTo(
+        mediaQueryData.size.height - mediaQueryData.viewPadding.bottom,
+      ),
+    );
+  });
+
+  testWidgets('sheet tambah wishlist menghormati inset bawah sistem',
+      (WidgetTester tester) async {
+    const mediaQueryData = MediaQueryData(
+      size: Size(400, 800),
+      viewPadding: EdgeInsets.only(bottom: 24),
+    );
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: mediaQueryData,
+        child: MaterialApp(
+          home: MainScreen(
+            skipInitialLoad: true,
+            initialHomeBalanceSourceType: 'total',
+            initialHomeBalanceVisibilityHidden: false,
+            persistHomeHeroPreferences: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bottom_nav_wishlist_belanja')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('+ Tambah Item'));
+    await tester.pumpAndSettle();
+
+    final saveButtonRect = tester.getRect(
+      find.widgetWithText(ElevatedButton, 'Tambah ke Wishlist'),
+    );
+    expect(
+      saveButtonRect.bottom,
+      lessThanOrEqualTo(
+        mediaQueryData.size.height - mediaQueryData.viewPadding.bottom,
+      ),
+    );
+  });
+
   testWidgets('bottom nav labels stay on one line on narrow widths',
       (WidgetTester tester) async {
     const mediaQueryData = MediaQueryData(size: Size(360, 800));
