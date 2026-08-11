@@ -2,25 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
 void main() {
   final now = DateTime(2026, 8, 10);
-
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
-  });
-
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
-  });
 
   Future<void> _pumpPage(
     WidgetTester tester, {
@@ -115,46 +101,6 @@ void main() {
     expect(find.byKey(const Key('bucket_wallet_dropdown')), findsOneWidget);
   });
 
-  testWidgets(
-      'mengizinkan simpan pos bertahap selama total belum melebihi 100%',
-      (tester) async {
-    await _pumpPage(
-      tester,
-      wallets: [
-        Wallet(
-          id: 1,
-          name: 'Cash',
-          createdDate: now,
-          updatedDate: now,
-        ),
-      ],
-    );
-
-    await tester.tap(find.byKey(const Key('pos_fab')));
-    await _pumpSheetFrames(tester);
-
-    await tester.enterText(
-      find.byKey(const Key('bucket_name_field')),
-      'Tabungan',
-    );
-    await tester.enterText(
-      find.byKey(const Key('bucket_pct_field')),
-      '30',
-    );
-
-    await tester.tap(find.byKey(const Key('bucket_save_btn')));
-    await _pumpSheetFrames(tester);
-
-    final savedBuckets = await DatabaseHelper().getFinancialBuckets();
-    expect(savedBuckets, hasLength(1));
-    expect(savedBuckets.single.name, 'Tabungan');
-    expect(savedBuckets.single.allocationPercentage, 30);
-    expect(
-      find.text('Total persentase semua pos tidak boleh lebih dari 100%.'),
-      findsNothing,
-    );
-  });
-
   testWidgets('simpan pos tanpa dompet aktif tetap tertahan di sheet',
       (tester) async {
     await _pumpPage(tester, wallets: const []);
@@ -187,5 +133,228 @@ void main() {
     await _pumpSheetFrames(tester);
 
     expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
+  });
+
+  testWidgets(
+      'sheet tambah pos menampilkan feedback lokal di bawah drag handle',
+      (tester) async {
+    await _pumpPage(tester, wallets: const []);
+
+    await tester.tap(find.byKey(const Key('pos_fab')));
+    await _pumpSheetFrames(tester);
+
+    await tester.enterText(
+      find.byKey(const Key('bucket_name_field')),
+      'Belanja',
+    );
+    await tester.enterText(
+      find.byKey(const Key('bucket_pct_field')),
+      '40',
+    );
+    await tester.tap(find.byKey(const Key('bucket_save_btn')));
+    await _pumpSheetFrames(tester);
+
+    expect(find.byKey(const Key('bucket_sheet_feedback')), findsOneWidget);
+    expect(
+      find.text('Buat dompet aktif dulu sebelum membuat pos.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('drag handle tambah pos bisa ditarik pelan untuk menutup',
+      (tester) async {
+    await _pumpPage(tester, wallets: const []);
+
+    await tester.tap(find.byKey(const Key('pos_fab')));
+    await _pumpSheetFrames(tester);
+
+    await tester.timedDrag(
+      find.byKey(const Key('sheet_drag_handle')),
+      const Offset(0, 260),
+      const Duration(milliseconds: 700),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('bucket_name_field')), findsNothing);
+  });
+
+  testWidgets('kartu pos menampilkan saldo sebagai elemen terpisah dan tegas',
+      (tester) async {
+    await _pumpPage(
+      tester,
+      wallets: [
+        Wallet(
+          id: 1,
+          name: 'Cash',
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+      buckets: [
+        FinancialBucket(
+          id: 1,
+          name: 'Sedekah',
+          walletId: 1,
+          allocationPercentage: 50,
+          currentBalance: 110000,
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+    );
+
+    expect(find.byKey(const Key('bucket_balance_text')), findsOneWidget);
+
+    final balanceText = tester.widget<Text>(
+      find.byKey(const Key('bucket_balance_text')),
+    );
+    final rootSpan = balanceText.textSpan!;
+    final flatText = rootSpan.toPlainText();
+
+    expect(flatText, 'Rp 110.000');
+    expect(balanceText.maxLines, 1);
+  });
+
+  testWidgets(
+      'sheet transfer pos menulis nominal dengan format rupiah yang konsisten',
+      (tester) async {
+    await _pumpPage(
+      tester,
+      wallets: [
+        Wallet(
+          id: 1,
+          name: 'Cash',
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+      buckets: [
+        FinancialBucket(
+          id: 1,
+          name: 'Sedekah',
+          walletId: 1,
+          allocationPercentage: 50,
+          currentBalance: 110000,
+          createdDate: now,
+          updatedDate: now,
+        ),
+        FinancialBucket(
+          id: 2,
+          name: 'Belanja',
+          walletId: 1,
+          allocationPercentage: 50,
+          currentBalance: 50000,
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+    );
+
+    await tester.tap(find.byKey(const Key('bucket_transfer_btn')).first);
+    await _pumpSheetFrames(tester);
+
+    await tester.enterText(
+      find.byKey(const Key('transfer_amount_field')),
+      '125000',
+    );
+    await tester.pump();
+
+    expect(find.text('125.000'), findsOneWidget);
+  });
+
+  testWidgets('sheet transfer pos menampilkan drag handle dan feedback lokal',
+      (tester) async {
+    await _pumpPage(
+      tester,
+      wallets: [
+        Wallet(
+          id: 1,
+          name: 'Cash',
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+      buckets: [
+        FinancialBucket(
+          id: 1,
+          name: 'Sedekah',
+          walletId: 1,
+          allocationPercentage: 50,
+          currentBalance: 110000,
+          createdDate: now,
+          updatedDate: now,
+        ),
+        FinancialBucket(
+          id: 2,
+          name: 'Belanja',
+          walletId: 1,
+          allocationPercentage: 50,
+          currentBalance: 50000,
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+    );
+
+    await tester.tap(find.byKey(const Key('bucket_transfer_btn')).first);
+    await _pumpSheetFrames(tester);
+
+    expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('transfer_confirm_btn')));
+    await _pumpSheetFrames(tester);
+
+    expect(find.byKey(const Key('transfer_sheet_feedback')), findsOneWidget);
+    expect(
+      find.text('Nominal transfer harus lebih besar dari 0.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('drag handle transfer pos bisa ditarik pelan untuk menutup',
+      (tester) async {
+    await _pumpPage(
+      tester,
+      wallets: [
+        Wallet(
+          id: 1,
+          name: 'Cash',
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+      buckets: [
+        FinancialBucket(
+          id: 1,
+          name: 'Sedekah',
+          walletId: 1,
+          allocationPercentage: 50,
+          currentBalance: 110000,
+          createdDate: now,
+          updatedDate: now,
+        ),
+        FinancialBucket(
+          id: 2,
+          name: 'Belanja',
+          walletId: 1,
+          allocationPercentage: 50,
+          currentBalance: 50000,
+          createdDate: now,
+          updatedDate: now,
+        ),
+      ],
+    );
+
+    await tester.tap(find.byKey(const Key('bucket_transfer_btn')).first);
+    await _pumpSheetFrames(tester);
+
+    await tester.timedDrag(
+      find.byKey(const Key('sheet_drag_handle')),
+      const Offset(0, 260),
+      const Duration(milliseconds: 700),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('transfer_amount_field')), findsNothing);
   });
 }

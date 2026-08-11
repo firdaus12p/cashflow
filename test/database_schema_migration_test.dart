@@ -6,8 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'package:cashflow/main.dart';
+import 'package:cashflow/data/database/database_helper.dart';
 
+// DB-level migration tests: memverifikasi kontrak skema lintas versi.
 // Tabel bawaan yang harus tetap ada setelah migrasi.
 const _legacyTables = ['transactions', 'saving_goals', 'wishlist', 'badges'];
 

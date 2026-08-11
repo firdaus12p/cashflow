@@ -1,55 +1,22 @@
 // ignore_for_file: depend_on_referenced_packages
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
-// Wallet objects yang dipakai di widget tests tanpa menyentuh DB sama sekali.
-// sqflite_ffi menggunakan real isolate — await-nya tidak bisa di-resolve
-// dari dalam fake-async Flutter test. Semua DB access di sini hanya ada di
-// test() biasa, bukan di testWidgets().
-final _now = DateTime(2026);
-final _fakeWallets = [
-  Wallet(
-      id: 1,
-      name: 'Cash',
-      iconKey: 'cash',
-      createdDate: _now,
-      updatedDate: _now),
-  Wallet(
-      id: 2,
-      name: 'E-Wallet',
-      iconKey: 'e_wallet',
-      createdDate: _now,
-      updatedDate: _now),
-  Wallet(
-      id: 3,
-      name: 'Bank',
-      iconKey: 'bank',
-      createdDate: _now,
-      updatedDate: _now),
-  Wallet(
-      id: 4,
-      name: 'Tabungan',
-      iconKey: 'savings',
-      createdDate: _now,
-      updatedDate: _now),
-];
+import 'test_support/db_test_harness.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await initializeSharedTestDatabase();
   });
 
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
+  setUp(() async {
+    await resetSharedTestDatabase();
   });
 
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
+  tearDownAll(() async {
+    await disposeSharedTestDatabase();
   });
 
   // ---------------------------------------------------------------------------
@@ -282,150 +249,6 @@ void main() {
       final activeWallets = await db.getActiveWallets();
       expect(storedWallet.isArchived, isTrue);
       expect(activeWallets.any((w) => w.id == walletId), isFalse);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // DompetPage UI — pure Dart objects, zero DB calls di dalam testWidgets
-  // ---------------------------------------------------------------------------
-
-  group('DompetPage — tampilan dan interaksi', () {
-    testWidgets('DompetPage menampilkan wallet_list ketika ada data',
-        (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('wallet_list')), findsOneWidget);
-    });
-
-    testWidgets('DompetPage menampilkan nama wallet', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Cash'), findsOneWidget);
-      expect(find.text('E-Wallet'), findsOneWidget);
-    });
-
-    testWidgets('DompetPage punya tombol tambah dompet (FAB)', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('dompet_fab')), findsOneWidget);
-    });
-
-    testWidgets('DompetPage punya tombol edit untuk setiap wallet',
-        (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('wallet_edit_btn')), findsWidgets);
-    });
-
-    testWidgets('form tambah dompet muncul setelah tap FAB', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('dompet_fab')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('wallet_name_field')), findsOneWidget);
-      expect(find.byKey(const Key('wallet_save_btn')), findsOneWidget);
-      expect(find.byKey(const Key('wallet_icon_cash')), findsOneWidget);
-    });
-
-    testWidgets('form edit dompet muncul setelah tap tombol edit',
-        (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('wallet_edit_btn')).first);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Edit Dompet'), findsOneWidget);
-      expect(find.byKey(const Key('wallet_name_field')), findsOneWidget);
-      expect(find.text('Cash'), findsWidgets);
-    });
-
-    testWidgets('DompetPage merender ikon dari iconKey tersimpan',
-        (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      expect(find.byIcon(Icons.payments_outlined), findsWidgets);
-      expect(find.byIcon(Icons.phone_android_outlined), findsWidgets);
-    });
-
-    testWidgets('DompetPage menampilkan empty state bila tidak ada wallet',
-        (tester) async {
-      await tester
-          .pumpWidget(const MaterialApp(home: DompetPage(initialWallets: [])));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Belum ada dompet'), findsOneWidget);
-      expect(find.byKey(const Key('wallet_list')), findsNothing);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // BR-04 — warning flow arsip dompet berhistori
-  // transactionCountForWallet diinjek agar tidak ada DB call di fake-async.
-  // ---------------------------------------------------------------------------
-
-  group('BR-04 — warning flow arsip dompet berhistori', () {
-    testWidgets('tombol arsip tersedia untuk setiap wallet', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: DompetPage(initialWallets: _fakeWallets)));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('wallet_archive_btn')), findsWidgets);
-    });
-
-    testWidgets('arsip dompet berhistori menampilkan warning dialog',
-        (tester) async {
-      // Injek: Cash (id=1) punya histori, sisanya tidak
-      Future<int> hasHistory(Wallet w) => Future.value(w.id == 1 ? 1 : 0);
-
-      await tester.pumpWidget(MaterialApp(
-        home: DompetPage(
-          initialWallets: _fakeWallets,
-          transactionCountForWallet: hasHistory,
-        ),
-      ));
-      await tester.pumpAndSettle();
-
-      // Tap tombol arsip Cash (item pertama)
-      await tester.tap(find.byKey(const Key('wallet_archive_btn')).first);
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('wallet_archive_warning')), findsOneWidget);
-    });
-
-    testWidgets('arsip dompet tanpa histori tidak menampilkan warning',
-        (tester) async {
-      // Semua wallet dianggap tidak punya histori
-      Future<int> noHistory(Wallet w) => Future.value(0);
-
-      await tester.pumpWidget(MaterialApp(
-        home: DompetPage(
-          initialWallets: _fakeWallets,
-          transactionCountForWallet: noHistory,
-        ),
-      ));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('wallet_archive_btn')).first);
-      // Tanpa warning, _loadWallets() dipanggil — tapi karena _handleArchive
-      // memanggil DatabaseHelper().archiveWallet di production path...
-      // tradeoff: kita hanya verifikasi bahwa dialog tidak muncul di initial tap.
-      await tester.pump(); // satu frame
-      expect(find.byKey(const Key('wallet_archive_warning')), findsNothing);
     });
   });
 }

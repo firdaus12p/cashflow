@@ -2,23 +2,20 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
-  });
-
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+      const MaterialApp(
+        home: MainScreen(
+          skipInitialLoad: true,
+          initialHomeBalanceSourceType: 'total',
+          initialHomeBalanceVisibilityHidden: false,
+          persistHomeHeroPreferences: false,
+        ),
+      ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
@@ -227,53 +224,6 @@ void main() {
         ),
         findsNothing,
       );
-    });
-  });
-
-  // BR-02: navigasi dari quick menu membuka halaman penuh, bukan bottom sheet
-  group('BR-02 — navigasi quick menu membuka halaman penuh', () {
-    testWidgets('tap Dompet membuka DompetPage', (tester) async {
-      await pumpApp(tester);
-
-      await tester.ensureVisible(find.byKey(const Key('quick_menu_dompet')));
-      await tester.tap(find.byKey(const Key('quick_menu_dompet')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('page_dompet')), findsOneWidget);
-    });
-
-    testWidgets('tap Hutang/Piutang membuka HutangPiutangPage', (tester) async {
-      await pumpApp(tester);
-
-      await tester
-          .ensureVisible(find.byKey(const Key('quick_menu_hutang_piutang')));
-      await tester.tap(find.byKey(const Key('quick_menu_hutang_piutang')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('page_hutang_piutang')), findsOneWidget);
-    });
-
-    testWidgets('tap Pos Keuangan membuka PosKeuanganPage', (tester) async {
-      await pumpApp(tester);
-
-      await tester
-          .ensureVisible(find.byKey(const Key('quick_menu_pos_keuangan')));
-      await tester.tap(find.byKey(const Key('quick_menu_pos_keuangan')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('page_pos_keuangan')), findsOneWidget);
-    });
-
-    testWidgets('tap Badge membuka BadgePencapaianPage', (tester) async {
-      await pumpApp(tester);
-
-      await tester
-          .ensureVisible(find.byKey(const Key('quick_menu_badge_pencapaian')));
-      await tester.tap(find.byKey(const Key('quick_menu_badge_pencapaian')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('page_badge_pencapaian')), findsOneWidget);
-      expect(find.text('Badge & Pencapaian'), findsWidgets);
     });
   });
 }

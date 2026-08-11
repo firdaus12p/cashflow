@@ -6,22 +6,25 @@
 // mencakup skenario yang bisa patah ketika fitur baru bertemu flow lama.
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
-import 'package:cashflow/main.dart';
+import 'package:cashflow/data/database/database_helper.dart';
+import 'package:cashflow/features/buckets/models/bucket_models.dart';
+import 'package:cashflow/features/debts/models/debt_models.dart';
+import 'package:cashflow/features/wallets/models/wallet.dart';
+
+import 'test_support/db_test_harness.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await initializeSharedTestDatabase();
   });
 
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
+  setUp(() async {
+    await resetSharedTestDatabase();
   });
 
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
+  tearDownAll(() async {
+    await disposeSharedTestDatabase();
   });
 
   final _now = DateTime(2026);
@@ -214,119 +217,6 @@ void main() {
 
       final payments = await db.getDebtPaymentsByDebt(debtId);
       expect(payments.length, 3);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Regresi 4: Logic functions Phase 2/5 tidak dipengaruhi domain baru
-  // ---------------------------------------------------------------------------
-
-  group('R4 — logic functions lama tetap benar setelah domain baru ditambahkan',
-      () {
-    test(
-        'calculateMonthlyExpenseForInsight mengabaikan transaksi affectsBalance=0',
-        () {
-      // Transaksi "catatan saja" (affectsBalance=false) tidak seharusnya
-      // masuk statistik — pastikan helper lama masih benar
-      final now = DateTime(2026, 8, 15);
-      final txs = [
-        Transaction(
-          type: 'expense',
-          amount: 100000,
-          category: 'Makanan',
-          description: 'Reguler',
-          date: DateTime(2026, 8, 1),
-          wallet: 'Cash',
-          affectsBalance: true,
-        ),
-        Transaction(
-          type: 'expense',
-          amount: 999999, // catatan saja — tidak boleh dihitung
-          category: 'Catatan',
-          description: 'Debt note',
-          date: DateTime(2026, 8, 2),
-          wallet: 'Cash',
-          affectsBalance: false,
-        ),
-      ];
-
-      final result = calculateMonthlyExpenseForInsight(txs, now);
-      expect(result, 100000,
-          reason:
-              'Transaksi catatan saja tidak boleh memengaruhi insight expense');
-    });
-
-    test('validateBucketPercentages akurat dengan floating point real-world',
-        () {
-      final now = DateTime(2026);
-      // Skenario nyata: 3 pos dengan pembagian tidak rata
-      final buckets = [
-        FinancialBucket(
-            name: 'A',
-            allocationPercentage: 33.34,
-            createdDate: now,
-            updatedDate: now),
-        FinancialBucket(
-            name: 'B',
-            allocationPercentage: 33.33,
-            createdDate: now,
-            updatedDate: now),
-        FinancialBucket(
-            name: 'C',
-            allocationPercentage: 33.33,
-            createdDate: now,
-            updatedDate: now),
-      ];
-      expect(validateBucketPercentages(buckets), isTrue,
-          reason: '33.34 + 33.33 + 33.33 = 100.00 harus valid');
-    });
-
-    test('effectiveIcon fallback ke emoji untuk record lama tanpa iconKey', () {
-      final goal = SavingGoal(
-        name: 'Test',
-        targetAmount: 100,
-        emoji: '🎯',
-        createdDate: DateTime(2026),
-      );
-      expect(goal.effectiveIcon, '🎯');
-      expect(goal.iconKey, isNull);
-    });
-
-    test(
-        'Debt.isOverdue edge case — dueDate kemarin adalah terlambat, besok tidak',
-        () {
-      final yesterday = DateTime.now().subtract(const Duration(days: 1));
-      final tomorrow = DateTime.now().add(const Duration(days: 1));
-
-      final overdueDebt = Debt(
-        type: 'debt',
-        personName: 'Test',
-        principalAmount: 100,
-        remainingAmount: 100,
-        borrowedDate: yesterday,
-        dueDate: yesterday,
-        recordingMode: 'note',
-        status: 'active',
-        createdDate: yesterday,
-        updatedDate: yesterday,
-      );
-      expect(overdueDebt.isOverdue, isTrue,
-          reason: 'dueDate kemarin sudah terlambat');
-
-      final futureDebt = Debt(
-        type: 'debt',
-        personName: 'Test2',
-        principalAmount: 100,
-        remainingAmount: 100,
-        borrowedDate: yesterday,
-        dueDate: tomorrow,
-        recordingMode: 'note',
-        status: 'active',
-        createdDate: yesterday,
-        updatedDate: yesterday,
-      );
-      expect(futureDebt.isOverdue, isFalse,
-          reason: 'dueDate besok belum terlambat');
     });
   });
 

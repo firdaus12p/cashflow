@@ -1,25 +1,25 @@
 // ignore_for_file: depend_on_referenced_packages
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
+
+import 'test_support/db_test_harness.dart';
 
 // Semua test di sini pakai test() bukan testWidgets() — DB-level tests.
 // sqflite_ffi pakai real isolate, tidak bisa di-await di fake-async zone.
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await initializeSharedTestDatabase();
   });
 
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
+  setUp(() async {
+    await resetSharedTestDatabase();
   });
 
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
+  tearDownAll(() async {
+    await disposeSharedTestDatabase();
   });
 
   final _now = DateTime(2026);
@@ -52,11 +52,29 @@ void main() {
       name: name,
       walletId: walletId,
       allocationPercentage: pct,
-      currentBalance: balance,
+      currentBalance: 0,
       createdDate: _now,
       updatedDate: _now,
     ));
-    return (await db.getFinancialBuckets()).firstWhere((b) => b.id == id);
+    var bucket = (await db.getFinancialBuckets()).firstWhere((b) => b.id == id);
+    if (balance > 0) {
+      final wallets = await db.getActiveWallets();
+      final wallet = wallets.firstWhere(
+        (candidate) => candidate.id == walletId,
+        orElse: () => wallets.first,
+      );
+      await db.saveIncomeWithAllocations(
+        amount: balance,
+        category: 'Seed',
+        description: 'Seed $name',
+        date: _now,
+        walletName: wallet.name,
+        walletId: wallet.id,
+        subsetBuckets: [bucket],
+      );
+      bucket = (await db.getFinancialBuckets()).firstWhere((b) => b.id == id);
+    }
+    return bucket;
   }
 
   // ---------------------------------------------------------------------------
@@ -285,6 +303,53 @@ void main() {
           .firstWhere((t) => t.description == 'Pembayaran hutang Andi');
       expect(tx.walletId, bankWallet.id);
       expect(tx.wallet, 'Bank');
+    });
+
+    test('cicilan debt mode balance ditolak bila saldo pos atau dompet kurang',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final wallet = (await db.getActiveWallets())
+          .firstWhere((activeWallet) => activeWallet.name == 'Cash');
+      final bucket = await _insertBucket(
+        db,
+        name: 'Cicilan Tipis',
+        balance: 30000,
+        walletId: wallet.id,
+      );
+      final debtId = await db.insertDebt(Debt(
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 100000,
+        remainingAmount: 100000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: wallet.id,
+        bucketId: bucket.id,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      await expectLater(
+        db.recordDebtPayment(
+          debtId: debtId,
+          amount: 50000,
+          paymentDate: _now,
+          recordingMode: 'balance',
+          walletId: wallet.id,
+          bucketId: bucket.id,
+          affectedBucket: bucket,
+          walletName: wallet.name,
+        ),
+        throwsA(isA<InsufficientBalanceException>()),
+      );
+
+      final updatedDebt = (await db.getDebtById(debtId))!;
+      final updatedBucket = (await db.getFinancialBuckets())
+          .firstWhere((current) => current.id == bucket.id);
+      expect(updatedDebt.remainingAmount, closeTo(100000, 0.01));
+      expect(updatedBucket.currentBalance, closeTo(30000, 0.01));
     });
   });
 }

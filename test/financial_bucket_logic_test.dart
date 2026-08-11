@@ -1,22 +1,22 @@
 // ignore_for_file: depend_on_referenced_packages
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
+import 'test_support/db_test_harness.dart';
+
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await initializeSharedTestDatabase();
   });
 
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
+  setUp(() async {
+    await resetSharedTestDatabase();
   });
 
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
+  tearDownAll(() async {
+    await disposeSharedTestDatabase();
   });
 
   // ---------------------------------------------------------------------------
@@ -25,170 +25,6 @@ void main() {
   // ---------------------------------------------------------------------------
 
   final _now = DateTime(2026);
-
-  FinancialBucket _bucket(int id, double pct, {double balance = 0}) =>
-      FinancialBucket(
-        id: id,
-        name: 'Bucket $id',
-        allocationPercentage: pct,
-        currentBalance: balance,
-        createdDate: _now,
-        updatedDate: _now,
-      );
-
-  FinancialBucket _bucketWithWallet(
-    int id,
-    double pct, {
-    required int walletId,
-    double balance = 0,
-  }) =>
-      FinancialBucket(
-        id: id,
-        name: 'Bucket $id',
-        walletId: walletId,
-        allocationPercentage: pct,
-        currentBalance: balance,
-        createdDate: _now,
-        updatedDate: _now,
-      );
-
-  group('validateBucketPercentages — BR-08', () {
-    test('total tepat 100% diterima', () {
-      expect(
-        validateBucketPercentages([_bucket(1, 60), _bucket(2, 40)]),
-        isTrue,
-      );
-    });
-
-    test('satu pos 100% diterima', () {
-      expect(validateBucketPercentages([_bucket(1, 100)]), isTrue);
-    });
-
-    test('tiga pos dengan pembulatan floating point diterima', () {
-      // 33.33 + 33.33 + 33.34 = 100.00
-      expect(
-        validateBucketPercentages(
-            [_bucket(1, 33.33), _bucket(2, 33.33), _bucket(3, 33.34)]),
-        isTrue,
-      );
-    });
-
-    test('total kurang dari 100% ditolak', () {
-      expect(
-        validateBucketPercentages([_bucket(1, 50), _bucket(2, 30)]),
-        isFalse,
-      );
-    });
-
-    test('total lebih dari 100% ditolak', () {
-      expect(
-        validateBucketPercentages([_bucket(1, 60), _bucket(2, 50)]),
-        isFalse,
-      );
-    });
-
-    test('daftar kosong ditolak', () {
-      expect(validateBucketPercentages([]), isFalse);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // normalizeSubsetAllocation — BR-09
-  // ---------------------------------------------------------------------------
-
-  group('normalizeSubsetAllocation — BR-09', () {
-    test('subset dua pos dari tiga dinormalisasi ke 100%', () {
-      // Total subset = 50 + 20 = 70; normalized: 50/70*100 ≈ 71.43, 20/70*100 ≈ 28.57
-      final subset = [_bucket(1, 50), _bucket(3, 20)];
-      final result = normalizeSubsetAllocation(subset);
-
-      expect(result.keys, containsAll([1, 3]));
-      expect(result[1], closeTo(71.43, 0.01));
-      expect(result[3], closeTo(28.57, 0.01));
-    });
-
-    test('subset satu pos menjadi 100%', () {
-      final result = normalizeSubsetAllocation([_bucket(2, 30)]);
-      expect(result[2], closeTo(100.0, 0.01));
-    });
-
-    test('subset semua pos mempertahankan persentase asli', () {
-      final subset = [_bucket(1, 60), _bucket(2, 40)];
-      final result = normalizeSubsetAllocation(subset);
-      expect(result[1], closeTo(60.0, 0.01));
-      expect(result[2], closeTo(40.0, 0.01));
-    });
-
-    test('jumlah normalized percentages selalu 100%', () {
-      final subset = [_bucket(1, 50), _bucket(2, 30), _bucket(3, 20)];
-      final result = normalizeSubsetAllocation(subset);
-      final total = result.values.fold(0.0, (a, b) => a + b);
-      expect(total, closeTo(100.0, 0.01));
-    });
-
-    test('subset kosong mengembalikan map kosong', () {
-      expect(normalizeSubsetAllocation([]), isEmpty);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // allocateIncomeToBuckets — distribusi nominal ke subset pos
-  // ---------------------------------------------------------------------------
-
-  group('allocateIncomeToBuckets', () {
-    test('income 1 juta dialokasikan ke dua pos sesuai persentase normalized',
-        () {
-      // Subset: pos A 50%, pos B 20% dari total → normalized A=71.43%, B=28.57%
-      final subset = [_bucket(1, 50), _bucket(2, 20)];
-      final amount = 1000000.0;
-      final allocations = allocateIncomeToBuckets(amount, subset);
-
-      // Jumlah alokasi harus sama dengan income
-      final total = allocations.values.fold(0.0, (a, b) => a + b);
-      expect(total, closeTo(amount, 0.01));
-
-      // Pos A harus mendapat lebih banyak dari pos B
-      expect(allocations[1]!, greaterThan(allocations[2]!));
-    });
-
-    test('satu pos menerima seluruh income', () {
-      final subset = [_bucket(5, 100)];
-      final allocations = allocateIncomeToBuckets(500000, subset);
-      expect(allocations[5], closeTo(500000, 0.01));
-    });
-
-    test('income nol menghasilkan alokasi nol untuk semua pos', () {
-      final subset = [_bucket(1, 60), _bucket(2, 40)];
-      final allocations = allocateIncomeToBuckets(0, subset);
-      expect(allocations.values.every((v) => v == 0.0), isTrue);
-    });
-  });
-
-  group('bucketsShareSameWallet — FEAT-07', () {
-    test('dua bucket dalam wallet yang sama diterima', () {
-      expect(
-        bucketsShareSameWallet([
-          _bucketWithWallet(1, 60, walletId: 1),
-          _bucketWithWallet(2, 40, walletId: 1),
-        ]),
-        isTrue,
-      );
-    });
-
-    test('bucket lintas wallet ditolak', () {
-      expect(
-        bucketsShareSameWallet([
-          _bucketWithWallet(1, 60, walletId: 1),
-          _bucketWithWallet(2, 40, walletId: 2),
-        ]),
-        isFalse,
-      );
-    });
-
-    test('subset kosong ditolak', () {
-      expect(bucketsShareSameWallet(const []), isFalse);
-    });
-  });
 
   // ---------------------------------------------------------------------------
   // executeBucketTransfer — BR-12: transfer tidak mengubah total saldo

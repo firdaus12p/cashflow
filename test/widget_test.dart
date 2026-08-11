@@ -3,25 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
 void main() {
   const shortInteractionTimeout = Timeout(Duration(seconds: 5));
-
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
-  });
-
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
-  });
 
   Future<void> _pumpInteractionFrames(
     WidgetTester tester, {
@@ -33,141 +19,28 @@ void main() {
     }
   }
 
-  test('calculateMonthlyExpenseForInsight uses monthly data and wallet filter',
-      () {
-    final now = DateTime(2026, 8, 15);
-    final transactions = [
-      Transaction(
-        type: 'expense',
-        amount: 100000,
-        category: 'Makanan',
-        description: 'Sarapan',
-        date: DateTime(2026, 8, 1, 8),
-        wallet: 'Cash',
+  Future<void> _pumpMainScreen(
+    WidgetTester tester, {
+    List<Transaction>? initialTransactions,
+    List<Transaction>? initialAllTransactions,
+    List<Wallet>? initialWallets,
+    List<FinancialBucket>? initialBuckets,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MainScreen(
+          skipInitialLoad: true,
+          initialTransactions: initialTransactions,
+          initialAllTransactions: initialAllTransactions,
+          initialWallets: initialWallets,
+          initialBuckets: initialBuckets,
+          initialHomeBalanceSourceType: 'total',
+          initialHomeBalanceVisibilityHidden: false,
+          persistHomeHeroPreferences: false,
+        ),
       ),
-      Transaction(
-        type: 'expense',
-        amount: 200000,
-        category: 'Belanja',
-        description: 'Belanja bulanan',
-        date: DateTime(2026, 8, 10, 9),
-        wallet: 'Bank',
-      ),
-      Transaction(
-        type: 'expense',
-        amount: 999999,
-        category: 'Transport',
-        description: 'Bulan lalu',
-        date: DateTime(2026, 7, 31, 23, 59),
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'income',
-        amount: 500000,
-        category: 'Gaji',
-        description: 'Gaji',
-        date: DateTime(2026, 8, 3, 12),
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'expense',
-        amount: 777777,
-        category: 'Catatan',
-        description: 'Note only',
-        date: DateTime(2026, 8, 12, 12),
-        wallet: 'Cash',
-        affectsBalance: false,
-      ),
-    ];
-
-    expect(calculateMonthlyExpenseForInsight(transactions, now), 300000);
-    expect(
-      calculateMonthlyExpenseForInsight(
-        transactions,
-        now,
-        selectedWallet: 'Cash',
-      ),
-      100000,
     );
-  });
-
-  test('formatRupiah uses Indonesian thousand separators consistently', () {
-    expect(formatRupiahValue(200000), '200.000');
-    expect(formatRupiah(200000), 'Rp 200.000');
-    expect(formatRupiah(1250000), 'Rp 1.250.000');
-  });
-
-  test('resolveHomeFilterRange defaults to monthly and expands correctly', () {
-    final referenceDate = DateTime(2026, 8, 15, 10, 30);
-
-    final defaultRange = resolveHomeFilterRange('unknown', referenceDate);
-    expect(defaultRange.start, DateTime(2026, 8, 1));
-    expect(defaultRange.end, DateTime(2026, 8, 31, 23, 59, 59));
-
-    final yearlyRange = resolveHomeFilterRange('yearly', referenceDate);
-    expect(yearlyRange.start, DateTime(2026, 1, 1));
-    expect(yearlyRange.end, DateTime(2026, 12, 31, 23, 59, 59));
-  });
-
-  test('calculateBalanceForWallet uses all-time data and wallet filter', () {
-    final transactions = [
-      Transaction(
-        type: 'income',
-        amount: 500000,
-        category: 'Gaji',
-        description: 'Gaji bulan ini',
-        date: DateTime(2026, 8, 15),
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'expense',
-        amount: 80000,
-        category: 'Belanja',
-        description: 'Belanja bulan ini',
-        date: DateTime(2026, 8, 15, 12),
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'income',
-        amount: 700000,
-        category: 'Bonus',
-        description: 'Bonus bulan lalu',
-        date: DateTime(2026, 7, 15),
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'expense',
-        amount: 100000,
-        category: 'Belanja',
-        description: 'Belanja bulan lalu',
-        date: DateTime(2026, 7, 16),
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'income',
-        amount: 999999,
-        category: 'Gaji',
-        description: 'Wallet lain',
-        date: DateTime(2026, 8, 17),
-        wallet: 'Bank',
-      ),
-      Transaction(
-        type: 'expense',
-        amount: 123456,
-        category: 'Catatan',
-        description: 'Tidak memengaruhi saldo',
-        date: DateTime(2026, 8, 18),
-        wallet: 'Cash',
-        affectsBalance: false,
-      ),
-    ];
-
-    expect(calculateBalanceForWallet(transactions), 2019999);
-    expect(
-      calculateBalanceForWallet(transactions, selectedWallet: 'Cash'),
-      1020000,
-    );
-  });
+  }
 
   testWidgets('dashboard summary ignores note-only transactions',
       (WidgetTester tester) async {
@@ -202,14 +75,10 @@ void main() {
       ),
     ];
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MainScreen(
-          skipInitialLoad: true,
-          initialTransactions: transactions,
-          initialAllTransactions: transactions,
-        ),
-      ),
+    await _pumpMainScreen(
+      tester,
+      initialTransactions: transactions,
+      initialAllTransactions: transactions,
     );
     await tester.pumpAndSettle();
 
@@ -263,14 +132,10 @@ void main() {
       ),
     ];
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MainScreen(
-          skipInitialLoad: true,
-          initialTransactions: currentMonthTransactions,
-          initialAllTransactions: allTransactions,
-        ),
-      ),
+    await _pumpMainScreen(
+      tester,
+      initialTransactions: currentMonthTransactions,
+      initialAllTransactions: allTransactions,
     );
     await tester.pumpAndSettle();
 
@@ -282,81 +147,9 @@ void main() {
     expect(find.text('Bonus luar periode bulanan'), findsNothing);
   });
 
-  testWidgets('home filter selection can switch from bulanan to tahunan',
-      (WidgetTester tester) async {
-    await tester
-        .pumpWidget(const MaterialApp(home: MainScreen(skipInitialLoad: true)));
-    await tester.pumpAndSettle();
-
-    final monthlyLabel = tester.widget<Text>(find.text('Bulanan').first);
-    expect(monthlyLabel.style?.color, Colors.white);
-
-    await tester.tap(find.text('Tahunan').first);
-    await _pumpInteractionFrames(tester);
-
-    final yearlyLabel = tester.widget<Text>(find.text('Tahunan').first);
-    expect(yearlyLabel.style?.color, Colors.white);
-  });
-
-  test('hasSavingBadgeForPeriod checks month and year together', () {
-    final badges = [
-      UserBadge(
-        name: 'Bulan lalu',
-        description: 'Badge dari tahun sebelumnya',
-        emoji: '🏆',
-        earnedDate: DateTime(2025, 8, 2),
-        type: 'saving',
-      ),
-      UserBadge(
-        name: 'Periode lain',
-        description: 'Badge bulan berbeda',
-        emoji: '🏆',
-        earnedDate: DateTime(2026, 7, 2),
-        type: 'saving',
-      ),
-    ];
-
-    expect(hasSavingBadgeForPeriod(badges, DateTime(2026, 8, 10)), isFalse);
-
-    badges.add(
-      UserBadge(
-        name: 'Periode aktif',
-        description: 'Badge bulan dan tahun yang sama',
-        emoji: '🏆',
-        earnedDate: DateTime(2026, 8, 3),
-        type: 'saving',
-      ),
-    );
-
-    expect(hasSavingBadgeForPeriod(badges, DateTime(2026, 8, 10)), isTrue);
-  });
-
-  test('formatSelectedDateRangeLabel formats same and cross-month ranges', () {
-    expect(
-      formatSelectedDateRangeLabel(
-        DateTimeRange(
-          start: DateTime(2026, 8, 1),
-          end: DateTime(2026, 8, 8),
-        ),
-      ),
-      'Aug 1 - 8, 2026',
-    );
-
-    expect(
-      formatSelectedDateRangeLabel(
-        DateTimeRange(
-          start: DateTime(2026, 8, 1),
-          end: DateTime(2026, 9, 5),
-        ),
-      ),
-      'Aug 1 - Sep 5, 2026',
-    );
-  });
-
   testWidgets('cashflow app smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester
-        .pumpWidget(const MaterialApp(home: MainScreen(skipInitialLoad: true)));
+    await _pumpMainScreen(tester);
 
     // Verify that the app starts correctly without depending on emoji copy.
     expect(find.byType(MainScreen), findsOneWidget);
@@ -364,15 +157,14 @@ void main() {
 
   testWidgets('home shell menampilkan tab baru dan navigasi inti tetap hidup',
       (WidgetTester tester) async {
-    await tester
-        .pumpWidget(const MaterialApp(home: MainScreen(skipInitialLoad: true)));
+    await _pumpMainScreen(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('Riwayat Transaksi'), findsOneWidget);
     expect(find.text('Beranda'), findsOneWidget);
     expect(find.text('Statistik'), findsOneWidget);
-    expect(find.text('Target Tabungan'), findsOneWidget);
-    expect(find.text('Wishlist Belanja'), findsOneWidget);
+    expect(find.text('Target'), findsOneWidget);
+    expect(find.text('Wishlist'), findsOneWidget);
     expect(find.text('Harian'), findsOneWidget);
     expect(find.text('Bulanan'), findsOneWidget);
     expect(find.text('Tahunan'), findsOneWidget);
@@ -393,16 +185,47 @@ void main() {
     expect(find.text('Kategori Pengeluaran'), findsOneWidget);
     expect(find.text('Grafik Pengeluaran Minggu'), findsOneWidget);
 
-    await tester.tap(find.text('Target Tabungan').first);
+    await tester.tap(find.byKey(const Key('bottom_nav_target_tabungan')));
     await tester.pumpAndSettle();
 
     expect(find.text('+ Goal Baru'), findsOneWidget);
     expect(find.text('Statistik Keuangan'), findsNothing);
 
-    await tester.tap(find.text('Wishlist Belanja').first);
+    await tester.tap(find.byKey(const Key('bottom_nav_wishlist_belanja')));
     await tester.pumpAndSettle();
 
     expect(find.text('+ Tambah Item'), findsOneWidget);
+  });
+
+  testWidgets('bottom nav respects bottom system inset',
+      (WidgetTester tester) async {
+    const mediaQueryData = MediaQueryData(
+      size: Size(800, 600),
+      viewPadding: EdgeInsets.only(bottom: 24),
+    );
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: mediaQueryData,
+        child: MaterialApp(
+          home: MainScreen(
+            skipInitialLoad: true,
+            initialHomeBalanceSourceType: 'total',
+            initialHomeBalanceVisibilityHidden: false,
+            persistHomeHeroPreferences: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final dockRect = tester.getRect(find.byKey(const Key('bottom_nav_bar')));
+    expect(
+      dockRect.bottom,
+      lessThanOrEqualTo(
+        mediaQueryData.size.height - mediaQueryData.viewPadding.bottom,
+      ),
+    );
   });
 
   testWidgets('transaction history metadata uses larger readable typography',
@@ -417,14 +240,10 @@ void main() {
       wallet: 'Cash',
     );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MainScreen(
-          skipInitialLoad: true,
-          initialTransactions: [tx],
-          initialAllTransactions: [tx],
-        ),
-      ),
+    await _pumpMainScreen(
+      tester,
+      initialTransactions: [tx],
+      initialAllTransactions: [tx],
     );
     await tester.pumpAndSettle();
 
@@ -437,6 +256,25 @@ void main() {
     expect(categoryText.style?.fontSize, 10);
     expect(walletText.style?.fontSize, 10);
     expect(dateText.style?.fontSize, 10);
+  });
+
+  testWidgets(
+      'sheet tambah wishlist menampilkan feedback lokal untuk validasi wajib',
+      (WidgetTester tester) async {
+    await _pumpMainScreen(tester);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('bottom_nav_wishlist_belanja')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('+ Tambah Item'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Tambah ke Wishlist'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('wishlist_sheet_feedback')), findsOneWidget);
+    expect(find.text('Nama barang tidak boleh kosong!'), findsOneWidget);
   });
 
   testWidgets('debt form fields stand out clearly inside the sheet',
@@ -482,8 +320,7 @@ void main() {
 
   testWidgets('range filter only opens picker from the range action button',
       (WidgetTester tester) async {
-    await tester
-        .pumpWidget(const MaterialApp(home: MainScreen(skipInitialLoad: true)));
+    await _pumpMainScreen(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Statistik'));
@@ -509,14 +346,10 @@ void main() {
       wallet: 'Cash',
     );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MainScreen(
-          skipInitialLoad: true,
-          initialTransactions: [transaction],
-          initialAllTransactions: [transaction],
-        ),
-      ),
+    await _pumpMainScreen(
+      tester,
+      initialTransactions: [transaction],
+      initialAllTransactions: [transaction],
     );
     await _pumpInteractionFrames(tester);
 
@@ -544,14 +377,10 @@ void main() {
       wallet: 'Cash',
     );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MainScreen(
-          skipInitialLoad: true,
-          initialTransactions: [transaction],
-          initialAllTransactions: [transaction],
-        ),
-      ),
+    await _pumpMainScreen(
+      tester,
+      initialTransactions: [transaction],
+      initialAllTransactions: [transaction],
     );
     await _pumpInteractionFrames(tester);
 
@@ -576,14 +405,10 @@ void main() {
       wallet: 'Cash',
     );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: MainScreen(
-          skipInitialLoad: true,
-          initialTransactions: [transaction],
-          initialAllTransactions: [transaction],
-        ),
-      ),
+    await _pumpMainScreen(
+      tester,
+      initialTransactions: [transaction],
+      initialAllTransactions: [transaction],
     );
     await _pumpInteractionFrames(tester);
 

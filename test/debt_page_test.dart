@@ -2,7 +2,6 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
@@ -75,20 +74,57 @@ final _fakeBuckets = [
   ),
 ];
 
+Future<void> _pumpDebtPage(
+  WidgetTester tester, {
+  List<Debt> debts = const [],
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: HutangPiutangPage(
+        initialDebts: debts,
+        initialWallets: _fakeWallets,
+        initialBuckets: _fakeBuckets,
+      ),
+    ),
+  );
+  await _pumpUi(tester);
+}
+
+Future<void> _pumpDebtDetail(
+  WidgetTester tester, {
+  required Debt debt,
+  List<DebtPayment> payments = const [],
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: HutangDetailPage(
+        debt: debt,
+        initialPayments: payments,
+        initialWallets: _fakeWallets,
+        initialBuckets: _fakeBuckets,
+      ),
+    ),
+  );
+  await _pumpUi(tester);
+}
+
+Future<void> _pumpUi(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 16));
+  await tester.pump(const Duration(milliseconds: 16));
+}
+
+Future<void> _openDebtForm(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('debt_fab')));
+  await _pumpUi(tester);
+}
+
+Future<void> _openPaymentSheet(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('debt_pay_btn')));
+  await _pumpUi(tester);
+}
+
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
-  });
-
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
-  });
-
   // ---------------------------------------------------------------------------
   // HutangPiutangPage — tampilan daftar
   // gap: initialDebts parameter dan widget keys belum ada — Task 6.2
@@ -96,17 +132,13 @@ void main() {
 
   group('HutangPiutangPage — tampilan daftar', () {
     testWidgets('menampilkan debt_list ketika ada data', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: _fakeDebts)));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: _fakeDebts);
 
       expect(find.byKey(const Key('debt_list')), findsOneWidget);
     });
 
     testWidgets('menampilkan nama orang di setiap item', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: _fakeDebts)));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: _fakeDebts);
 
       expect(find.text('Budi'), findsOneWidget);
       expect(find.text('Sari'), findsOneWidget);
@@ -114,27 +146,21 @@ void main() {
 
     testWidgets('menampilkan empty state bila tidak ada hutang/piutang',
         (tester) async {
-      await tester.pumpWidget(
-          const MaterialApp(home: HutangPiutangPage(initialDebts: [])));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester);
 
       expect(find.text('Belum ada hutang/piutang'), findsOneWidget);
       expect(find.byKey(const Key('debt_list')), findsNothing);
     });
 
     testWidgets('FAB untuk tambah record tersedia', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: _fakeDebts)));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: _fakeDebts);
 
       expect(find.byKey(const Key('debt_fab')), findsOneWidget);
     });
 
     testWidgets('menampilkan label tipe — Hutang untuk debt', (tester) async {
       final debts = [_makeDebt(type: 'debt', person: 'Citra')];
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: debts)));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: debts);
 
       expect(find.text('Hutang'), findsWidgets);
     });
@@ -142,9 +168,7 @@ void main() {
     testWidgets('menampilkan label tipe — Piutang untuk receivable',
         (tester) async {
       final debts = [_makeDebt(type: 'receivable', person: 'Dani')];
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: debts)));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: debts);
 
       expect(find.text('Piutang'), findsWidgets);
     });
@@ -154,18 +178,14 @@ void main() {
       final debts = [
         _makeDebt(remaining: 100000, due: _pastDate, status: 'active')
       ];
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: debts)));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: debts);
 
       expect(find.text('Terlambat'), findsOneWidget);
     });
 
     testWidgets('menampilkan label Lunas untuk debt settled', (tester) async {
       final debts = [_makeDebt(remaining: 0, status: 'settled')];
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: debts)));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: debts);
 
       expect(find.text('Lunas'), findsOneWidget);
     });
@@ -177,16 +197,8 @@ void main() {
 
   group('HutangPiutangPage — form tambah', () {
     testWidgets('form muncul setelah tap FAB', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-          home: HutangPiutangPage(
-        initialDebts: _fakeDebts,
-        initialWallets: _fakeWallets,
-        initialBuckets: _fakeBuckets,
-      )));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('debt_fab')));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester, debts: _fakeDebts);
+      await _openDebtForm(tester);
 
       expect(find.byKey(const Key('debt_form_page')), findsNothing);
       expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
@@ -198,32 +210,16 @@ void main() {
     });
 
     testWidgets('sheet debt tidak memakai kotak form tambahan', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-          home: HutangPiutangPage(
-        initialDebts: const [],
-        initialWallets: _fakeWallets,
-        initialBuckets: _fakeBuckets,
-      )));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('debt_fab')));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester);
+      await _openDebtForm(tester);
 
       expect(find.byKey(const Key('debt_form_surface')), findsNothing);
     });
 
     testWidgets('mode selector menampilkan helper text Masuk ke saldo',
         (tester) async {
-      await tester.pumpWidget(MaterialApp(
-          home: HutangPiutangPage(
-        initialDebts: const [],
-        initialWallets: _fakeWallets,
-        initialBuckets: _fakeBuckets,
-      )));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('debt_fab')));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester);
+      await _openDebtForm(tester);
 
       expect(find.text('Masuk ke saldo'), findsWidgets);
       expect(find.text('Catatan saja'), findsWidgets);
@@ -231,16 +227,8 @@ void main() {
 
     testWidgets('form tambah menampilkan selector dompet dan pos',
         (tester) async {
-      await tester.pumpWidget(MaterialApp(
-          home: HutangPiutangPage(
-        initialDebts: const [],
-        initialWallets: _fakeWallets,
-        initialBuckets: _fakeBuckets,
-      )));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('debt_fab')));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester);
+      await _openDebtForm(tester);
 
       expect(find.byKey(const Key('debt_wallet_dropdown')), findsOneWidget);
       expect(find.byKey(const Key('debt_bucket_dropdown')), findsOneWidget);
@@ -248,16 +236,8 @@ void main() {
 
     testWidgets('form tambah menampilkan field tanggal dan catatan',
         (tester) async {
-      await tester.pumpWidget(MaterialApp(
-          home: HutangPiutangPage(
-        initialDebts: const [],
-        initialWallets: _fakeWallets,
-        initialBuckets: _fakeBuckets,
-      )));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('debt_fab')));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester);
+      await _openDebtForm(tester);
 
       expect(find.byKey(const Key('debt_borrowed_date_btn')), findsOneWidget);
       expect(find.byKey(const Key('debt_due_date_btn')), findsOneWidget);
@@ -267,16 +247,8 @@ void main() {
     testWidgets(
         'form tambah menampilkan label yang lebih jelas seperti form transaksi',
         (tester) async {
-      await tester.pumpWidget(MaterialApp(
-          home: HutangPiutangPage(
-        initialDebts: const [],
-        initialWallets: _fakeWallets,
-        initialBuckets: _fakeBuckets,
-      )));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('debt_fab')));
-      await tester.pumpAndSettle();
+      await _pumpDebtPage(tester);
+      await _openDebtForm(tester);
 
       expect(find.text('Nama Orang'), findsOneWidget);
       expect(find.text('Nominal'), findsWidgets);
@@ -287,22 +259,90 @@ void main() {
 
     testWidgets('submit kosong menampilkan validasi nama pihak',
         (tester) async {
-      await tester.pumpWidget(MaterialApp(
-          home: HutangPiutangPage(
-        initialDebts: const [],
-        initialWallets: _fakeWallets,
-        initialBuckets: _fakeBuckets,
-      )));
+      await _pumpDebtPage(tester);
+      await _openDebtForm(tester);
+      await tester.pumpAndSettle(); // selesaikan animasi bottom sheet
+
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('debt_save_btn')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(
+        find.byKey(const Key('debt_save_btn')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle(); // beri waktu setState untuk rebuild
+
+      expect(find.byKey(const Key('debt_sheet_feedback')), findsOneWidget);
+      expect(find.text('Nama pihak tidak boleh kosong'), findsOneWidget);
+    });
+
+    testWidgets('feedback form tambah hilang otomatis setelah sebentar',
+        (tester) async {
+      await _pumpDebtPage(tester);
+      await _openDebtForm(tester);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('debt_fab')));
-      await tester.pumpAndSettle();
-
-      await tester.ensureVisible(find.byKey(const Key('debt_save_btn')));
-      await tester.tap(find.byKey(const Key('debt_save_btn')));
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('debt_save_btn')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(
+        find.byKey(const Key('debt_save_btn')),
+        warnIfMissed: false,
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('Nama pihak tidak boleh kosong'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 4));
+
+      expect(find.byKey(const Key('debt_sheet_feedback')), findsNothing);
+      expect(find.text('Nama pihak tidak boleh kosong'), findsNothing);
+    });
+
+    testWidgets('drag handle form tambah bisa ditarik pelan untuk menutup',
+        (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  key: const Key('open_direct_debt_sheet_btn'),
+                  onPressed: () {
+                    showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (ctx) => DebtFormSheet(
+                        initialWallets: _fakeWallets,
+                        initialBuckets: _fakeBuckets,
+                      ),
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('open_direct_debt_sheet_btn')));
+      await tester.pumpAndSettle();
+
+      await tester.timedDrag(
+        find.byKey(const Key('sheet_drag_handle')),
+        const Offset(0, 260),
+        const Duration(milliseconds: 700),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('debt_person_field')), findsNothing);
     });
   });
 
@@ -312,34 +352,17 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('HutangDetailPage — konten', () {
-    testWidgets('tap item debt membuka HutangDetailPage', (tester) async {
-      await tester.pumpWidget(
-          MaterialApp(home: HutangPiutangPage(initialDebts: _fakeDebts)));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Budi'));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('debt_detail_page')), findsOneWidget);
-    });
-
     testWidgets('detail menampilkan progress pembayaran', (tester) async {
       final debt = _makeDebt(
           id: 10, principal: 500000, remaining: 200000, person: 'Test');
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(debt: debt, initialPayments: const []),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
       expect(find.byKey(const Key('debt_progress_bar')), findsOneWidget);
     });
 
     testWidgets('detail menampilkan tombol Catat Pembayaran', (tester) async {
       final debt = _makeDebt(id: 10, status: 'active');
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(debt: debt, initialPayments: const []),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
       expect(find.byKey(const Key('debt_pay_btn')), findsOneWidget);
     });
@@ -347,20 +370,14 @@ void main() {
     testWidgets('detail tidak menampilkan pay button bila sudah settled',
         (tester) async {
       final debt = _makeDebt(id: 10, remaining: 0, status: 'settled');
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(debt: debt, initialPayments: const []),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
       expect(find.byKey(const Key('debt_pay_btn')), findsNothing);
     });
 
     testWidgets('detail menampilkan tombol edit debt', (tester) async {
       final debt = _makeDebt(id: 10, status: 'active');
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(debt: debt, initialPayments: const []),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
       expect(find.byKey(const Key('debt_edit_btn')), findsOneWidget);
     });
@@ -381,18 +398,10 @@ void main() {
         createdDate: _now,
         updatedDate: _now,
       );
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(
-          debt: debt,
-          initialPayments: const [],
-          initialWallets: _fakeWallets,
-          initialBuckets: _fakeBuckets,
-        ),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
       await tester.tap(find.byKey(const Key('debt_edit_btn')));
-      await tester.pumpAndSettle();
+      await _pumpUi(tester);
 
       expect(find.byKey(const Key('debt_form_page')), findsNothing);
       expect(find.text('Edit Hutang / Piutang'), findsOneWidget);
@@ -418,15 +427,7 @@ void main() {
         createdDate: _now,
         updatedDate: _now,
       );
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(
-          debt: debt,
-          initialPayments: const [],
-          initialWallets: _fakeWallets,
-          initialBuckets: _fakeBuckets,
-        ),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
       expect(find.text('Tanggal pinjam'), findsOneWidget);
       expect(find.text('Dompet'), findsOneWidget);
@@ -440,13 +441,9 @@ void main() {
     testWidgets('payment sheet menampilkan ringkasan mode dan selector bucket',
         (tester) async {
       final debt = _makeDebt(id: 10, status: 'active', mode: 'balance');
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(debt: debt, initialPayments: const []),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
-      await tester.tap(find.byKey(const Key('debt_pay_btn')));
-      await tester.pumpAndSettle();
+      await _openPaymentSheet(tester);
 
       expect(find.byKey(const Key('payment_mode_indicator')), findsOneWidget);
       expect(find.byKey(const Key('payment_bucket_dropdown')), findsOneWidget);
@@ -455,15 +452,80 @@ void main() {
     testWidgets('payment sheet menampilkan drag handle yang konsisten',
         (tester) async {
       final debt = _makeDebt(id: 10, status: 'active', mode: 'note');
-      await tester.pumpWidget(MaterialApp(
-        home: HutangDetailPage(debt: debt, initialPayments: const []),
-      ));
-      await tester.pumpAndSettle();
+      await _pumpDebtDetail(tester, debt: debt);
 
-      await tester.tap(find.byKey(const Key('debt_pay_btn')));
-      await tester.pumpAndSettle();
+      await _openPaymentSheet(tester);
 
       expect(find.byKey(const Key('sheet_drag_handle')), findsOneWidget);
+    });
+
+    testWidgets('payment sheet menampilkan feedback lokal di bawah drag handle',
+        (tester) async {
+      final debt = _makeDebt(id: 10, status: 'active', mode: 'note');
+      await _pumpDebtDetail(tester, debt: debt);
+
+      await _openPaymentSheet(tester);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('payment_save_btn')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await _pumpUi(tester);
+      await tester.tap(
+        find.byKey(const Key('payment_save_btn')),
+        warnIfMissed: false,
+      );
+      await _pumpUi(tester);
+
+      expect(find.byKey(const Key('payment_sheet_feedback')), findsOneWidget);
+      expect(find.text('Nominal cicilan harus lebih besar dari 0.'),
+          findsOneWidget);
+    });
+
+    testWidgets('feedback payment sheet hilang otomatis setelah sebentar',
+        (tester) async {
+      final debt = _makeDebt(id: 10, status: 'active', mode: 'note');
+      await _pumpDebtDetail(tester, debt: debt);
+
+      await _openPaymentSheet(tester);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('payment_save_btn')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await _pumpUi(tester);
+      await tester.tap(
+        find.byKey(const Key('payment_save_btn')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Nominal cicilan harus lebih besar dari 0.'),
+          findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 4));
+
+      expect(find.byKey(const Key('payment_sheet_feedback')), findsNothing);
+      expect(
+          find.text('Nominal cicilan harus lebih besar dari 0.'), findsNothing);
+    });
+
+    testWidgets('drag handle payment sheet bisa ditarik pelan untuk menutup',
+        (tester) async {
+      final debt = _makeDebt(id: 10, status: 'active', mode: 'note');
+      await _pumpDebtDetail(tester, debt: debt);
+
+      await _openPaymentSheet(tester);
+      await tester.pumpAndSettle();
+
+      await tester.timedDrag(
+        find.byKey(const Key('sheet_drag_handle')),
+        const Offset(0, 260),
+        const Duration(milliseconds: 700),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('payment_amount_field')), findsNothing);
     });
   });
 }

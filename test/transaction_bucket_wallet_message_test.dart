@@ -3,7 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:cashflow/main.dart';
+import 'package:cashflow/features/buckets/models/bucket_models.dart';
+import 'package:cashflow/features/wallets/models/wallet.dart';
+import 'package:cashflow/main.dart' show MainScreen;
+
+// Widget-level validation: pesan dan affordance sheet transaksi utama.
 
 void main() {
   const shortTimeout = Timeout(Duration(seconds: 10));
@@ -119,6 +123,30 @@ void main() {
   );
 
   testWidgets(
+    'bottom nav memakai ikon dan teks yang lebih besar untuk keterbacaan',
+    (tester) async {
+      await _pumpHome(tester);
+
+      final berandaIcon = tester.widget<Icon>(
+        find.descendant(
+          of: find.byKey(const Key('bottom_nav_beranda')),
+          matching: find.byIcon(Icons.home_rounded),
+        ),
+      );
+      final berandaLabel = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('bottom_nav_beranda')),
+          matching: find.text('Beranda'),
+        ),
+      );
+
+      expect(berandaIcon.size, 22);
+      expect(berandaLabel.style?.fontSize, 10);
+    },
+    timeout: shortTimeout,
+  );
+
+  testWidgets(
     'keterangan kosong menampilkan pesan wajib sebelum save diproses',
     (tester) async {
       await _pumpHome(tester);
@@ -132,8 +160,36 @@ void main() {
       await tester.tap(find.text('Simpan Transaksi'));
       await _pumpSheet(tester);
 
+      expect(
+          find.byKey(const Key('transaction_sheet_feedback')), findsOneWidget);
       expect(find.text('Keterangan wajib diisi.'), findsOneWidget);
       expect(find.text('Tambah Transaksi 💰'), findsOneWidget);
+    },
+    timeout: shortTimeout,
+  );
+
+  testWidgets(
+    'feedback transaksi hilang otomatis setelah sebentar',
+    (tester) async {
+      await _pumpHome(tester);
+
+      await tester.tap(find.byType(FloatingActionButton).first);
+      await _pumpSheet(tester);
+
+      await tester.enterText(find.byType(TextField).first, '125000');
+      await tester.ensureVisible(find.text('Simpan Transaksi'));
+      await _pumpSheet(tester);
+      await tester.tap(find.text('Simpan Transaksi'));
+      await _pumpSheet(tester);
+
+      expect(
+          find.byKey(const Key('transaction_sheet_feedback')), findsOneWidget);
+      expect(find.text('Keterangan wajib diisi.'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 4));
+
+      expect(find.byKey(const Key('transaction_sheet_feedback')), findsNothing);
+      expect(find.text('Keterangan wajib diisi.'), findsNothing);
     },
     timeout: shortTimeout,
   );

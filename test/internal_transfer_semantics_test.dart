@@ -2,7 +2,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:cashflow/main.dart';
+import 'package:cashflow/features/home/helpers/home_helpers.dart';
+import 'package:cashflow/features/transactions/models/transaction.dart';
 
 void main() {
   final now = DateTime(2026, 8, 10);

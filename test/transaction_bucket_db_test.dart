@@ -1,22 +1,25 @@
 // ignore_for_file: depend_on_referenced_packages
 
+// Semua test di sini pakai test() bukan testWidgets() — DB-level tests.
+// Harness database bersama dipakai agar biaya setup SQLite tetap rendah.
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
+import 'test_support/db_test_harness.dart';
+
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await initializeSharedTestDatabase();
   });
 
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
+  setUp(() async {
+    await resetSharedTestDatabase();
   });
 
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
+  tearDownAll(() async {
+    await disposeSharedTestDatabase();
   });
 
   final _now = DateTime(2026);
@@ -32,11 +35,29 @@ void main() {
       name: name,
       walletId: walletId,
       allocationPercentage: pct,
-      currentBalance: balance,
+      currentBalance: 0,
       createdDate: _now,
       updatedDate: _now,
     ));
-    return (await db.getFinancialBuckets()).firstWhere((b) => b.id == id);
+    var bucket = (await db.getFinancialBuckets()).firstWhere((b) => b.id == id);
+    if (balance > 0) {
+      final wallets = await db.getActiveWallets();
+      final wallet = wallets.firstWhere(
+        (candidate) => candidate.id == walletId,
+        orElse: () => wallets.first,
+      );
+      await db.saveIncomeWithAllocations(
+        amount: balance,
+        category: 'Seed',
+        description: 'Seed $name',
+        date: _now,
+        walletName: wallet.name,
+        walletId: wallet.id,
+        subsetBuckets: [bucket],
+      );
+      bucket = (await db.getFinancialBuckets()).firstWhere((b) => b.id == id);
+    }
+    return bucket;
   }
 
   // ---------------------------------------------------------------------------
@@ -263,6 +284,55 @@ void main() {
       final updated = await db.getFinancialBuckets();
       final updatedB = updated.firstWhere((x) => x.id == b.id);
       expect(updatedB.currentBalance, closeTo(100000, 0.01));
+    });
+
+    test('pengeluaran ditolak bila saldo pos atau dompet tidak mencukupi',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final bucket = await _freshBucket(db,
+          name: 'Belanja Tipis', pct: 100, balance: 50000);
+
+      await expectLater(
+        db.saveExpenseWithSource(
+          amount: 60000,
+          category: 'Belanja',
+          description: 'Melebihi saldo',
+          date: _now,
+          walletName: 'Cash',
+          walletId: 1,
+          sourceBucket: bucket,
+        ),
+        throwsA(isA<InsufficientBalanceException>()),
+      );
+
+      final updated = await db.getFinancialBuckets();
+      final updatedBucket = updated.firstWhere((x) => x.id == bucket.id);
+      expect(updatedBucket.currentBalance, closeTo(50000, 0.01));
+    });
+
+    test('expense langsung tanpa pos ditolak bila saldo dompet kurang',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      await expectLater(
+        db.insertTransaction(
+          Transaction(
+            type: 'expense',
+            amount: 10000,
+            category: 'Lainnya',
+            description: 'Tanpa saldo awal',
+            date: _now,
+            wallet: 'Cash',
+            walletId: 1,
+            walletNameSnapshot: 'Cash',
+            affectsBalance: true,
+          ),
+        ),
+        throwsA(isA<InsufficientBalanceException>()),
+      );
     });
   });
 
@@ -567,6 +637,41 @@ void main() {
           .firstWhere((t) => t.description == 'Tas Baru');
       expect(tx.walletId, bankWallet);
       expect(tx.wallet, 'Bank Custom');
+    });
+
+    test('purchaseWishlistItem ditolak bila saldo pos atau dompet kurang',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final wallet =
+          (await db.getActiveWallets()).firstWhere((w) => w.name == 'Cash');
+      final bucket = await _freshBucket(db,
+          name: 'Wishlist Tipis', pct: 100, balance: 40000);
+      final itemId = await db.insertWishlistItem(WishlistItem(
+        name: 'Headset Baru',
+        price: 70000,
+        priority: 'high',
+        createdDate: _now,
+      ));
+      final item = (await db.getWishlistItems())
+          .firstWhere((wishlist) => wishlist.id == itemId);
+
+      await expectLater(
+        db.purchaseWishlistItem(
+          item,
+          walletName: wallet.name,
+          walletId: wallet.id,
+          sourceBucket: bucket,
+        ),
+        throwsA(isA<InsufficientBalanceException>()),
+      );
+
+      final updatedBucket =
+          (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucket.id);
+      final wishlistItems = await db.getWishlistItems();
+      expect(updatedBucket.currentBalance, closeTo(40000, 0.01));
+      expect(wishlistItems.any((wishlist) => wishlist.id == itemId), isTrue);
     });
 
     test('deleteTransaction menolak transaksi yang berasal dari flow hutang',

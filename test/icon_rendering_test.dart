@@ -2,23 +2,20 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
-  });
-
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(
-      const MaterialApp(home: MainScreen(skipInitialLoad: true)),
+      const MaterialApp(
+        home: MainScreen(
+          skipInitialLoad: true,
+          initialHomeBalanceSourceType: 'total',
+          initialHomeBalanceVisibilityHidden: false,
+          persistHomeHeroPreferences: false,
+        ),
+      ),
     );
     await tester.pump();
     await tester.pumpAndSettle();
@@ -59,6 +56,19 @@ void main() {
       await pumpApp(tester);
 
       expect(find.byIcon(Icons.add_rounded), findsWidgets);
+    });
+
+    testWidgets('aksi tambah transaksi tengah tidak lagi memakai bubble ganda',
+        (tester) async {
+      await pumpApp(tester);
+
+      final fab = tester.widget<FloatingActionButton>(
+        find.byType(FloatingActionButton),
+      );
+
+      expect(fab.backgroundColor, Colors.transparent);
+      expect(fab.elevation, 0);
+      expect(fab.shape, isA<RoundedRectangleBorder>());
     });
 
     testWidgets('quick menu Badge memakai ikon Material', (tester) async {

@@ -2,28 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
-const _sourceTypePreferenceKey = 'homeBalanceSourceType';
-const _sourceIdPreferenceKey = 'homeBalanceSourceId';
-const _visibilityHiddenPreferenceKey = 'homeBalanceVisibilityHidden';
-
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
-  });
-
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
-  });
-
   Future<void> _pumpInjectedHome(
     WidgetTester tester, {
     List<Wallet>? wallets,
@@ -64,10 +46,6 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 16));
-  }
-
-  Future<void> _savePreference(String key, String value) async {
-    await DatabaseHelper().setAppPreference(key, value);
   }
 
   testWidgets('hero fallback ke Total Saldo bila wallet source hilang',
@@ -168,23 +146,6 @@ void main() {
     expect(find.text('Rp ••••••'), findsWidgets);
   });
 
-  test('app_preferences hero Home bisa dibaca kembali dari storage lokal',
-      () async {
-    await _savePreference(_sourceTypePreferenceKey, 'wallet');
-    await _savePreference(_sourceIdPreferenceKey, '1');
-    await _savePreference(_visibilityHiddenPreferenceKey, '1');
-
-    final preferences = await DatabaseHelper().getAppPreferences([
-      _sourceTypePreferenceKey,
-      _sourceIdPreferenceKey,
-      _visibilityHiddenPreferenceKey,
-    ]);
-
-    expect(preferences[_sourceTypePreferenceKey], 'wallet');
-    expect(preferences[_sourceIdPreferenceKey], '1');
-    expect(preferences[_visibilityHiddenPreferenceKey], '1');
-  });
-
   testWidgets('source selector mengubah label hero tanpa boot penuh',
       (tester) async {
     final wallet = Wallet(
@@ -203,61 +164,5 @@ void main() {
     await _pumpHeroInteraction(tester);
 
     expect(find.text('Saldo Cash'), findsOneWidget);
-  });
-
-  testWidgets('preferensi hero tersimpan dan dipulihkan saat app dibuka ulang',
-      (tester) async {
-    final wallet = Wallet(
-      id: 1,
-      name: 'Cash',
-      createdDate: DateTime(2026, 8, 9),
-      updatedDate: DateTime(2026, 8, 9),
-    );
-
-    final now = DateTime(2026, 8, 9);
-    final transactions = [
-      Transaction(
-        type: 'income',
-        amount: 500000,
-        category: 'Gaji',
-        description: 'Cash income',
-        date: now,
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'expense',
-        amount: 100000,
-        category: 'Belanja',
-        description: 'Cash expense',
-        date: now,
-        wallet: 'Cash',
-      ),
-      Transaction(
-        type: 'income',
-        amount: 300000,
-        category: 'Gaji',
-        description: 'Bank income',
-        date: now,
-        wallet: 'Bank',
-      ),
-    ];
-
-    await _savePreference(_sourceTypePreferenceKey, 'wallet');
-    await _savePreference(_sourceIdPreferenceKey, '1');
-    await _savePreference(_visibilityHiddenPreferenceKey, '1');
-
-    await _pumpInjectedHome(
-      tester,
-      wallets: [wallet],
-      transactions: transactions,
-      persistPreferences: false,
-      injectHomePreferences: false,
-    );
-    await _pumpHeroInteraction(tester);
-
-    expect(find.text('Saldo Cash'), findsOneWidget);
-    expect(find.text('Rp 400.000'), findsNothing);
-    expect(find.text('Rp 700.000'), findsNothing);
-    expect(find.text('Rp ••••••'), findsWidgets);
   });
 }

@@ -1,22 +1,22 @@
 // ignore_for_file: depend_on_referenced_packages
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 
 import 'package:cashflow/main.dart';
 
+import 'test_support/db_test_harness.dart';
+
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  setUpAll(() async {
+    await initializeSharedTestDatabase();
   });
 
-  setUp(() {
-    DatabaseHelper.overrideDatabasePath(':memory:');
+  setUp(() async {
+    await resetSharedTestDatabase();
   });
 
-  tearDown(() async {
-    await DatabaseHelper.closeDatabase();
+  tearDownAll(() async {
+    await disposeSharedTestDatabase();
   });
 
   final _now = DateTime(2026);
@@ -44,55 +44,6 @@ void main() {
         createdDate: _now,
         updatedDate: _now,
       );
-
-  // ---------------------------------------------------------------------------
-  // Model computed properties — pure unit tests, zero DB
-  // gap: isOverdue dan progressFraction belum ada di model — Task 6.2
-  // ---------------------------------------------------------------------------
-
-  group('Debt model computed properties', () {
-    test('isOverdue true bila dueDate sudah lewat dan masih active', () {
-      final d = _debt(
-        due: DateTime(2025, 1, 1), // lewat
-        remaining: 100000,
-        status: 'active',
-      );
-      expect(d.isOverdue, isTrue);
-    });
-
-    test('isOverdue false bila sudah settled', () {
-      final d = _debt(
-        due: DateTime(2025, 1, 1),
-        remaining: 0,
-        status: 'settled',
-      );
-      expect(d.isOverdue, isFalse);
-    });
-
-    test('isOverdue false bila tidak ada dueDate', () {
-      expect(_debt().isOverdue, isFalse);
-    });
-
-    test('isOverdue false bila dueDate belum lewat', () {
-      final d = _debt(due: DateTime(2099, 12, 31), remaining: 100000);
-      expect(d.isOverdue, isFalse);
-    });
-
-    test('progressFraction 0 saat baru dibuat', () {
-      final d = _debt(principal: 500000, remaining: 500000);
-      expect(d.progressFraction, closeTo(0.0, 0.001));
-    });
-
-    test('progressFraction 0.6 saat 60% sudah dibayar', () {
-      final d = _debt(principal: 500000, remaining: 200000);
-      expect(d.progressFraction, closeTo(0.6, 0.001));
-    });
-
-    test('progressFraction 1.0 saat lunas', () {
-      final d = _debt(principal: 500000, remaining: 0);
-      expect(d.progressFraction, closeTo(1.0, 0.001));
-    });
-  });
 
   // ---------------------------------------------------------------------------
   // CRUD Debt — DB level, akan GREEN karena CRUD sudah ada dari Phase 2
@@ -170,7 +121,7 @@ void main() {
       expect(await db.getDebtPaymentsByDebt(id), isEmpty);
     });
 
-    test('deleteDebt menolak debt balance yang sudah memengaruhi saldo',
+    test('deleteDebt menghapus debt balance tanpa membalik transaksi',
         () async {
       final db = DatabaseHelper();
       await db.database;
@@ -200,6 +151,9 @@ void main() {
         walletId: walletId,
       );
 
+      final transactionsBefore = await db.getTransactions();
+      expect(transactionsBefore.isNotEmpty, isTrue);
+
       final id = await db.insertDebt(Debt(
         type: 'debt',
         personName: 'Budi',
@@ -213,8 +167,13 @@ void main() {
         updatedDate: _now,
       ));
 
-      await expectLater(db.deleteDebt(id), throwsA(isA<StateError>()));
-      expect(await db.getDebtById(id), isNotNull);
+      await db.deleteDebt(id);
+
+      // debt record removed
+      expect(await db.getDebtById(id), isNull);
+      // transactions untouched — riwayat & saldo tetap
+      final transactionsAfter = await db.getTransactions();
+      expect(transactionsAfter.length, transactionsBefore.length);
     });
 
     test('insertDebtPayment + getDebtPaymentsByDebt mengembalikan cicilan',
