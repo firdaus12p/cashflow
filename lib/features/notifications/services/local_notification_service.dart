@@ -9,7 +9,19 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../models/notification_payload.dart';
 
-class LocalNotificationService {
+abstract interface class ReminderNotificationService {
+  Future<void> scheduleReminder({
+    required int id,
+    required DateTime when,
+    required String title,
+    required String body,
+    required NotificationPayload payload,
+  });
+
+  Future<void> cancelAllPendingReminders();
+}
+
+class LocalNotificationService implements ReminderNotificationService {
   LocalNotificationService._();
 
   static final LocalNotificationService instance = LocalNotificationService._();
@@ -127,6 +139,7 @@ class LocalNotificationService {
     return granted;
   }
 
+  @override
   Future<void> scheduleReminder({
     required int id,
     required DateTime when,
@@ -160,45 +173,12 @@ class LocalNotificationService {
     );
   }
 
-  Future<void> scheduleDailyReminder({
-    required int id,
-    required DateTime firstOccurrence,
-    required String title,
-    required String body,
-    required NotificationPayload payload,
-  }) async {
-    if (!_supportsScheduledNotifications) return;
-
-    final scheduledDate = tz.TZDateTime.from(firstOccurrence, tz.local);
-    const notificationDetails = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'cashflow_reminder_channel',
-        'Pengingat Cashflow',
-        channelDescription: 'Reminder pencatatan keuangan dan hutang overdue',
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-      iOS: DarwinNotificationDetails(),
-      macOS: DarwinNotificationDetails(),
-    );
-
-    await _plugin.zonedSchedule(
-      id: id,
-      scheduledDate: scheduledDate,
-      notificationDetails: notificationDetails,
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      title: title,
-      body: body,
-      payload: payload.encode(),
-      matchDateTimeComponents: DateTimeComponents.time,
-    );
-  }
-
   Future<void> cancelReminder(int id) async {
     if (!_supportsScheduledNotifications) return;
     await _plugin.cancel(id: id);
   }
 
+  @override
   Future<void> cancelAllPendingReminders() async {
     if (!_supportsScheduledNotifications) return;
     await _plugin.cancelAllPendingNotifications();
