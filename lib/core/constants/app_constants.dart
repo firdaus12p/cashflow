@@ -61,3 +61,10 @@ const String homeBalanceSourceTypePreferenceKey = 'homeBalanceSourceType';
 const String homeBalanceSourceIdPreferenceKey = 'homeBalanceSourceId';
 const String homeBalanceVisibilityHiddenPreferenceKey =
     'homeBalanceVisibilityHidden';
+
+const String reminderEnabledPreferenceKey = 'reminderEnabled';
+const String reminderHourPreferenceKey = 'reminderHour';
+const String reminderEveningStartHourPreferenceKey = 'reminderEveningStartHour';
+const String reminderLastAppOpenedAtPreferenceKey = 'reminderLastAppOpenedAt';
+const String reminderLastFinancialActivityAtPreferenceKey =
+    'reminderLastFinancialActivityAt';

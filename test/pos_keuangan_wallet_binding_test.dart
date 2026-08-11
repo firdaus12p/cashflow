@@ -1,6 +1,7 @@
 // ignore_for_file: depend_on_referenced_packages
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cashflow/main.dart';
@@ -213,6 +214,52 @@ void main() {
 
     expect(flatText, 'Rp 110.000');
     expect(balanceText.maxLines, 1);
+  });
+
+  testWidgets(
+      'kartu pos di layar sempit menjaga dompet, persen, dan saldo tetap terbaca',
+      (tester) async {
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(size: Size(360, 800)),
+        child: MaterialApp(
+          home: PosKeuanganPage(
+            initialWallets: [
+              Wallet(
+                id: 1,
+                name: 'Cash',
+                createdDate: now,
+                updatedDate: now,
+              ),
+            ],
+            initialBuckets: [
+              FinancialBucket(
+                id: 1,
+                name: 'Tabungan',
+                walletId: 1,
+                allocationPercentage: 15,
+                currentBalance: 12345678,
+                createdDate: now,
+                updatedDate: now,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(find.byKey(const Key('bucket_wallet_text')), findsOneWidget);
+    expect(find.byKey(const Key('bucket_percentage_text')), findsOneWidget);
+    expect(find.text('Cash'), findsOneWidget);
+    expect(find.text('15.0%'), findsOneWidget);
+
+    final balanceRender = tester.renderObject<RenderParagraph>(
+      find.byKey(const Key('bucket_balance_text')),
+    );
+    expect(balanceRender.didExceedMaxLines, isFalse);
   });
 
   testWidgets(

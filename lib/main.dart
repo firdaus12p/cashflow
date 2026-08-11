@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app/app.dart';
+import 'features/notifications/services/local_notification_service.dart';
 import 'features/home/presentation/main_screen.dart';
 
 export 'app/app.dart';
@@ -23,6 +24,9 @@ export 'features/wallets/models/wallet.dart';
 export 'features/wallets/presentation/dompet_page.dart';
 export 'features/wishlist/models/wishlist_item.dart';
 
-void main() {
-  runApp(const CashflowApp(home: MainScreen()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final launchPayload = await LocalNotificationService.instance.initialize();
+  runApp(
+      CashflowApp(home: MainScreen(initialNotificationPayload: launchPayload)));
 }

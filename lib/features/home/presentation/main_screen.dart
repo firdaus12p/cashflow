@@ -16,6 +16,11 @@ import 'package:cashflow/features/buckets/presentation/pos_keuangan_page.dart';
 import 'package:cashflow/features/debts/presentation/debt_pages.dart';
 import 'package:cashflow/features/goals/models/saving_goal.dart';
 import 'package:cashflow/features/home/helpers/home_helpers.dart';
+import 'package:cashflow/features/notifications/models/reminder_preferences.dart';
+import 'package:cashflow/features/notifications/models/notification_payload.dart';
+import 'package:cashflow/features/notifications/presentation/pengingat_page.dart';
+import 'package:cashflow/features/notifications/services/local_notification_service.dart';
+import 'package:cashflow/features/notifications/services/reminder_scheduler.dart';
 import 'package:cashflow/features/statistics/models/chart_series_data.dart';
 import 'package:cashflow/features/transactions/models/transaction.dart';
 import 'package:cashflow/features/wallets/models/wallet.dart';
@@ -58,6 +63,8 @@ class MainScreen extends StatefulWidget {
     @visibleForTesting this.initialHomeBalanceSourceType,
     @visibleForTesting this.initialHomeBalanceSourceId,
     @visibleForTesting this.initialHomeBalanceVisibilityHidden,
+    @visibleForTesting this.initialReminderPreferences,
+    this.initialNotificationPayload,
     @visibleForTesting this.persistHomeHeroPreferences = true,
   });
 
@@ -86,6 +93,11 @@ class MainScreen extends StatefulWidget {
   final bool? initialHomeBalanceVisibilityHidden;
 
   @visibleForTesting
+  final ReminderPreferences? initialReminderPreferences;
+
+  final NotificationPayload? initialNotificationPayload;
+
+  @visibleForTesting
   final bool persistHomeHeroPreferences;
 
   @override
@@ -93,7 +105,7 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late TabController _tabController;
   final DatabaseHelper _dbHelper = DatabaseHelper();
   List<Transaction> _transactions = [];
@@ -118,6 +130,8 @@ class _MainScreenState extends State<MainScreen>
   int _homeHeroPreferenceLoadEpoch = 0;
   int _bucketHeroSummaryLoadEpoch = 0;
   Timer? _transactionSheetFeedbackTimer;
+  late final ReminderScheduler _reminderScheduler;
+  StreamSubscription<NotificationPayload>? _notificationPayloadSubscription;
 
   bool get _hasInjectedHomeBalancePreferences =>
       widget.initialHomeBalanceSourceType != null ||
@@ -131,6 +145,42 @@ class _MainScreenState extends State<MainScreen>
         _activeWallets,
         _activeBuckets,
       );
+
+  Future<void> _syncReminderSchedule() {
+    if (widget.skipInitialLoad) {
+      return Future.value();
+    }
+    return _reminderScheduler.rescheduleForTonight();
+  }
+
+  Future<void> _markEveningAppOpenIfNeeded() async {
+    if (widget.skipInitialLoad) return;
+    final now = DateTime.now();
+    if (now.hour < 20) return;
+    await _dbHelper.markReminderAppOpenedAt(now);
+  }
+
+  void _handleNotificationPayload(NotificationPayload payload) {
+    if (!mounted) return;
+
+    switch (payload.target) {
+      case NotificationRouteTarget.home:
+        _tabController.animateTo(0);
+        break;
+      case NotificationRouteTarget.debts:
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => HutangPiutangPage(
+              initialDebts: widget.skipInitialLoad ? const [] : null,
+              initialWallets: widget.skipInitialLoad ? _activeWallets : null,
+              initialBuckets: widget.skipInitialLoad ? _activeBuckets : null,
+            ),
+          ),
+        ).then((_) => _syncReminderSchedule());
+        break;
+    }
+  }
 
   ({DateTime start, DateTime end}) _currentPeriodRange() {
     switch (_selectedFilter) {
@@ -259,8 +309,14 @@ class _MainScreenState extends State<MainScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_handleTabSelectionChanged);
+    _reminderScheduler = ReminderScheduler(databaseHelper: _dbHelper);
+    _notificationPayloadSubscription =
+        LocalNotificationService.instance.payloadStream.listen(
+      _handleNotificationPayload,
+    );
     _activeWallets = List<Wallet>.from(widget.initialWallets ?? const []);
     _activeBuckets =
         List<FinancialBucket>.from(widget.initialBuckets ?? const []);
@@ -279,6 +335,9 @@ class _MainScreenState extends State<MainScreen>
         _loadHomeHeroPreferences();
       }
       _loadBucketHeroSummaries();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _handleInitialNotificationPayload();
+      });
       return;
     }
 
@@ -291,6 +350,24 @@ class _MainScreenState extends State<MainScreen>
         _loadHomeHeroPreferences();
       }
       _loadBucketHeroSummaries();
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _syncReminderSchedule();
+      _handleInitialNotificationPayload();
+    });
+  }
+
+  void _handleInitialNotificationPayload() {
+    final payload = widget.initialNotificationPayload;
+    if (payload == null) return;
+    _handleNotificationPayload(payload);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _markEveningAppOpenIfNeeded().then((_) => _syncReminderSchedule());
     }
   }
 
@@ -341,6 +418,8 @@ class _MainScreenState extends State<MainScreen>
       await _loadSavingGoals();
       await _loadWishlistItems();
       await _checkAndAwardBadges();
+      await _markEveningAppOpenIfNeeded();
+      await _syncReminderSchedule();
     } on StateError catch (_) {
       _showSnackBarMessage(
         'Gagal memuat data aplikasi. Coba lagi.',
@@ -862,7 +941,7 @@ class _MainScreenState extends State<MainScreen>
   Widget _buildEnhancedTabBar() {
     return Container(
       key: const Key('bottom_nav_bar'),
-      height: 80,
+      height: 84,
       decoration: BoxDecoration(
         color: AppPalette.surface,
         borderRadius: BorderRadius.circular(35),
@@ -876,7 +955,7 @@ class _MainScreenState extends State<MainScreen>
       ),
       clipBehavior: Clip.hardEdge,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Row(
           children: [
             _buildBottomNavItem(
@@ -891,7 +970,7 @@ class _MainScreenState extends State<MainScreen>
               label: 'Statistik',
               tabIndex: 1,
             ),
-            const SizedBox(width: 72),
+            const SizedBox(width: 64),
             _buildBottomNavItem(
               itemKey: const Key('bottom_nav_target_tabungan'),
               icon: Icons.flag_rounded,
@@ -923,8 +1002,8 @@ class _MainScreenState extends State<MainScreen>
         onTap: () => _tabController.animateTo(tabIndex),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
-          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
           decoration: BoxDecoration(
             gradient: isSelected
                 ? const LinearGradient(
@@ -953,17 +1032,24 @@ class _MainScreenState extends State<MainScreen>
                 color: isSelected ? Colors.white : AppPalette.primary,
               ),
               const SizedBox(height: 6),
-              Text(
-                label,
-                style: GoogleFonts.poppins(
-                  fontSize: 10,
-                  height: 1.05,
-                  fontWeight: FontWeight.w600,
-                  color: isSelected ? Colors.white : AppPalette.primary,
+              SizedBox(
+                width: double.infinity,
+                height: 12,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    label,
+                    style: GoogleFonts.poppins(
+                      fontSize: 10,
+                      height: 1.05,
+                      fontWeight: FontWeight.w600,
+                      color: isSelected ? Colors.white : AppPalette.primary,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
                 ),
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
@@ -1318,6 +1404,24 @@ class _MainScreenState extends State<MainScreen>
                   ),
                 ),
               ).then((_) => _loadBuckets()),
+            ),
+            const SizedBox(width: 12),
+            _buildQuickMenuItem(
+              itemKey: const Key('quick_menu_pengingat'),
+              icon: Icons.notifications_active_outlined,
+              label: 'Pengingat',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PengingatPage(
+                    initialPreferences: widget.skipInitialLoad
+                        ? (widget.initialReminderPreferences ??
+                            const ReminderPreferences())
+                        : null,
+                    onPreferencesChanged: _syncReminderSchedule,
+                  ),
+                ),
+              ).then((_) => _syncReminderSchedule()),
             ),
             const SizedBox(width: 12),
             _buildQuickMenuItem(
@@ -6525,6 +6629,8 @@ class _MainScreenState extends State<MainScreen>
   @override
   void dispose() {
     _transactionSheetFeedbackTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _notificationPayloadSubscription?.cancel();
     _tabController.removeListener(_handleTabSelectionChanged);
     _tabController.dispose();
     super.dispose();

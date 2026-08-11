@@ -10,6 +10,7 @@ import '../../../core/icons/app_icons.dart';
 import '../../../data/database/database_helper.dart';
 import '../../buckets/helpers/bucket_helpers.dart';
 import '../../buckets/models/bucket_models.dart';
+import '../../notifications/services/reminder_scheduler.dart';
 import '../../wallets/models/wallet.dart';
 import '../models/debt_models.dart';
 
@@ -40,6 +41,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
   late List<Debt> _debts;
   late List<Wallet> _wallets;
   late List<FinancialBucket> _buckets;
+  final ReminderScheduler _reminderScheduler = ReminderScheduler();
   bool _isLoading = false;
 
   @override
@@ -80,6 +82,10 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
       _debts = debts;
       _isLoading = false;
     });
+  }
+
+  Future<void> _refreshReminderSchedule() async {
+    await _reminderScheduler.rescheduleForTonight();
   }
 
   @override
@@ -253,8 +259,10 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
       builder: (ctx) => DebtFormSheet(
         initialWallets: _wallets.isEmpty ? null : _wallets,
         initialBuckets: _buckets.isEmpty ? null : _buckets,
+        onSaved: _refreshReminderSchedule,
       ),
     );
+    await _refreshReminderSchedule();
     _loadReferenceData();
     _loadDebts();
   }
@@ -266,11 +274,13 @@ class DebtFormSheet extends StatefulWidget {
     this.initialDebt,
     this.initialWallets,
     this.initialBuckets,
+    this.onSaved,
   });
 
   final Debt? initialDebt;
   final List<Wallet>? initialWallets;
   final List<FinancialBucket>? initialBuckets;
+  final Future<void> Function()? onSaved;
 
   @override
   State<DebtFormSheet> createState() => _DebtFormSheetState();
@@ -558,6 +568,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         ),
       );
     }
+
+    await widget.onSaved?.call();
 
     if (!mounted) return;
     Navigator.pop(context);
@@ -1154,6 +1166,7 @@ class HutangDetailPage extends StatefulWidget {
 class _HutangDetailPageState extends State<HutangDetailPage> {
   late Debt _debt;
   late List<DebtPayment> _payments;
+  final ReminderScheduler _reminderScheduler = ReminderScheduler();
   List<Wallet> _availableWallets = const [];
   List<FinancialBucket> _availableBuckets = const [];
   String? _paymentSheetFeedbackMessage;
@@ -1234,6 +1247,10 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
     });
   }
 
+  Future<void> _refreshReminderSchedule() async {
+    await _reminderScheduler.rescheduleForTonight();
+  }
+
   @override
   void dispose() {
     _paymentSheetFeedbackTimer?.cancel();
@@ -1272,8 +1289,10 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                       _availableWallets.isEmpty ? null : _availableWallets,
                   initialBuckets:
                       _availableBuckets.isEmpty ? null : _availableBuckets,
+                  onSaved: _refreshReminderSchedule,
                 ),
               );
+              await _refreshReminderSchedule();
               await _refresh();
             },
           ),
@@ -1311,6 +1330,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
               );
               if (confirm != true || !mounted) return;
               await DatabaseHelper().deleteDebt(_debt.id!);
+              await _refreshReminderSchedule();
               if (mounted) Navigator.pop(context);
             },
           ),
@@ -1911,6 +1931,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       );
                                       return;
                                     }
+                                    await _refreshReminderSchedule();
                                     if (ctx.mounted) Navigator.pop(ctx, true);
                                   },
                                   child: Text(

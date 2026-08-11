@@ -179,81 +179,148 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
         _wallets.where((wallet) => wallet.id == bucket.walletId);
     final walletLabel =
         linkedWallet.isEmpty ? 'Dompet belum diatur' : linkedWallet.first.name;
+    final percentageText = '${bucket.allocationPercentage.toStringAsFixed(1)}%';
     final balanceText = formatRupiah(bucket.currentBalance);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-        leading: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: AppPalette.primary.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(bucket.resolvedIcon, color: AppPalette.primary),
-        ),
-        title: Text(
-          bucket.name,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$walletLabel · ${bucket.allocationPercentage.toStringAsFixed(1)}%',
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  color: AppPalette.textSecondary,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text.rich(
-                key: const Key('bucket_balance_text'),
-                TextSpan(
-                  text: balanceText,
-                ),
-                style: GoogleFonts.poppins(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: AppPalette.textPrimary,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-              ),
-            ],
-          ),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              key: const Key('bucket_edit_btn'),
-              icon: const Icon(Icons.edit_outlined, color: AppPalette.info),
-              tooltip: 'Edit Pos',
-              onPressed: () => _showAddBucketSheet(context, bucket: bucket),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppPalette.primary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(bucket.resolvedIcon, color: AppPalette.primary),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              bucket.name,
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w600,
+                                color: AppPalette.textPrimary,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 112),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  walletLabel,
+                                  key: const Key('bucket_wallet_text'),
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppPalette.textSecondary,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  percentageText,
+                                  key: const Key('bucket_percentage_text'),
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppPalette.info,
+                                  ),
+                                  textAlign: TextAlign.right,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text.rich(
+                            TextSpan(text: balanceText),
+                            key: const Key('bucket_balance_text'),
+                            style: GoogleFonts.poppins(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppPalette.textPrimary,
+                            ),
+                            maxLines: 1,
+                            softWrap: false,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            IconButton(
-              key: const Key('bucket_transfer_btn'),
-              icon: const Icon(Icons.swap_horiz, color: AppPalette.info),
-              tooltip: 'Transfer Saldo',
-              onPressed: () => _showTransferSheet(context, bucket),
-            ),
-            IconButton(
-              key: const Key('bucket_archive_btn'),
-              icon: const Icon(
-                Icons.archive_outlined,
-                color: AppPalette.textSecondary,
-              ),
-              tooltip: 'Arsipkan',
-              onPressed: () => _handleArchive(bucket),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  key: const Key('bucket_edit_btn'),
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                  icon: const Icon(Icons.edit_outlined, color: AppPalette.info),
+                  tooltip: 'Edit Pos',
+                  onPressed: () => _showAddBucketSheet(context, bucket: bucket),
+                ),
+                IconButton(
+                  key: const Key('bucket_transfer_btn'),
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                  icon: const Icon(Icons.swap_horiz, color: AppPalette.info),
+                  tooltip: 'Transfer Saldo',
+                  onPressed: () => _showTransferSheet(context, bucket),
+                ),
+                IconButton(
+                  key: const Key('bucket_archive_btn'),
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                  icon: const Icon(
+                    Icons.archive_outlined,
+                    color: AppPalette.textSecondary,
+                  ),
+                  tooltip: 'Arsipkan',
+                  onPressed: () => _handleArchive(bucket),
+                ),
+              ],
             ),
           ],
         ),

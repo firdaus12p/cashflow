@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cashflow/features/notifications/models/reminder_preferences.dart';
 import 'package:cashflow/main.dart';
 
 void main() {
@@ -15,6 +16,7 @@ void main() {
           initialBuckets: [],
           initialHomeBalanceSourceType: 'total',
           initialHomeBalanceVisibilityHidden: false,
+          initialReminderPreferences: ReminderPreferences(),
           persistHomeHeroPreferences: false,
         ),
       ),
@@ -67,6 +69,17 @@ void main() {
 
       expect(find.byKey(const Key('page_badge_pencapaian')), findsOneWidget);
       expect(find.text('Badge & Pencapaian'), findsWidgets);
+    });
+
+    testWidgets('tap Pengingat membuka PengingatPage', (tester) async {
+      await pumpApp(tester);
+
+      await tester.ensureVisible(find.byKey(const Key('quick_menu_pengingat')));
+      await tester.tap(find.byKey(const Key('quick_menu_pengingat')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('page_pengingat')), findsOneWidget);
+      expect(find.text('Pengingat'), findsWidgets);
     });
   });
 }

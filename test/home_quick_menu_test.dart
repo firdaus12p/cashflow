@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:cashflow/features/notifications/models/reminder_preferences.dart';
 import 'package:cashflow/main.dart';
 
 void main() {
@@ -13,6 +14,7 @@ void main() {
           skipInitialLoad: true,
           initialHomeBalanceSourceType: 'total',
           initialHomeBalanceVisibilityHidden: false,
+          initialReminderPreferences: ReminderPreferences(),
           persistHomeHeroPreferences: false,
         ),
       ),
@@ -91,6 +93,18 @@ void main() {
       );
     });
 
+    testWidgets('quick menu berisi item Pengingat', (tester) async {
+      await pumpApp(tester);
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('home_quick_menu')),
+          matching: find.text('Pengingat'),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('quick menu bisa digeser horizontal', (tester) async {
       await pumpApp(tester);
 
@@ -113,14 +127,18 @@ void main() {
           tester.getSize(find.byKey(const Key('quick_menu_hutang_piutang')));
       final posSize =
           tester.getSize(find.byKey(const Key('quick_menu_pos_keuangan')));
+      final pengingatSize =
+          tester.getSize(find.byKey(const Key('quick_menu_pengingat')));
       final badgeSize =
           tester.getSize(find.byKey(const Key('quick_menu_badge_pencapaian')));
 
       expect(hutangSize.width, dompetSize.width);
       expect(posSize.width, dompetSize.width);
+      expect(pengingatSize.width, dompetSize.width);
       expect(badgeSize.width, dompetSize.width);
       expect(hutangSize.height, dompetSize.height);
       expect(posSize.height, dompetSize.height);
+      expect(pengingatSize.height, dompetSize.height);
       expect(badgeSize.height, dompetSize.height);
     });
 

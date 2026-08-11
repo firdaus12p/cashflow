@@ -1,3 +1,5 @@
+import '../../notifications/helpers/reminder_logic.dart';
+
 class Debt {
   final int? id;
   final String type;
@@ -69,7 +71,7 @@ class Debt {
 
   bool get isOverdue =>
       dueDate != null &&
-      dueDate!.isBefore(DateTime.now()) &&
+      isDebtOverdueAt(dueDate, DateTime.now()) &&
       remainingAmount > 0 &&
       status == 'active';
 

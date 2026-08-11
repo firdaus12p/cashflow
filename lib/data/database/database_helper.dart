@@ -8,6 +8,7 @@ import '../../features/buckets/helpers/bucket_helpers.dart';
 import '../../features/buckets/models/bucket_models.dart';
 import '../../features/debts/models/debt_models.dart';
 import '../../features/goals/models/saving_goal.dart';
+import '../../features/notifications/models/reminder_preferences.dart';
 import '../../features/transactions/models/transaction.dart';
 import '../../features/wallets/models/wallet.dart';
 import '../../features/wishlist/models/wishlist_item.dart';
@@ -523,6 +524,90 @@ class DatabaseHelper {
     };
   }
 
+  Future<ReminderPreferences> getReminderPreferences() async {
+    final preferences = await getAppPreferences([
+      reminderEnabledPreferenceKey,
+      reminderHourPreferenceKey,
+      reminderEveningStartHourPreferenceKey,
+      reminderLastAppOpenedAtPreferenceKey,
+      reminderLastFinancialActivityAtPreferenceKey,
+    ]);
+
+    DateTime? parseEpoch(String? rawValue) {
+      if (rawValue == null || rawValue.isEmpty) return null;
+      final parsed = int.tryParse(rawValue);
+      if (parsed == null) return null;
+      return DateTime.fromMillisecondsSinceEpoch(parsed);
+    }
+
+    return ReminderPreferences(
+      isEnabled: preferences[reminderEnabledPreferenceKey] == '1',
+      reminderHour:
+          int.tryParse(preferences[reminderHourPreferenceKey] ?? '') ?? 22,
+      eveningStartHour: int.tryParse(
+              preferences[reminderEveningStartHourPreferenceKey] ?? '') ??
+          20,
+      lastAppOpenedAt: parseEpoch(
+        preferences[reminderLastAppOpenedAtPreferenceKey],
+      ),
+      lastFinancialActivityAt: parseEpoch(
+        preferences[reminderLastFinancialActivityAtPreferenceKey],
+      ),
+    );
+  }
+
+  Future<void> setReminderEnabled(bool isEnabled) async {
+    await setAppPreference(
+      reminderEnabledPreferenceKey,
+      isEnabled ? '1' : '0',
+    );
+  }
+
+  Future<void> setReminderHour(int hour) async {
+    await setAppPreference(reminderHourPreferenceKey, hour.toString());
+  }
+
+  Future<void> setReminderEveningStartHour(int hour) async {
+    await setAppPreference(
+      reminderEveningStartHourPreferenceKey,
+      hour.toString(),
+    );
+  }
+
+  Future<void> markReminderAppOpenedAt(DateTime openedAt) async {
+    await setAppPreference(
+      reminderLastAppOpenedAtPreferenceKey,
+      openedAt.millisecondsSinceEpoch.toString(),
+    );
+  }
+
+  Future<void> markFinancialActivity(DateTime occurredAt) async {
+    await setAppPreference(
+      reminderLastFinancialActivityAtPreferenceKey,
+      occurredAt.millisecondsSinceEpoch.toString(),
+    );
+  }
+
+  Future<int> getActiveOverdueDebtCount({
+    DateTime? referenceTime,
+  }) async {
+    final db = await database;
+    final now = referenceTime ?? DateTime.now();
+    final result = await db.rawQuery(
+      '''
+      SELECT COUNT(*) AS overdueCount
+      FROM debts
+      WHERE status = 'active'
+        AND remainingAmount > 0
+        AND dueDate IS NOT NULL
+        AND dueDate < ?
+        AND LOWER(type) IN ('debt', 'hutang')
+      ''',
+      [DateTime(now.year, now.month, now.day).millisecondsSinceEpoch],
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
   Future<({String walletName, int? walletId})> _resolveWalletContextByIdTxn(
     DatabaseExecutor executor, {
     required int? walletId,
@@ -700,7 +785,9 @@ class DatabaseHelper {
         walletName: transaction.wallet,
       );
     }
-    return await db.insert('transactions', transaction.toMap());
+    final id = await db.insert('transactions', transaction.toMap());
+    await markFinancialActivity(DateTime.now());
+    return id;
   }
 
   Future<List<Transaction>> getTransactions() async {
@@ -1250,7 +1337,9 @@ class DatabaseHelper {
 
   Future<int> insertDebt(Debt debt) async {
     final db = await database;
-    return db.insert('debts', debt.toMap());
+    final id = await db.insert('debts', debt.toMap());
+    await markFinancialActivity(DateTime.now());
+    return id;
   }
 
   Future<List<Debt>> getDebts() async {
@@ -1267,12 +1356,14 @@ class DatabaseHelper {
 
   Future<int> updateDebt(Debt debt) async {
     final db = await database;
-    return db.update(
+    final updatedRows = await db.update(
       'debts',
       debt.toMap(),
       where: 'id = ?',
       whereArgs: [debt.id],
     );
+    await markFinancialActivity(DateTime.now());
+    return updatedRows;
   }
 
   Future<int> deleteDebt(int id) async {
@@ -1451,6 +1542,8 @@ class DatabaseHelper {
         }
       }
     });
+
+    await markFinancialActivity(DateTime.now());
   }
 
   Future<int> insertFinancialBucket(FinancialBucket bucket) async {
@@ -1678,6 +1771,8 @@ class DatabaseHelper {
         });
       }
     });
+
+    await markFinancialActivity(DateTime.now());
   }
 
   Future<int> saveIncomeWithAllocations({
@@ -1700,7 +1795,7 @@ class DatabaseHelper {
     final normalized = normalizeSubsetAllocation(subsetBuckets);
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    return db.transaction((txn) async {
+    final txId = await db.transaction((txn) async {
       final resolvedWallet = await _resolveWalletContextFromBucketTxn(
         txn,
         bucket: subsetBuckets.first,
@@ -1737,6 +1832,8 @@ class DatabaseHelper {
 
       return txId;
     });
+    await markFinancialActivity(DateTime.now());
+    return txId;
   }
 
   Future<int> saveExpenseWithSource({
@@ -1750,7 +1847,7 @@ class DatabaseHelper {
   }) async {
     final db = await database;
 
-    return db.transaction((txn) async {
+    final txId = await db.transaction((txn) async {
       return _insertExpenseWithSourceTxn(
         txn,
         amount: amount,
@@ -1762,6 +1859,8 @@ class DatabaseHelper {
         walletId: walletId,
       );
     });
+    await markFinancialActivity(DateTime.now());
+    return txId;
   }
 
   Future<int> saveExpenseNoteOnly({
@@ -1773,7 +1872,7 @@ class DatabaseHelper {
     int? walletId,
   }) async {
     final db = await database;
-    return db.insert('transactions', {
+    final txId = await db.insert('transactions', {
       'type': 'expense',
       'amount': amount,
       'category': category,
@@ -1784,5 +1883,7 @@ class DatabaseHelper {
       'walletNameSnapshot': walletName,
       'affectsBalance': 0,
     });
+    await markFinancialActivity(DateTime.now());
+    return txId;
   }
 }

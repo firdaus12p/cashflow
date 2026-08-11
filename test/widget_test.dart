@@ -228,6 +228,45 @@ void main() {
     );
   });
 
+  testWidgets('bottom nav labels stay on one line on narrow widths',
+      (WidgetTester tester) async {
+    const mediaQueryData = MediaQueryData(size: Size(360, 800));
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: mediaQueryData,
+        child: MaterialApp(
+          home: MainScreen(
+            skipInitialLoad: true,
+            initialHomeBalanceSourceType: 'total',
+            initialHomeBalanceVisibilityHidden: false,
+            persistHomeHeroPreferences: false,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final berandaText = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('bottom_nav_beranda')),
+        matching: find.text('Beranda'),
+      ),
+    );
+    final statistikText = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('bottom_nav_statistik')),
+        matching: find.text('Statistik'),
+      ),
+    );
+
+    expect(berandaText.maxLines, 1);
+    expect(berandaText.softWrap, isFalse);
+    expect(statistikText.maxLines, 1);
+    expect(statistikText.softWrap, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('transaction history metadata uses larger readable typography',
       (WidgetTester tester) async {
     final now = DateTime.now();
