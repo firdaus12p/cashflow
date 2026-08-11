@@ -17,6 +17,8 @@ const String _bucketConfigurationIncompleteMessage =
     bucketConfigurationIncompleteMessage;
 const String _insufficientBalanceMessage = insufficientBalanceMessage;
 const Duration _sheetFeedbackAutoHideDuration = Duration(seconds: 3);
+const Color _debtTone = AppPalette.danger;
+const Color _receivableTone = AppPalette.success;
 
 class HutangPiutangPage extends StatefulWidget {
   const HutangPiutangPage({
@@ -84,7 +86,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: const Key('page_hutang_piutang'),
-      backgroundColor: const Color(0xFFFFF0F5),
+      backgroundColor: AppPalette.background,
       appBar: AppBar(
         title: Text(
           'Hutang / Piutang',
@@ -107,7 +109,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
                 ),
       floatingActionButton: FloatingActionButton(
         key: const Key('debt_fab'),
-        backgroundColor: const Color(0xFFFF69B4),
+        backgroundColor: AppPalette.primary,
         onPressed: () => _showAddDebtSheet(context),
         child: const Icon(Icons.add, color: Colors.white),
       ),
@@ -118,20 +120,27 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.handshake_outlined, size: 64, color: Colors.grey),
+            const Icon(
+              Icons.handshake_outlined,
+              size: 64,
+              color: AppPalette.textSecondary,
+            ),
             const SizedBox(height: 16),
             Text(
               'Belum ada hutang/piutang',
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Tap + untuk mencatat hutang atau piutang',
-              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: AppPalette.textSecondary,
+              ),
             ),
           ],
         ),
@@ -140,16 +149,17 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
   Widget _buildDebtItem(Debt debt) {
     final normalizedType = debt.type.trim().toLowerCase();
     final isDebt = normalizedType == 'debt' || normalizedType == 'hutang';
+    final typeColor = isDebt ? _debtTone : _receivableTone;
     final statusLabel = debt.status == 'settled'
         ? 'Lunas'
         : debt.isOverdue
             ? 'Terlambat'
             : 'Aktif';
     final statusColor = debt.status == 'settled'
-        ? Colors.green
+      ? AppPalette.success
         : debt.isOverdue
-            ? Colors.red
-            : Colors.orange;
+        ? AppPalette.danger
+        : AppPalette.warning;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -159,13 +169,12 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: (isDebt ? Colors.redAccent : Colors.green)
-                .withValues(alpha: 0.1),
+            color: typeColor.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(
             isDebt ? Icons.arrow_upward : Icons.arrow_downward,
-            color: isDebt ? Colors.redAccent : Colors.green,
+            color: typeColor,
           ),
         ),
         title: Row(
@@ -178,15 +187,14 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: (isDebt ? Colors.redAccent : Colors.green)
-                    .withValues(alpha: 0.15),
+                color: typeColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 isDebt ? 'Hutang' : 'Piutang',
                 style: GoogleFonts.poppins(
                   fontSize: 10,
-                  color: isDebt ? Colors.redAccent : Colors.green,
+                  color: typeColor,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -213,7 +221,10 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
             const SizedBox(width: 8),
             Text(
               formatRupiah(debt.remainingAmount),
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: AppPalette.textSecondary,
+              ),
             ),
           ],
         ),
@@ -278,7 +289,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   Wallet? _selectedWallet;
   FinancialBucket? _selectedBucket;
   String? _sheetFeedbackMessage;
-  Color _sheetFeedbackColor = Colors.red;
+  Color _sheetFeedbackColor = AppPalette.danger;
   final ScrollController _scrollCtrl = ScrollController();
   Timer? _feedbackTimer;
   double _sheetDragOffset = 0;
@@ -387,7 +398,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
 
   void _showValidationMessage(
     String message, {
-    Color backgroundColor = Colors.red,
+    Color backgroundColor = AppPalette.danger,
   }) {
     _feedbackTimer?.cancel();
     setState(() {
@@ -563,7 +574,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         offset: Offset(0, _sheetDragOffset),
         child: Container(
           decoration: const BoxDecoration(
-            color: Colors.white,
+            color: AppPalette.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: SafeArea(
@@ -586,7 +597,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                           width: 50,
                           height: 5,
                           decoration: BoxDecoration(
-                            color: Colors.grey[300],
+                            color: AppPalette.border,
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
@@ -649,7 +660,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             style: GoogleFonts.poppins(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
-                              color: const Color(0xFFFF69B4),
+                              color: AppPalette.primary,
                             ),
                           ),
                           const SizedBox(height: 20),
@@ -658,7 +669,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             style: GoogleFonts.poppins(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -677,7 +688,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                     : 'Tipe dan mode pencatatan tetap mengikuti record awal.',
                                 style: GoogleFonts.poppins(
                                   fontSize: 12,
-                                  color: const Color(0xFF666666),
+                                  color: AppPalette.textSecondary,
                                 ),
                               ),
                             ),
@@ -694,8 +705,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                         vertical: 10),
                                     decoration: BoxDecoration(
                                       color: _selectedType == 'debt'
-                                          ? Colors.redAccent
-                                          : Colors.grey[100],
+                                          ? _debtTone
+                                          : AppPalette.surfaceMuted,
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Text(
@@ -704,7 +715,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                       style: GoogleFonts.poppins(
                                         color: _selectedType == 'debt'
                                             ? Colors.white
-                                            : Colors.black54,
+                                            : AppPalette.textSecondary,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -723,8 +734,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                         vertical: 10),
                                     decoration: BoxDecoration(
                                       color: _selectedType == 'receivable'
-                                          ? Colors.green
-                                          : Colors.grey[100],
+                                          ? _receivableTone
+                                          : AppPalette.surfaceMuted,
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Text(
@@ -733,7 +744,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                       style: GoogleFonts.poppins(
                                         color: _selectedType == 'receivable'
                                             ? Colors.white
-                                            : Colors.black54,
+                                            : AppPalette.textSecondary,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -748,7 +759,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -759,7 +770,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                               hintText: 'Siapa?',
                               hintStyle: GoogleFonts.poppins(),
                               filled: true,
-                              fillColor: Colors.grey[100],
+                              fillColor: AppPalette.surfaceMuted,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide.none,
@@ -772,7 +783,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -787,11 +798,11 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                               hintStyle: GoogleFonts.poppins(),
                               prefixText: 'Rp ',
                               prefixStyle: GoogleFonts.poppins(
-                                color: const Color(0xFFFF69B4),
+                                color: AppPalette.primary,
                                 fontWeight: FontWeight.bold,
                               ),
                               filled: true,
-                              fillColor: Colors.grey[100],
+                              fillColor: AppPalette.surfaceMuted,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide.none,
@@ -811,7 +822,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                       style: GoogleFonts.poppins(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF333333),
+                                        color: AppPalette.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
@@ -838,7 +849,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                       style: GoogleFonts.poppins(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF333333),
+                                        color: AppPalette.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
@@ -865,7 +876,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -882,7 +893,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                           resolveWalletIcon(
                                               wallet.iconKey, wallet.name),
                                           size: 16,
-                                          color: const Color(0xFFFF69B4),
+                                          color: AppPalette.primary,
                                         ),
                                         const SizedBox(width: 8),
                                         Text(wallet.name),
@@ -899,7 +910,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             decoration: InputDecoration(
                               hintText: 'Pilih dompet',
                               filled: true,
-                              fillColor: Colors.grey[100],
+                              fillColor: AppPalette.surfaceMuted,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide.none,
@@ -912,7 +923,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -928,7 +939,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                         Icon(
                                           bucket.resolvedIcon,
                                           size: 16,
-                                          color: const Color(0xFFFF69B4),
+                                          color: AppPalette.primary,
                                         ),
                                         const SizedBox(width: 8),
                                         Text(bucket.name),
@@ -955,7 +966,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             decoration: InputDecoration(
                               hintText: 'Pilih pos keuangan',
                               filled: true,
-                              fillColor: Colors.grey[100],
+                              fillColor: AppPalette.surfaceMuted,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide.none,
@@ -968,7 +979,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -981,7 +992,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                               hintText: 'Catatan',
                               hintStyle: GoogleFonts.poppins(),
                               filled: true,
-                              fillColor: Colors.grey[100],
+                              fillColor: AppPalette.surfaceMuted,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide.none,
@@ -1022,7 +1033,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             child: ElevatedButton(
                               key: const Key('debt_save_btn'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFF69B4),
+                                backgroundColor: AppPalette.primary,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -1065,11 +1076,10 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFFFF69B4).withValues(alpha: 0.1)
-              : Colors.grey[100],
+              ? AppPalette.primary.withValues(alpha: 0.1)
+              : AppPalette.surfaceMuted,
           borderRadius: BorderRadius.circular(10),
-          border:
-              isSelected ? Border.all(color: const Color(0xFFFF69B4)) : null,
+          border: isSelected ? Border.all(color: AppPalette.primary) : null,
         ),
         child: Row(
           children: [
@@ -1077,7 +1087,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
               isSelected
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
-              color: isSelected ? const Color(0xFFFF69B4) : Colors.grey,
+              color: isSelected ? AppPalette.primary : AppPalette.textSecondary,
               size: 18,
             ),
             const SizedBox(width: 10),
@@ -1096,7 +1106,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                     helper,
                     style: GoogleFonts.poppins(
                       fontSize: 11,
-                      color: Colors.grey,
+                      color: AppPalette.textSecondary,
                     ),
                   ),
                 ],
@@ -1147,7 +1157,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
   List<Wallet> _availableWallets = const [];
   List<FinancialBucket> _availableBuckets = const [];
   String? _paymentSheetFeedbackMessage;
-  Color _paymentSheetFeedbackColor = Colors.red;
+  Color _paymentSheetFeedbackColor = AppPalette.danger;
   Timer? _paymentSheetFeedbackTimer;
 
   @override
@@ -1237,7 +1247,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
     final linkedBucket = _findBucketById(_debt.bucketId);
     return Scaffold(
       key: const Key('debt_detail_page'),
-      backgroundColor: const Color(0xFFFFF0F5),
+      backgroundColor: AppPalette.background,
       appBar: AppBar(
         title: Text(
           _debt.personName,
@@ -1293,7 +1303,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                       onPressed: () => Navigator.pop(ctx, true),
                       child: Text(
                         'Hapus',
-                        style: GoogleFonts.poppins(color: Colors.red),
+                        style: GoogleFonts.poppins(color: AppPalette.danger),
                       ),
                     ),
                   ],
@@ -1316,7 +1326,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+                  colors: AppPalette.heroGradient,
                 ),
                 borderRadius: BorderRadius.circular(20),
               ),
@@ -1326,7 +1336,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                   Text(
                     _debt.type == 'debt' ? 'Hutang ke' : 'Piutang dari',
                     style: GoogleFonts.poppins(
-                      color: Colors.white70,
+                      color: Colors.white,
                       fontSize: 12,
                     ),
                   ),
@@ -1362,7 +1372,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                       Text(
                         '${(_debt.progressFraction * 100).toStringAsFixed(0)}% lunas',
                         style: GoogleFonts.poppins(
-                          color: Colors.white70,
+                          color: Colors.white,
                           fontSize: 12,
                         ),
                       ),
@@ -1418,7 +1428,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                   _debt.note!.trim(),
                   style: GoogleFonts.poppins(
                     fontSize: 12,
-                    color: const Color(0xFF333333),
+                    color: AppPalette.textPrimary,
                   ),
                 ),
               ),
@@ -1445,7 +1455,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
       floatingActionButton: isActive
           ? FloatingActionButton.extended(
               key: const Key('debt_pay_btn'),
-              backgroundColor: const Color(0xFFFF69B4),
+              backgroundColor: AppPalette.primary,
               icon: const Icon(Icons.payments_outlined, color: Colors.white),
               label: Text(
                 'Catat Pembayaran',
@@ -1484,7 +1494,10 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
         margin: const EdgeInsets.only(bottom: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: ListTile(
-          leading: const Icon(Icons.check_circle_outline, color: Colors.green),
+          leading: const Icon(
+            Icons.check_circle_outline,
+            color: AppPalette.success,
+          ),
           title: Text(
             formatRupiah(payment.amount),
             style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
@@ -1500,7 +1513,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
     BuildContext sheetContext,
     void Function(void Function()) setModalState,
     String message, {
-    Color backgroundColor = Colors.red,
+    Color backgroundColor = AppPalette.danger,
   }) {
     _paymentSheetFeedbackTimer?.cancel();
     setModalState(() {
@@ -1591,7 +1604,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                               width: 50,
                               height: 5,
                               decoration: BoxDecoration(
-                                color: Colors.grey[300],
+                                color: AppPalette.border,
                                 borderRadius: BorderRadius.circular(10),
                               ),
                             ),
@@ -1665,8 +1678,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: _debt.recordingMode == 'balance'
-                                      ? Colors.green.withValues(alpha: 0.1)
-                                      : Colors.grey.withValues(alpha: 0.1),
+                                      ? AppPalette.success.withValues(alpha: 0.1)
+                                      : AppPalette.surfaceDisabled,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Row(
@@ -1677,8 +1690,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                           : Icons.note_outlined,
                                       size: 16,
                                       color: _debt.recordingMode == 'balance'
-                                          ? Colors.green
-                                          : Colors.grey,
+                                          ? AppPalette.success
+                                          : AppPalette.textSecondary,
                                     ),
                                     const SizedBox(width: 8),
                                     Expanded(
@@ -1690,8 +1703,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                           fontSize: 11,
                                           color:
                                               _debt.recordingMode == 'balance'
-                                                  ? Colors.green
-                                                  : Colors.grey,
+                                                  ? AppPalette.success
+                                                  : AppPalette.textSecondary,
                                         ),
                                       ),
                                     ),
@@ -1717,7 +1730,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                           paymentWallet.name,
                                         ),
                                         size: 16,
-                                        color: const Color(0xFFFF69B4),
+                                        color: AppPalette.primary,
                                       ),
                                       const SizedBox(width: 8),
                                       Expanded(
@@ -1725,7 +1738,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                           'Dompet: ${paymentWallet.name}',
                                           style: GoogleFonts.poppins(
                                             fontSize: 11,
-                                            color: const Color(0xFF333333),
+                                            color: AppPalette.textPrimary,
                                           ),
                                         ),
                                       ),
@@ -1753,7 +1766,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                   decoration: InputDecoration(
                                     labelText: 'Pos Keuangan',
                                     filled: true,
-                                    fillColor: Colors.grey[100],
+                                    fillColor: AppPalette.surfaceMuted,
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
@@ -1772,11 +1785,11 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                   hintStyle: GoogleFonts.poppins(),
                                   prefixText: 'Rp ',
                                   prefixStyle: GoogleFonts.poppins(
-                                    color: const Color(0xFFFF69B4),
+                                    color: AppPalette.primary,
                                     fontWeight: FontWeight.bold,
                                   ),
                                   filled: true,
-                                  fillColor: Colors.grey[100],
+                                  fillColor: AppPalette.surfaceMuted,
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(12),
                                     borderSide: BorderSide.none,
@@ -1789,7 +1802,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                 child: ElevatedButton(
                                   key: const Key('payment_save_btn'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFFF69B4),
+                                    backgroundColor: AppPalette.primary,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12),
                                     ),

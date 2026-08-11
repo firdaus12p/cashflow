@@ -98,7 +98,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
     final isValid = validateBucketPercentages(_buckets);
     return Scaffold(
       key: const Key('page_pos_keuangan'),
-      backgroundColor: const Color(0xFFFFF0F5),
+      backgroundColor: AppPalette.background,
       appBar: AppBar(
         title: Text(
           'Pos Keuangan',
@@ -120,7 +120,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                   color: Colors.white,
                 ),
               ),
-              backgroundColor: isValid ? Colors.green : Colors.redAccent,
+              backgroundColor: isValid ? AppPalette.success : AppPalette.danger,
             ),
           ),
         ],
@@ -137,7 +137,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                 ),
       floatingActionButton: FloatingActionButton(
         key: const Key('pos_fab'),
-        backgroundColor: const Color(0xFFFF69B4),
+        backgroundColor: AppPalette.primary,
         onPressed: () => _showAddBucketSheet(context),
         child: const Icon(Icons.add, color: Colors.white),
       ),
@@ -148,20 +148,27 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.pie_chart_outline, size: 64, color: Colors.grey),
+            const Icon(
+              Icons.pie_chart_outline,
+              size: 64,
+              color: AppPalette.textSecondary,
+            ),
             const SizedBox(height: 16),
             Text(
               'Belum ada pos keuangan',
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'Tap + untuk membuat pos keuangan global',
-              style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: AppPalette.textSecondary,
+              ),
             ),
           ],
         ),
@@ -182,10 +189,10 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: const Color(0xFFFF69B4).withValues(alpha: 0.1),
+            color: AppPalette.primary.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(bucket.resolvedIcon, color: const Color(0xFFFF69B4)),
+          child: Icon(bucket.resolvedIcon, color: AppPalette.primary),
         ),
         title: Text(
           bucket.name,
@@ -199,7 +206,10 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
             children: [
               Text(
                 '$walletLabel · ${bucket.allocationPercentage.toStringAsFixed(1)}%',
-                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey),
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: AppPalette.textSecondary,
+                ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -212,7 +222,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                 style: GoogleFonts.poppins(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xFF333333),
+                  color: AppPalette.textPrimary,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -226,19 +236,22 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
           children: [
             IconButton(
               key: const Key('bucket_edit_btn'),
-              icon: const Icon(Icons.edit_outlined, color: Colors.blueGrey),
+              icon: const Icon(Icons.edit_outlined, color: AppPalette.info),
               tooltip: 'Edit Pos',
               onPressed: () => _showAddBucketSheet(context, bucket: bucket),
             ),
             IconButton(
               key: const Key('bucket_transfer_btn'),
-              icon: const Icon(Icons.swap_horiz, color: Colors.blue),
+              icon: const Icon(Icons.swap_horiz, color: AppPalette.info),
               tooltip: 'Transfer Saldo',
               onPressed: () => _showTransferSheet(context, bucket),
             ),
             IconButton(
               key: const Key('bucket_archive_btn'),
-              icon: const Icon(Icons.archive_outlined, color: Colors.grey),
+              icon: const Icon(
+                Icons.archive_outlined,
+                color: AppPalette.textSecondary,
+              ),
               tooltip: 'Arsipkan',
               onPressed: () => _handleArchive(bucket),
             ),
@@ -272,7 +285,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
             width: 50,
             height: 5,
             decoration: BoxDecoration(
-              color: Colors.grey[300],
+              color: AppPalette.border,
               borderRadius: BorderRadius.circular(10),
             ),
           ),
@@ -339,7 +352,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
         builder: (ctx, setModal) {
           void showSheetFeedback(
             String message, {
-            Color backgroundColor = Colors.red,
+            Color backgroundColor = AppPalette.danger,
           }) {
             _bucketSheetFeedbackTimer?.cancel();
             setModal(() {
@@ -377,7 +390,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                 offset: Offset(0, sheetDragOffset),
                 child: Container(
                   decoration: const BoxDecoration(
-                    color: Colors.white,
+                    color: AppPalette.surface,
                     borderRadius:
                         BorderRadius.vertical(top: Radius.circular(24)),
                   ),
@@ -444,7 +457,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                         'Nama pos (mis. Tabungan, Sedekah)',
                                     hintStyle: GoogleFonts.poppins(),
                                     filled: true,
-                                    fillColor: Colors.grey[100],
+                                    fillColor: AppPalette.surfaceMuted,
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
@@ -460,7 +473,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                     hintText: 'Persentase alokasi (mis. 30)',
                                     hintStyle: GoogleFonts.poppins(),
                                     filled: true,
-                                    fillColor: Colors.grey[100],
+                                    fillColor: AppPalette.surfaceMuted,
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
@@ -491,7 +504,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                                   wallet.name,
                                                 ),
                                                 size: 16,
-                                                color: const Color(0xFFFF69B4),
+                                                color: AppPalette.primary,
                                               ),
                                               const SizedBox(width: 8),
                                               Text(wallet.name),
@@ -508,7 +521,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                         : 'Pilih dompet aktif',
                                     hintStyle: GoogleFonts.poppins(),
                                     filled: true,
-                                    fillColor: Colors.grey[100],
+                                    fillColor: AppPalette.surfaceMuted,
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
@@ -539,26 +552,22 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                         padding: const EdgeInsets.all(12),
                                         decoration: BoxDecoration(
                                           color: isSelected
-                                              ? const Color(0xFFFF69B4)
+                                              ? AppPalette.primary
                                                   .withValues(alpha: 0.12)
-                                              : Colors.grey.withValues(
-                                                  alpha: 0.08,
-                                                ),
+                                              : AppPalette.surfaceMuted,
                                           borderRadius:
                                               BorderRadius.circular(12),
                                           border: Border.all(
                                             color: isSelected
-                                                ? const Color(0xFFFF69B4)
-                                                : Colors.grey.withValues(
-                                                    alpha: 0.2,
-                                                  ),
+                                                ? AppPalette.primary
+                                                : AppPalette.border,
                                           ),
                                         ),
                                         child: Icon(
                                           entry.value,
                                           color: isSelected
-                                              ? const Color(0xFFFF69B4)
-                                              : Colors.grey,
+                                              ? AppPalette.primary
+                                              : AppPalette.textSecondary,
                                         ),
                                       ),
                                     );
@@ -575,7 +584,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                             child: ElevatedButton(
                               key: const Key('bucket_save_btn'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFF69B4),
+                                backgroundColor: AppPalette.primary,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -719,7 +728,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
         builder: (ctx, setModal) {
           void showSheetFeedback(
             String message, {
-            Color backgroundColor = Colors.red,
+            Color backgroundColor = AppPalette.danger,
           }) {
             _transferSheetFeedbackTimer?.cancel();
             setModal(() {
@@ -755,7 +764,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                 offset: Offset(0, sheetDragOffset),
                 child: Container(
                   decoration: const BoxDecoration(
-                    color: Colors.white,
+                    color: AppPalette.surface,
                     borderRadius:
                         BorderRadius.vertical(top: Radius.circular(24)),
                   ),
@@ -827,7 +836,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                   decoration: InputDecoration(
                                     labelText: 'Pos tujuan',
                                     filled: true,
-                                    fillColor: Colors.grey[100],
+                                    fillColor: AppPalette.surfaceMuted,
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
@@ -845,11 +854,11 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                     hintStyle: GoogleFonts.poppins(),
                                     prefixText: 'Rp ',
                                     prefixStyle: GoogleFonts.poppins(
-                                      color: const Color(0xFFFF69B4),
+                                      color: AppPalette.primary,
                                       fontWeight: FontWeight.bold,
                                     ),
                                     filled: true,
-                                    fillColor: Colors.grey[100],
+                                    fillColor: AppPalette.surfaceMuted,
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
@@ -867,7 +876,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                             child: ElevatedButton(
                               key: const Key('transfer_confirm_btn'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFF69B4),
+                                backgroundColor: AppPalette.primary,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),

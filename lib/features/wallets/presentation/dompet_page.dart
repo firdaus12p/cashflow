@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/icons/app_icons.dart';
 import '../../../data/database/database_helper.dart';
 import '../models/wallet.dart';
@@ -66,7 +67,7 @@ class _DompetPageState extends State<DompetPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: const Key('page_dompet'),
-      backgroundColor: const Color(0xFFFFF0F5),
+      backgroundColor: AppPalette.background,
       appBar: AppBar(
         title: Text(
           'Dompet',
@@ -92,7 +93,7 @@ class _DompetPageState extends State<DompetPage> {
                 ),
       floatingActionButton: FloatingActionButton(
         key: const Key('dompet_fab'),
-        backgroundColor: const Color(0xFFFF69B4),
+        backgroundColor: AppPalette.primary,
         onPressed: () => _showAddWalletSheet(context),
         child: const Icon(Icons.add, color: Colors.white),
       ),
@@ -107,7 +108,7 @@ class _DompetPageState extends State<DompetPage> {
           const Icon(
             Icons.account_balance_wallet_outlined,
             size: 64,
-            color: Colors.grey,
+            color: AppPalette.textSecondary,
           ),
           const SizedBox(height: 16),
           Text(
@@ -115,13 +116,16 @@ class _DompetPageState extends State<DompetPage> {
             style: GoogleFonts.poppins(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.grey,
+              color: AppPalette.textSecondary,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'Tap + untuk menambah dompet baru',
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey),
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              color: AppPalette.textSecondary,
+            ),
           ),
         ],
       ),
@@ -137,12 +141,12 @@ class _DompetPageState extends State<DompetPage> {
         leading: Container(
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: const Color(0xFFFF69B4).withValues(alpha: 0.1),
+            color: AppPalette.primary.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(
             resolveWalletIcon(wallet.iconKey, wallet.name),
-            color: const Color(0xFFFF69B4),
+            color: AppPalette.primary,
           ),
         ),
         title: Text(
@@ -154,13 +158,16 @@ class _DompetPageState extends State<DompetPage> {
           children: [
             IconButton(
               key: const Key('wallet_edit_btn'),
-              icon: const Icon(Icons.edit_outlined, color: Colors.blueGrey),
+              icon: const Icon(Icons.edit_outlined, color: AppPalette.info),
               tooltip: 'Edit',
               onPressed: () => _showAddWalletSheet(context, wallet: wallet),
             ),
             IconButton(
               key: const Key('wallet_archive_btn'),
-              icon: const Icon(Icons.archive_outlined, color: Colors.grey),
+              icon: const Icon(
+                Icons.archive_outlined,
+                color: AppPalette.textSecondary,
+              ),
               tooltip: 'Arsipkan',
               onPressed: () => _handleArchive(wallet),
             ),
@@ -203,7 +210,7 @@ class _DompetPageState extends State<DompetPage> {
               onPressed: () => Navigator.pop(context),
               child: Text(
                 'Batal',
-                style: GoogleFonts.poppins(color: Colors.grey),
+                style: GoogleFonts.poppins(color: AppPalette.textSecondary),
               ),
             ),
             TextButton(
@@ -218,12 +225,12 @@ class _DompetPageState extends State<DompetPage> {
               },
               child: Text(
                 'Keluarkan dari daftar aktif',
-                style: GoogleFonts.poppins(color: Colors.redAccent),
+                style: GoogleFonts.poppins(color: AppPalette.danger),
               ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF69B4),
+                backgroundColor: AppPalette.primary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -277,7 +284,7 @@ class _DompetPageState extends State<DompetPage> {
             right: 24,
           ),
           decoration: const BoxDecoration(
-            color: Colors.white,
+            color: AppPalette.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
@@ -290,7 +297,7 @@ class _DompetPageState extends State<DompetPage> {
                   width: 50,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: Colors.grey[300],
+                    color: AppPalette.border,
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
@@ -312,7 +319,7 @@ class _DompetPageState extends State<DompetPage> {
                   hintText: 'Nama dompet',
                   hintStyle: GoogleFonts.poppins(),
                   filled: true,
-                  fillColor: Colors.grey.withValues(alpha: 0.1),
+                  fillColor: AppPalette.surfaceMuted,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
@@ -345,19 +352,20 @@ class _DompetPageState extends State<DompetPage> {
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? const Color(0xFFFF69B4).withValues(alpha: 0.12)
-                            : Colors.grey.withValues(alpha: 0.08),
+                            ? AppPalette.primary.withValues(alpha: 0.12)
+                            : AppPalette.surfaceMuted,
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
                           color: isSelected
-                              ? const Color(0xFFFF69B4)
-                              : Colors.grey.withValues(alpha: 0.2),
+                              ? AppPalette.primary
+                              : AppPalette.border,
                         ),
                       ),
                       child: Icon(
                         entry.value,
-                        color:
-                            isSelected ? const Color(0xFFFF69B4) : Colors.grey,
+                        color: isSelected
+                            ? AppPalette.primary
+                            : AppPalette.textSecondary,
                       ),
                     ),
                   );
@@ -369,7 +377,7 @@ class _DompetPageState extends State<DompetPage> {
                 child: ElevatedButton(
                   key: const Key('wallet_save_btn'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF69B4),
+                    backgroundColor: AppPalette.primary,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),

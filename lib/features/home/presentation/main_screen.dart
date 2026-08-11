@@ -301,7 +301,7 @@ class _MainScreenState extends State<MainScreen>
 
   void _showSnackBarMessage(
     String message, {
-    Color backgroundColor = const Color(0xFFFF69B4),
+    Color backgroundColor = AppPalette.primaryDark,
     bool deferToNextFrame = false,
   }) {
     void showSnackBar() {
@@ -344,13 +344,13 @@ class _MainScreenState extends State<MainScreen>
     } on StateError catch (_) {
       _showSnackBarMessage(
         'Gagal memuat data aplikasi. Coba lagi.',
-        backgroundColor: Colors.red,
+        backgroundColor: AppPalette.danger,
         deferToNextFrame: true,
       );
     } on Exception catch (_) {
       _showSnackBarMessage(
         'Gagal memuat data aplikasi. Coba lagi.',
-        backgroundColor: Colors.red,
+        backgroundColor: AppPalette.danger,
         deferToNextFrame: true,
       );
     }
@@ -742,10 +742,7 @@ class _MainScreenState extends State<MainScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFFFB6C1),
-              Color(0xFFFFF0F5),
-            ],
+            colors: AppPalette.backgroundGradient,
           ),
         ),
         child: SafeArea(
@@ -785,11 +782,11 @@ class _MainScreenState extends State<MainScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppPalette.surface,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.pink.withValues(alpha: 0.3),
+                  color: AppPalette.primary.withValues(alpha: 0.16),
                   blurRadius: 10,
                   offset: const Offset(0, 5),
                 ),
@@ -797,7 +794,7 @@ class _MainScreenState extends State<MainScreen>
             ),
             child: const Icon(
               Icons.account_balance_wallet_rounded,
-              color: Color(0xFFFF69B4),
+              color: AppPalette.primary,
               size: 30,
             ),
           ),
@@ -807,11 +804,11 @@ class _MainScreenState extends State<MainScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Halo Cantik!',
+                  'Halo Kak!',
                   style: GoogleFonts.poppins(
                     fontSize: 22, // Kecilkan sedikit
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: AppPalette.primaryDark,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -819,7 +816,7 @@ class _MainScreenState extends State<MainScreen>
                   'Yuk kelola uang kamu hari ini',
                   style: GoogleFonts.poppins(
                     fontSize: 13, // Kecilkan sedikit
-                    color: Colors.white70,
+                    color: AppPalette.textSecondary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -833,7 +830,7 @@ class _MainScreenState extends State<MainScreen>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 decoration: BoxDecoration(
-                  color: Colors.orange,
+                  color: AppPalette.warmAccent,
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Row(
@@ -867,11 +864,11 @@ class _MainScreenState extends State<MainScreen>
       key: const Key('bottom_nav_bar'),
       height: 80,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(35),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withOpacity(0.25),
+            color: AppPalette.primary.withValues(alpha: 0.14),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -931,7 +928,7 @@ class _MainScreenState extends State<MainScreen>
           decoration: BoxDecoration(
             gradient: isSelected
                 ? const LinearGradient(
-                    colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+                    colors: AppPalette.heroGradient,
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                   )
@@ -940,7 +937,7 @@ class _MainScreenState extends State<MainScreen>
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: Colors.pink.withOpacity(0.35),
+                      color: AppPalette.primary.withValues(alpha: 0.24),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -953,7 +950,7 @@ class _MainScreenState extends State<MainScreen>
               Icon(
                 icon,
                 size: 22,
-                color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                color: isSelected ? Colors.white : AppPalette.primary,
               ),
               const SizedBox(height: 6),
               Text(
@@ -962,7 +959,7 @@ class _MainScreenState extends State<MainScreen>
                   fontSize: 10,
                   height: 1.05,
                   fontWeight: FontWeight.w600,
-                  color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                  color: isSelected ? Colors.white : AppPalette.primary,
                 ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
@@ -1044,7 +1041,7 @@ class _MainScreenState extends State<MainScreen>
           style: GoogleFonts.poppins(
             fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: const Color(0xFFFF69B4),
+            color: AppPalette.primary,
           ),
         ),
         const SizedBox(height: 15),
@@ -1070,7 +1067,7 @@ class _MainScreenState extends State<MainScreen>
             style: GoogleFonts.poppins(
               fontSize: 20,
               fontWeight: FontWeight.bold,
-              color: const Color(0xFFFF69B4),
+              color: AppPalette.primary,
             ),
           ),
           const SizedBox(height: 20),
@@ -1084,7 +1081,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFFFF69B4),
+                color: AppPalette.primary,
               ),
             ),
             const SizedBox(height: 15),
@@ -1098,7 +1095,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFFFF69B4),
+                color: AppPalette.primary,
               ),
             ),
             const SizedBox(height: 15),
@@ -1134,7 +1131,7 @@ class _MainScreenState extends State<MainScreen>
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
@@ -1142,7 +1139,7 @@ class _MainScreenState extends State<MainScreen>
           const Icon(
             Icons.date_range,
             size: 40,
-            color: Color(0xFFFF69B4),
+            color: AppPalette.primary,
           ),
           const SizedBox(height: 12),
           Text(
@@ -1150,7 +1147,7 @@ class _MainScreenState extends State<MainScreen>
             style: GoogleFonts.poppins(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: const Color(0xFF333333),
+              color: AppPalette.textPrimary,
             ),
             textAlign: TextAlign.center,
           ),
@@ -1159,7 +1156,7 @@ class _MainScreenState extends State<MainScreen>
             'Statistik rentang akan tampil setelah kamu memilih tanggal mulai dan tanggal akhir.',
             style: GoogleFonts.poppins(
               fontSize: 13,
-              color: Colors.grey,
+              color: AppPalette.textSecondary,
             ),
             textAlign: TextAlign.center,
           ),
@@ -1182,14 +1179,14 @@ class _MainScreenState extends State<MainScreen>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
+          color: isSelected ? AppPalette.primary : AppPalette.surface,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: const Color(0xFFFF69B4).withAlpha(77), // 0.3 * 255 ≈ 77
+            color: AppPalette.border,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.pink.withAlpha(25), // 0.1 * 255 ≈ 25
+              color: AppPalette.primary.withValues(alpha: 0.08),
               blurRadius: 5,
               offset: const Offset(0, 2),
             ),
@@ -1201,13 +1198,13 @@ class _MainScreenState extends State<MainScreen>
             Icon(
               resolveWalletIcon(walletRecord?.iconKey, wallet),
               size: 14,
-              color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+              color: isSelected ? Colors.white : AppPalette.primary,
             ),
             const SizedBox(width: 6),
             Text(
               wallet,
               style: GoogleFonts.poppins(
-                color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                color: isSelected ? Colors.white : AppPalette.primary,
                 fontWeight: FontWeight.w500,
                 fontSize: 12,
               ),
@@ -1332,7 +1329,7 @@ class _MainScreenState extends State<MainScreen>
                 MaterialPageRoute(
                   builder: (_) => Scaffold(
                     key: const Key('page_badge_pencapaian'),
-                    backgroundColor: const Color(0xFFFFF0F5),
+                    backgroundColor: AppPalette.background,
                     appBar: AppBar(
                       title: Text(
                         'Badge & Pencapaian',
@@ -1371,11 +1368,11 @@ class _MainScreenState extends State<MainScreen>
         height: 84,
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppPalette.surface,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.pink.withValues(alpha: 0.15),
+              color: AppPalette.primary.withValues(alpha: 0.10),
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
@@ -1385,14 +1382,14 @@ class _MainScreenState extends State<MainScreen>
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: const Color(0xFFFF69B4), size: 24),
+            Icon(icon, color: AppPalette.primary, size: 24),
             const SizedBox(height: 8),
             Text(
               shortLabel,
               style: GoogleFonts.poppins(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: const Color(0xFF333333),
+                color: AppPalette.textPrimary,
               ),
               textAlign: TextAlign.center,
               maxLines: 1,
@@ -1414,20 +1411,20 @@ class _MainScreenState extends State<MainScreen>
 
     String insightText = '';
     IconData insightIcon = Icons.insights_outlined;
-    Color insightColor = Colors.green;
+    Color insightColor = AppPalette.success;
 
     if (thisMonthExpense < 500000) {
       insightText = 'Kamu hemat banget bulan ini! Keep it up!';
       insightIcon = Icons.auto_awesome_outlined;
-      insightColor = Colors.green;
+      insightColor = AppPalette.success;
     } else if (thisMonthExpense > 1000000) {
       insightText = 'Pengeluaran lumayan besar nih, coba lebih hemat ya!';
       insightIcon = Icons.warning_amber_rounded;
-      insightColor = Colors.orange;
+      insightColor = AppPalette.warning;
     } else {
       insightText = 'Pengeluaran kamu masih wajar, good job!';
       insightIcon = Icons.thumb_up_off_alt_rounded;
-      insightColor = Colors.blue;
+      insightColor = AppPalette.info;
     }
 
     return Container(
@@ -1466,7 +1463,7 @@ class _MainScreenState extends State<MainScreen>
                   insightText,
                   style: GoogleFonts.poppins(
                     fontSize: 12,
-                    color: Colors.grey[700],
+                    color: AppPalette.textSecondary,
                   ),
                 ),
               ],
@@ -1504,7 +1501,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFFFF69B4),
+                color: AppPalette.primary,
               ),
             ),
             TextButton(
@@ -1513,7 +1510,7 @@ class _MainScreenState extends State<MainScreen>
                 'Lihat Semua',
                 style: GoogleFonts.poppins(
                   fontSize: 12,
-                  color: const Color(0xFFFF69B4),
+                  color: AppPalette.primary,
                 ),
               ),
             ),
@@ -1532,11 +1529,11 @@ class _MainScreenState extends State<MainScreen>
                 margin: const EdgeInsets.only(right: 15),
                 padding: const EdgeInsets.all(15),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppPalette.surface,
                   borderRadius: BorderRadius.circular(15),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.pink.withValues(alpha: 0.1),
+                      color: AppPalette.primary.withValues(alpha: 0.08),
                       blurRadius: 5,
                       offset: const Offset(0, 2),
                     ),
@@ -1555,7 +1552,7 @@ class _MainScreenState extends State<MainScreen>
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1567,17 +1564,17 @@ class _MainScreenState extends State<MainScreen>
                       '${formatRupiah(goal.currentAmount)} / ${formatRupiah(goal.targetAmount)}',
                       style: GoogleFonts.poppins(
                         fontSize: 10,
-                        color: Colors.grey,
+                        color: AppPalette.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
                       value: goal.progress,
-                      backgroundColor: Colors.grey[200],
+                      backgroundColor: AppPalette.surfaceDisabled,
                       valueColor: AlwaysStoppedAnimation<Color>(
                         goal.progress >= 1.0
-                            ? Colors.green
-                            : const Color(0xFFFF69B4),
+                            ? AppPalette.success
+                            : AppPalette.primary,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -1587,8 +1584,8 @@ class _MainScreenState extends State<MainScreen>
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         color: goal.progress >= 1.0
-                            ? Colors.green
-                            : const Color(0xFFFF69B4),
+                            ? AppPalette.success
+                            : AppPalette.primary,
                       ),
                     ),
                   ],
@@ -1614,11 +1611,11 @@ class _MainScreenState extends State<MainScreen>
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
+            color: isSelected ? AppPalette.primary : AppPalette.surface,
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.pink.withValues(alpha: 0.2),
+                color: AppPalette.primary.withValues(alpha: 0.12),
                 blurRadius: 8,
                 offset: const Offset(0, 3),
               ),
@@ -1632,13 +1629,13 @@ class _MainScreenState extends State<MainScreen>
                 Icon(
                   icon,
                   size: 16,
-                  color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                  color: isSelected ? Colors.white : AppPalette.primary,
                 ),
                 const SizedBox(width: 6),
                 Text(
                   label,
                   style: GoogleFonts.poppins(
-                    color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                    color: isSelected ? Colors.white : AppPalette.primary,
                     fontWeight: FontWeight.w600,
                     fontSize: 12,
                   ),
@@ -1664,11 +1661,11 @@ class _MainScreenState extends State<MainScreen>
         width: 120,
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFFF69B4) : Colors.white,
+          color: isSelected ? AppPalette.primary : AppPalette.surface,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.pink.withValues(alpha: 0.2),
+              color: AppPalette.primary.withValues(alpha: 0.12),
               blurRadius: 8,
               offset: const Offset(0, 3),
             ),
@@ -1680,7 +1677,7 @@ class _MainScreenState extends State<MainScreen>
             Icon(
               icon,
               size: 16,
-              color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+              color: isSelected ? Colors.white : AppPalette.primary,
             ),
             const SizedBox(width: 6),
             Flexible(
@@ -1689,7 +1686,7 @@ class _MainScreenState extends State<MainScreen>
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
                 style: GoogleFonts.poppins(
-                  color: isSelected ? Colors.white : const Color(0xFFFF69B4),
+                  color: isSelected ? Colors.white : AppPalette.primary,
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
                 ),
@@ -1754,13 +1751,13 @@ class _MainScreenState extends State<MainScreen>
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: AppPalette.surface,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.calendar_today, color: Color(0xFF4A6C8E)),
+                  const Icon(Icons.calendar_today, color: AppPalette.info),
                   const SizedBox(width: 12),
                   Text(
                     _selectedDateRange != null
@@ -1769,7 +1766,7 @@ class _MainScreenState extends State<MainScreen>
                     style: GoogleFonts.poppins(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
-                      color: const Color(0xFF2F4057),
+                      color: AppPalette.primaryDark,
                     ),
                   ),
                 ],
@@ -1782,7 +1779,7 @@ class _MainScreenState extends State<MainScreen>
               IconButton(
                 onPressed: () => _shiftSelectedPeriod(-1),
                 icon: const Icon(Icons.chevron_left, size: 36),
-                color: const Color(0xFF4A4A4A),
+                color: AppPalette.textPrimary,
               ),
               Expanded(
                 child: Column(
@@ -1792,7 +1789,7 @@ class _MainScreenState extends State<MainScreen>
                       style: GoogleFonts.poppins(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1F2430),
+                        color: AppPalette.textPrimary,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -1801,7 +1798,7 @@ class _MainScreenState extends State<MainScreen>
                         headerInfo.subtitle!,
                         style: GoogleFonts.poppins(
                           fontSize: 14,
-                          color: Colors.grey,
+                          color: AppPalette.textSecondary,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -1811,7 +1808,7 @@ class _MainScreenState extends State<MainScreen>
               IconButton(
                 onPressed: () => _shiftSelectedPeriod(1),
                 icon: const Icon(Icons.chevron_right, size: 36),
-                color: const Color(0xFF4A4A4A),
+                color: AppPalette.textPrimary,
               ),
             ],
           ),
@@ -1858,15 +1855,12 @@ class _MainScreenState extends State<MainScreen>
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFFF69B4),
-            Color(0xFFFF1493),
-          ],
+          colors: AppPalette.heroGradient,
         ),
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.4),
+            color: AppPalette.primary.withValues(alpha: 0.25),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -1882,7 +1876,7 @@ class _MainScreenState extends State<MainScreen>
                   resolvedSource.title,
                   key: const Key('home_balance_title'),
                   style: GoogleFonts.poppins(
-                    color: Colors.white70,
+                    color: Colors.white,
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                   ),
@@ -1948,13 +1942,13 @@ class _MainScreenState extends State<MainScreen>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Icon(Icons.arrow_downward,
-                              color: Colors.greenAccent, size: 18),
+                              color: AppPalette.successLight, size: 18),
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
                               'Pemasukan',
                               style: GoogleFonts.poppins(
-                                color: Colors.white70,
+                                color: Colors.white,
                                 fontSize: 11,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -1992,13 +1986,13 @@ class _MainScreenState extends State<MainScreen>
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Icon(Icons.arrow_upward,
-                              color: Colors.redAccent, size: 18),
+                              color: AppPalette.danger, size: 18),
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
                               'Pengeluaran',
                               style: GoogleFonts.poppins(
-                                color: Colors.white70,
+                                color: Colors.white,
                                 fontSize: 11,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -2042,11 +2036,11 @@ class _MainScreenState extends State<MainScreen>
       return Container(
         height: 280,
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppPalette.surface,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.pink.withValues(alpha: 0.1),
+              color: AppPalette.primary.withValues(alpha: 0.08),
               blurRadius: 10,
               offset: const Offset(0, 5),
             ),
@@ -2059,21 +2053,21 @@ class _MainScreenState extends State<MainScreen>
               const Icon(
                 Icons.pie_chart_outline,
                 size: 48,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
               const SizedBox(height: 16),
               Text(
                 'Belum ada pengeluaran nih',
                 style: GoogleFonts.poppins(
                   fontSize: 16,
-                  color: Colors.grey,
+                  color: AppPalette.textSecondary,
                 ),
               ),
               Text(
                 'Yuk mulai catat pengeluaran kamu!',
                 style: GoogleFonts.poppins(
                   fontSize: 12,
-                  color: Colors.grey,
+                  color: AppPalette.textSecondary,
                 ),
               ),
             ],
@@ -2083,15 +2077,7 @@ class _MainScreenState extends State<MainScreen>
     }
 
     List<PieChartSectionData> sections = [];
-    List<Color> colors = [
-      const Color(0xFFFF69B4),
-      const Color(0xFF9C27B0),
-      const Color(0xFF3F51B5),
-      const Color(0xFF00BCD4),
-      const Color(0xFF4CAF50),
-      const Color(0xFFFF9800),
-      const Color(0xFFF44336),
-    ];
+    const colors = AppPalette.categoryChartColors;
 
     int colorIndex = 0;
     categoryData.forEach((category, amount) {
@@ -2115,11 +2101,11 @@ class _MainScreenState extends State<MainScreen>
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.1),
+            color: AppPalette.primary.withValues(alpha: 0.08),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -2159,7 +2145,7 @@ class _MainScreenState extends State<MainScreen>
                     entry.key,
                     style: GoogleFonts.poppins(
                       fontSize: 11,
-                      color: Colors.grey[700],
+                      color: AppPalette.textSecondary,
                     ),
                   ),
                 ],
@@ -2175,7 +2161,7 @@ class _MainScreenState extends State<MainScreen>
     return Container(
       height: 400,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Center(
@@ -2185,7 +2171,7 @@ class _MainScreenState extends State<MainScreen>
             const Icon(
               Icons.receipt_long_outlined,
               size: 64,
-              color: Colors.grey,
+              color: AppPalette.textSecondary,
             ),
             const SizedBox(height: 20),
             Text(
@@ -2193,7 +2179,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 10),
@@ -2202,14 +2188,14 @@ class _MainScreenState extends State<MainScreen>
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 fontSize: 14,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () => _showAddTransactionDialog(),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF69B4),
+                backgroundColor: AppPalette.primary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -2293,7 +2279,7 @@ class _MainScreenState extends State<MainScreen>
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
@@ -2304,7 +2290,7 @@ class _MainScreenState extends State<MainScreen>
             style: GoogleFonts.poppins(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Colors.grey,
+              color: AppPalette.textSecondary,
             ),
           ),
           const SizedBox(height: 6),
@@ -2313,7 +2299,7 @@ class _MainScreenState extends State<MainScreen>
             style: GoogleFonts.poppins(
               fontSize: 15,
               fontWeight: FontWeight.w600,
-              color: const Color(0xFF333333),
+              color: AppPalette.textPrimary,
             ),
           ),
         ],
@@ -2326,8 +2312,9 @@ class _MainScreenState extends State<MainScreen>
       context,
       MaterialPageRoute(
         builder: (detailContext) {
-          final accentColor =
-              transaction.type == 'income' ? Colors.green : Colors.red;
+          final accentColor = transaction.type == 'income'
+              ? AppPalette.success
+              : AppPalette.danger;
           final typeLabel =
               transaction.type == 'income' ? 'Pemasukan' : 'Pengeluaran';
           final amountLabel =
@@ -2335,17 +2322,17 @@ class _MainScreenState extends State<MainScreen>
 
           return Scaffold(
             key: const Key('transaction_detail_page'),
-            backgroundColor: const Color(0xFFFFF0F5),
+            backgroundColor: AppPalette.background,
             appBar: AppBar(
               title: Text(
                 'Detail Transaksi',
                 style: GoogleFonts.poppins(
                   fontWeight: FontWeight.w700,
-                  color: const Color(0xFF333333),
+                  color: AppPalette.textPrimary,
                 ),
               ),
               backgroundColor: Colors.transparent,
-              foregroundColor: const Color(0xFF333333),
+              foregroundColor: AppPalette.textPrimary,
               elevation: 0,
             ),
             body: SafeArea(
@@ -2358,11 +2345,11 @@ class _MainScreenState extends State<MainScreen>
                     Container(
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: AppPalette.surface,
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.pink.withValues(alpha: 0.12),
+                            color: AppPalette.primary.withValues(alpha: 0.10),
                             blurRadius: 14,
                             offset: const Offset(0, 6),
                           ),
@@ -2391,7 +2378,7 @@ class _MainScreenState extends State<MainScreen>
                             style: GoogleFonts.poppins(
                               fontSize: 22,
                               fontWeight: FontWeight.w700,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -2444,9 +2431,9 @@ class _MainScreenState extends State<MainScreen>
                               ),
                             ),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.red,
+                              foregroundColor: AppPalette.danger,
                               padding: const EdgeInsets.symmetric(vertical: 16),
-                              side: const BorderSide(color: Colors.red),
+                              side: const BorderSide(color: AppPalette.danger),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
@@ -2467,7 +2454,7 @@ class _MainScreenState extends State<MainScreen>
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF69B4),
+                              backgroundColor: AppPalette.primary,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
@@ -2501,7 +2488,7 @@ class _MainScreenState extends State<MainScreen>
 
   Widget _buildTransactionItem(Transaction transaction) {
     final accentColor =
-        transaction.type == 'income' ? Colors.green : Colors.red;
+        transaction.type == 'income' ? AppPalette.success : AppPalette.danger;
     final card = Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2512,11 +2499,11 @@ class _MainScreenState extends State<MainScreen>
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: AppPalette.surface,
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.pink.withValues(alpha: 0.1),
+                color: AppPalette.primary.withValues(alpha: 0.08),
                 blurRadius: 10,
                 offset: const Offset(0, 5),
               ),
@@ -2548,7 +2535,7 @@ class _MainScreenState extends State<MainScreen>
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: const Color(0xFF333333),
+                        color: AppPalette.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -2558,7 +2545,7 @@ class _MainScreenState extends State<MainScreen>
                           transaction.category,
                           style: GoogleFonts.poppins(
                             fontSize: 10,
-                            color: Colors.grey,
+                            color: AppPalette.textSecondary,
                           ),
                         ),
                         const SizedBox(width: 10),
@@ -2566,7 +2553,7 @@ class _MainScreenState extends State<MainScreen>
                           '• ${transaction.wallet}',
                           style: GoogleFonts.poppins(
                             fontSize: 10,
-                            color: Colors.grey,
+                            color: AppPalette.textSecondary,
                           ),
                         ),
                       ],
@@ -2575,7 +2562,7 @@ class _MainScreenState extends State<MainScreen>
                       DateFormat('dd MMM yyyy, HH:mm').format(transaction.date),
                       style: GoogleFonts.poppins(
                         fontSize: 10,
-                        color: Colors.grey,
+                        color: AppPalette.textSecondary,
                       ),
                     ),
                   ],
@@ -2618,13 +2605,13 @@ class _MainScreenState extends State<MainScreen>
           return false;
         },
         background: _buildTransactionActionBackground(
-          color: Colors.red,
+          color: AppPalette.danger,
           icon: Icons.delete_outline,
           label: 'Delete',
           alignment: Alignment.centerLeft,
         ),
         secondaryBackground: _buildTransactionActionBackground(
-          color: const Color(0xFF29C7E8),
+          color: AppPalette.info,
           icon: Icons.edit_outlined,
           label: 'Edit',
           alignment: Alignment.centerRight,
@@ -2648,7 +2635,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFFFF69B4),
+                    color: AppPalette.primary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -2657,7 +2644,7 @@ class _MainScreenState extends State<MainScreen>
               ElevatedButton(
                 onPressed: () => _showAddGoalDialog(),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF69B4),
+                  backgroundColor: AppPalette.primary,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(20),
                   ),
@@ -2698,7 +2685,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFFFF69B4),
+                    color: AppPalette.primary,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -2707,7 +2694,7 @@ class _MainScreenState extends State<MainScreen>
               ElevatedButton(
                 onPressed: () => _showAddWishlistDialog(),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF69B4),
+                  backgroundColor: AppPalette.primary,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(20),
                   ),
@@ -2737,7 +2724,7 @@ class _MainScreenState extends State<MainScreen>
     return Container(
       height: 400,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Center(
@@ -2747,7 +2734,7 @@ class _MainScreenState extends State<MainScreen>
             const Icon(
               Icons.shopping_bag_outlined,
               size: 64,
-              color: Colors.grey,
+              color: AppPalette.textSecondary,
             ),
             const SizedBox(height: 20),
             Text(
@@ -2755,7 +2742,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 10),
@@ -2764,14 +2751,14 @@ class _MainScreenState extends State<MainScreen>
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 fontSize: 14,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () => _showAddWishlistDialog(),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF69B4),
+                backgroundColor: AppPalette.primary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -2847,11 +2834,11 @@ class _MainScreenState extends State<MainScreen>
       margin: const EdgeInsets.only(bottom: 15),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.1),
+            color: AppPalette.primary.withValues(alpha: 0.08),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -2884,7 +2871,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF333333),
+                    color: AppPalette.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -2893,7 +2880,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFFFF69B4),
+                    color: AppPalette.primary,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -2970,7 +2957,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xFFFF69B4),
+                color: AppPalette.primary,
               ),
             ),
             const SizedBox(height: 20),
@@ -2980,7 +2967,7 @@ class _MainScreenState extends State<MainScreen>
             style: GoogleFonts.poppins(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: const Color(0xFFFF69B4),
+              color: AppPalette.primary,
             ),
           ),
           const SizedBox(height: 15),
@@ -3005,12 +2992,12 @@ class _MainScreenState extends State<MainScreen>
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+          colors: AppPalette.heroGradient,
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.3),
+            color: AppPalette.primary.withValues(alpha: 0.2),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -3082,7 +3069,7 @@ class _MainScreenState extends State<MainScreen>
           label,
           style: GoogleFonts.poppins(
             fontSize: 12,
-            color: Colors.white70,
+            color: Colors.white,
           ),
           textAlign: TextAlign.center,
         ),
@@ -3104,7 +3091,7 @@ class _MainScreenState extends State<MainScreen>
     return Container(
       height: 200,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Center(
@@ -3114,7 +3101,7 @@ class _MainScreenState extends State<MainScreen>
             const Icon(
               Icons.emoji_events_outlined,
               size: 48,
-              color: Colors.grey,
+              color: AppPalette.textSecondary,
             ),
             const SizedBox(height: 15),
             Text(
@@ -3122,7 +3109,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             Text(
@@ -3130,7 +3117,7 @@ class _MainScreenState extends State<MainScreen>
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 fontSize: 12,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
           ],
@@ -3156,11 +3143,11 @@ class _MainScreenState extends State<MainScreen>
             width: 160,
             padding: const EdgeInsets.all(15),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: AppPalette.surface,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.pink.withOpacity(0.1),
+                  color: AppPalette.primary.withValues(alpha: 0.08),
                   blurRadius: 10,
                   offset: const Offset(0, 5),
                 ),
@@ -3173,7 +3160,7 @@ class _MainScreenState extends State<MainScreen>
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                      colors: AppPalette.badgeGradient,
                     ),
                     borderRadius: BorderRadius.circular(50),
                   ),
@@ -3188,7 +3175,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFF333333),
+                    color: AppPalette.textPrimary,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -3197,7 +3184,7 @@ class _MainScreenState extends State<MainScreen>
                   badge.description,
                   style: GoogleFonts.poppins(
                     fontSize: 10,
-                    color: Colors.grey,
+                    color: AppPalette.textSecondary,
                   ),
                   textAlign: TextAlign.center,
                   maxLines: 2,
@@ -3208,7 +3195,7 @@ class _MainScreenState extends State<MainScreen>
                   DateFormat('dd MMM yyyy').format(badge.earnedDate),
                   style: GoogleFonts.poppins(
                     fontSize: 9,
-                    color: Colors.grey,
+                    color: AppPalette.textSecondary,
                   ),
                 ),
               ],
@@ -3234,11 +3221,11 @@ class _MainScreenState extends State<MainScreen>
       return Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppPalette.surface,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.pink.withValues(alpha: 0.1),
+              color: AppPalette.primary.withValues(alpha: 0.08),
               blurRadius: 10,
               offset: const Offset(0, 5),
             ),
@@ -3254,7 +3241,7 @@ class _MainScreenState extends State<MainScreen>
                 'Belum ada data pengeluaran',
                 style: GoogleFonts.poppins(
                   fontSize: 16,
-                  color: Colors.grey,
+                  color: AppPalette.textSecondary,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -3262,7 +3249,7 @@ class _MainScreenState extends State<MainScreen>
                 'Mulai catat pengeluaran untuk melihat grafik',
                 style: GoogleFonts.poppins(
                   fontSize: 12,
-                  color: Colors.grey,
+                  color: AppPalette.textSecondary,
                 ),
               ),
             ],
@@ -3292,11 +3279,11 @@ class _MainScreenState extends State<MainScreen>
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.1),
+            color: AppPalette.primary.withValues(alpha: 0.08),
             blurRadius: 10,
             offset: const Offset(0, 5),
           ),
@@ -3316,7 +3303,7 @@ class _MainScreenState extends State<MainScreen>
                     style: GoogleFonts.poppins(
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF333333),
+                      color: AppPalette.textPrimary,
                     ),
                   ),
                   if (chartData.subtitle.isNotEmpty)
@@ -3324,7 +3311,7 @@ class _MainScreenState extends State<MainScreen>
                       chartData.subtitle,
                       style: GoogleFonts.poppins(
                         fontSize: 11,
-                        color: Colors.grey,
+                        color: AppPalette.textSecondary,
                       ),
                     ),
                 ],
@@ -3332,14 +3319,14 @@ class _MainScreenState extends State<MainScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF69B4).withValues(alpha: 0.1),
+                  color: AppPalette.accentSoft,
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   'Trend',
                   style: GoogleFonts.poppins(
                     fontSize: 10,
-                    color: const Color(0xFFFF69B4),
+                    color: AppPalette.accent,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -3358,7 +3345,7 @@ class _MainScreenState extends State<MainScreen>
                   horizontalInterval: yInterval,
                   getDrawingHorizontalLine: (value) {
                     return FlLine(
-                      color: Colors.grey.withValues(alpha: 0.2),
+                      color: AppPalette.border.withValues(alpha: 0.7),
                       strokeWidth: 1,
                       dashArray: [5, 5],
                     );
@@ -3381,7 +3368,7 @@ class _MainScreenState extends State<MainScreen>
                             label,
                             style: GoogleFonts.poppins(
                               fontSize: 10,
-                              color: Colors.grey[600],
+                              color: AppPalette.textSecondary,
                               fontWeight: FontWeight.w500,
                             ),
                             textAlign: TextAlign.right,
@@ -3403,7 +3390,7 @@ class _MainScreenState extends State<MainScreen>
                               labels[value.toInt()],
                               style: GoogleFonts.poppins(
                                 fontSize: 11,
-                                color: Colors.grey[600],
+                                color: AppPalette.textSecondary,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -3421,10 +3408,8 @@ class _MainScreenState extends State<MainScreen>
                 borderData: FlBorderData(
                   show: true,
                   border: Border(
-                    left: BorderSide(
-                        color: Colors.grey.withValues(alpha: 0.3), width: 1),
-                    bottom: BorderSide(
-                        color: Colors.grey.withValues(alpha: 0.3), width: 1),
+                    left: BorderSide(color: AppPalette.border, width: 1),
+                    bottom: BorderSide(color: AppPalette.border, width: 1),
                   ),
                 ),
                 minX: 0,
@@ -3435,7 +3420,7 @@ class _MainScreenState extends State<MainScreen>
                 lineTouchData: LineTouchData(
                   enabled: true,
                   touchTooltipData: LineTouchTooltipData(
-                    tooltipBgColor: const Color(0xFFFF69B4),
+                    tooltipBgColor: AppPalette.primaryDark,
                     tooltipRoundedRadius: 8,
                     getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
                       return touchedBarSpots.map((barSpot) {
@@ -3464,11 +3449,7 @@ class _MainScreenState extends State<MainScreen>
                     isCurved: true,
                     curveSmoothness: 0.3,
                     gradient: const LinearGradient(
-                      colors: [
-                        Color(0xFFFF69B4),
-                        Color(0xFFFF1493),
-                        Color(0xFFDC143C),
-                      ],
+                      colors: AppPalette.lineChartGradient,
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
                     ),
@@ -3479,9 +3460,9 @@ class _MainScreenState extends State<MainScreen>
                       getDotPainter: (spot, percent, barData, index) {
                         return FlDotCirclePainter(
                           radius: 6,
-                          color: Colors.white,
+                          color: AppPalette.surface,
                           strokeWidth: 3,
-                          strokeColor: const Color(0xFFFF69B4),
+                          strokeColor: AppPalette.primary,
                         );
                       },
                     ),
@@ -3489,16 +3470,16 @@ class _MainScreenState extends State<MainScreen>
                       show: true,
                       gradient: LinearGradient(
                         colors: [
-                          const Color(0xFFFF69B4).withValues(alpha: 0.3),
-                          const Color(0xFFFF69B4).withValues(alpha: 0.1),
-                          const Color(0xFFFF69B4).withValues(alpha: 0.05),
+                          AppPalette.primary.withValues(alpha: 0.22),
+                          AppPalette.info.withValues(alpha: 0.10),
+                          AppPalette.accent.withValues(alpha: 0.05),
                         ],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
                     ),
                     shadow: Shadow(
-                      color: const Color(0xFFFF69B4).withValues(alpha: 0.3),
+                      color: AppPalette.primary.withValues(alpha: 0.22),
                       offset: const Offset(0, 3),
                       blurRadius: 6,
                     ),
@@ -3513,10 +3494,10 @@ class _MainScreenState extends State<MainScreen>
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0xFFFF69B4).withValues(alpha: 0.05),
+              color: AppPalette.accentSoft,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: const Color(0xFFFF69B4).withValues(alpha: 0.2),
+                color: AppPalette.accent.withValues(alpha: 0.3),
                 width: 1,
               ),
             ),
@@ -3527,7 +3508,7 @@ class _MainScreenState extends State<MainScreen>
                   height: 12,
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+                      colors: AppPalette.lineChartGradient,
                     ),
                     borderRadius: BorderRadius.circular(6),
                   ),
@@ -3538,7 +3519,7 @@ class _MainScreenState extends State<MainScreen>
                     chartData.legend,
                     style: GoogleFonts.poppins(
                       fontSize: 11,
-                      color: const Color(0xFFFF69B4),
+                      color: AppPalette.accent,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -3689,14 +3670,14 @@ class _MainScreenState extends State<MainScreen>
         alignment: Alignment.center,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+            colors: AppPalette.heroGradient,
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.pink.withAlpha(102), // ✅ diperbaiki
+              color: AppPalette.primary.withValues(alpha: 0.24),
               blurRadius: 15,
               offset: const Offset(0, 8),
             ),
@@ -3711,7 +3692,7 @@ class _MainScreenState extends State<MainScreen>
     return Container(
       height: 400,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(20),
       ),
       child: Center(
@@ -3721,7 +3702,7 @@ class _MainScreenState extends State<MainScreen>
             const Icon(
               Icons.flag_outlined,
               size: 64,
-              color: Colors.grey,
+              color: AppPalette.textSecondary,
             ),
             const SizedBox(height: 20),
             Text(
@@ -3729,7 +3710,7 @@ class _MainScreenState extends State<MainScreen>
               style: GoogleFonts.poppins(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 10),
@@ -3738,14 +3719,14 @@ class _MainScreenState extends State<MainScreen>
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 fontSize: 14,
-                color: Colors.grey,
+                color: AppPalette.textSecondary,
               ),
             ),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () => _showAddGoalDialog(),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF69B4),
+                backgroundColor: AppPalette.primary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
@@ -3793,11 +3774,11 @@ class _MainScreenState extends State<MainScreen>
       margin: const EdgeInsets.only(bottom: 20),
       padding: const EdgeInsets.all(25),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppPalette.surface,
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.1),
+            color: AppPalette.primary.withValues(alpha: 0.08),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
@@ -3812,8 +3793,8 @@ class _MainScreenState extends State<MainScreen>
                 padding: const EdgeInsets.all(15),
                 decoration: BoxDecoration(
                   color: goal.progress >= 1.0
-                      ? Colors.green.withValues(alpha: 0.1)
-                      : const Color(0xFFFF69B4).withValues(alpha: 0.1),
+                      ? AppPalette.success.withValues(alpha: 0.1)
+                      : AppPalette.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -3831,7 +3812,7 @@ class _MainScreenState extends State<MainScreen>
                       style: GoogleFonts.poppins(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFF333333),
+                        color: AppPalette.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -3839,7 +3820,7 @@ class _MainScreenState extends State<MainScreen>
                       'Target: ${formatRupiah(goal.targetAmount)}',
                       style: GoogleFonts.poppins(
                         fontSize: 12,
-                        color: Colors.grey,
+                        color: AppPalette.textSecondary,
                       ),
                     ),
                     if (goal.targetDate != null)
@@ -3847,7 +3828,7 @@ class _MainScreenState extends State<MainScreen>
                         'Deadline: ${DateFormat('dd MMM yyyy').format(goal.targetDate!)}',
                         style: GoogleFonts.poppins(
                           fontSize: 11,
-                          color: Colors.grey,
+                          color: AppPalette.textSecondary,
                         ),
                       ),
                   ],
@@ -3874,12 +3855,12 @@ class _MainScreenState extends State<MainScreen>
                 child: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.1),
+                    color: AppPalette.surfaceMuted,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
                     Icons.more_vert,
-                    color: Colors.grey,
+                    color: AppPalette.textSecondary,
                     size: 20,
                   ),
                 ),
@@ -3892,7 +3873,7 @@ class _MainScreenState extends State<MainScreen>
           Container(
             height: 12,
             decoration: BoxDecoration(
-              color: Colors.grey[200],
+              color: AppPalette.surfaceDisabled,
               borderRadius: BorderRadius.circular(6),
             ),
             child: Stack(
@@ -3903,11 +3884,8 @@ class _MainScreenState extends State<MainScreen>
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: goal.progress >= 1.0
-                            ? [Colors.green, Colors.lightGreen]
-                            : [
-                                const Color(0xFFFF69B4),
-                                const Color(0xFFFF1493)
-                              ],
+                            ? AppPalette.goalCompleteGradient
+                            : AppPalette.heroGradient,
                       ),
                       borderRadius: BorderRadius.circular(6),
                     ),
@@ -3928,7 +3906,7 @@ class _MainScreenState extends State<MainScreen>
                     'Terkumpul',
                     style: GoogleFonts.poppins(
                       fontSize: 12,
-                      color: Colors.grey,
+                      color: AppPalette.textSecondary,
                     ),
                   ),
                   Text(
@@ -3936,7 +3914,7 @@ class _MainScreenState extends State<MainScreen>
                     style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFF333333),
+                      color: AppPalette.textPrimary,
                     ),
                   ),
                 ],
@@ -3946,8 +3924,8 @@ class _MainScreenState extends State<MainScreen>
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: goal.progress >= 1.0
-                      ? Colors.green
-                      : const Color(0xFFFF69B4),
+                      ? AppPalette.success
+                      : AppPalette.primary,
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Text(
@@ -4522,7 +4500,7 @@ class _MainScreenState extends State<MainScreen>
                                 style: GoogleFonts.poppins(
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
-                                  color: const Color(0xFFFF69B4),
+                                  color: AppPalette.primary,
                                 ),
                               ),
                               const SizedBox(height: 25),
@@ -4531,7 +4509,7 @@ class _MainScreenState extends State<MainScreen>
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF333333),
+                                  color: AppPalette.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -4687,7 +4665,7 @@ class _MainScreenState extends State<MainScreen>
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF333333),
+                                  color: AppPalette.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -4711,17 +4689,17 @@ class _MainScreenState extends State<MainScreen>
                                       ),
                                       side: BorderSide(
                                         color: isSelected
-                                            ? const Color(0xFFFF69B4)
-                                            : const Color(0xFFFFB6C1),
+                                            ? AppPalette.primary
+                                            : AppPalette.border,
                                       ),
-                                      backgroundColor: Colors.white,
-                                      selectedColor: const Color(0xFFFF69B4),
+                                      backgroundColor: AppPalette.surface,
+                                      selectedColor: AppPalette.primary,
                                       labelStyle: GoogleFonts.poppins(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                         color: isSelected
                                             ? Colors.white
-                                            : const Color(0xFFFF69B4),
+                                            : AppPalette.primary,
                                       ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(14),
@@ -4739,7 +4717,7 @@ class _MainScreenState extends State<MainScreen>
                                       style: GoogleFonts.poppins(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF333333),
+                                        color: AppPalette.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(height: 12),
@@ -4749,9 +4727,7 @@ class _MainScreenState extends State<MainScreen>
                                         vertical: 12,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.grey.withValues(
-                                          alpha: 0.08,
-                                        ),
+                                        color: AppPalette.surfaceMuted,
                                         borderRadius: BorderRadius.circular(18),
                                       ),
                                       child: Row(
@@ -4763,14 +4739,14 @@ class _MainScreenState extends State<MainScreen>
                                               vertical: 10,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: Colors.white,
+                                              color: AppPalette.surface,
                                               borderRadius:
                                                   BorderRadius.circular(14),
                                             ),
                                             child: Text(
                                               'Rp',
                                               style: GoogleFonts.poppins(
-                                                color: const Color(0xFFFF69B4),
+                                                color: AppPalette.primary,
                                                 fontWeight: FontWeight.bold,
                                                 fontSize: 16,
                                               ),
@@ -4790,12 +4766,13 @@ class _MainScreenState extends State<MainScreen>
                                               style: GoogleFonts.poppins(
                                                 fontSize: 36,
                                                 fontWeight: FontWeight.bold,
-                                                color: const Color(0xFF333333),
+                                                color: AppPalette.textPrimary,
                                               ),
                                               decoration: InputDecoration(
                                                 hintText: '0',
                                                 hintStyle: GoogleFonts.poppins(
-                                                  color: Colors.grey,
+                                                  color:
+                                                      AppPalette.textSecondary,
                                                   fontSize: 36,
                                                   fontWeight: FontWeight.w600,
                                                 ),
@@ -4813,7 +4790,7 @@ class _MainScreenState extends State<MainScreen>
                                       'Masukkan jumlah',
                                       style: GoogleFonts.poppins(
                                         fontSize: 12,
-                                        color: Colors.grey,
+                                        color: AppPalette.textSecondary,
                                       ),
                                     ),
                                   ],
@@ -4825,7 +4802,7 @@ class _MainScreenState extends State<MainScreen>
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF333333),
+                                  color: AppPalette.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 10),
@@ -4835,7 +4812,7 @@ class _MainScreenState extends State<MainScreen>
                                   vertical: 5,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.withValues(alpha: 0.1),
+                                  color: AppPalette.surfaceMuted,
                                   borderRadius: BorderRadius.circular(15),
                                 ),
                                 child: DropdownButtonHideUnderline(
@@ -4844,10 +4821,10 @@ class _MainScreenState extends State<MainScreen>
                                     isExpanded: true,
                                     icon: const Icon(
                                       Icons.keyboard_arrow_down,
-                                      color: Color(0xFFFF69B4),
+                                      color: AppPalette.primary,
                                     ),
                                     style: GoogleFonts.poppins(
-                                      color: const Color(0xFF333333),
+                                      color: AppPalette.textPrimary,
                                     ),
                                     onChanged: isWalletLocked
                                         ? null
@@ -4869,7 +4846,7 @@ class _MainScreenState extends State<MainScreen>
                                                   wallet.name,
                                                 ),
                                                 size: 16,
-                                                color: const Color(0xFFFF69B4),
+                                                color: AppPalette.primary,
                                               ),
                                               const SizedBox(width: 8),
                                               Text(wallet.name),
@@ -4892,7 +4869,7 @@ class _MainScreenState extends State<MainScreen>
                                       style: GoogleFonts.poppins(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF333333),
+                                        color: AppPalette.textPrimary,
                                       ),
                                     ),
                                     const SizedBox(height: 10),
@@ -5027,9 +5004,7 @@ class _MainScreenState extends State<MainScreen>
                                           hintText: 'Pilih pos sumber',
                                           hintStyle: GoogleFonts.poppins(),
                                           filled: true,
-                                          fillColor: Colors.grey.withValues(
-                                            alpha: 0.1,
-                                          ),
+                                          fillColor: AppPalette.surfaceMuted,
                                           border: OutlineInputBorder(
                                             borderRadius:
                                                 BorderRadius.circular(15),
@@ -5046,13 +5021,13 @@ class _MainScreenState extends State<MainScreen>
                                 style: GoogleFonts.poppins(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF333333),
+                                  color: AppPalette.textPrimary,
                                 ),
                               ),
                               const SizedBox(height: 10),
                               Container(
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.withValues(alpha: 0.1),
+                                  color: AppPalette.surfaceMuted,
                                   borderRadius: BorderRadius.circular(15),
                                 ),
                                 child: TextField(
@@ -5061,7 +5036,7 @@ class _MainScreenState extends State<MainScreen>
                                   decoration: InputDecoration(
                                     hintText: 'Tambahkan keterangan...',
                                     hintStyle: GoogleFonts.poppins(
-                                      color: Colors.grey,
+                                      color: AppPalette.textSecondary,
                                     ),
                                     border: InputBorder.none,
                                     contentPadding: const EdgeInsets.all(20),
@@ -5085,7 +5060,7 @@ class _MainScreenState extends State<MainScreen>
                           child: ElevatedButton(
                             onPressed: handleSaveTransaction,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF69B4),
+                              backgroundColor: AppPalette.primary,
                               padding: const EdgeInsets.symmetric(vertical: 18),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(15),
@@ -5178,7 +5153,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFFFF69B4),
+                    color: AppPalette.primary,
                   ),
                 ),
                 const SizedBox(height: 25),
@@ -5189,13 +5164,13 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
+                    color: AppPalette.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 10),
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.1),
+                    color: AppPalette.surfaceMuted,
                     borderRadius: BorderRadius.circular(15),
                   ),
                   child: TextField(
@@ -5203,7 +5178,8 @@ class _MainScreenState extends State<MainScreen>
                     style: GoogleFonts.poppins(),
                     decoration: InputDecoration(
                       hintText: 'Contoh: iPhone baru, Liburan ke Bali',
-                      hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                      hintStyle:
+                          GoogleFonts.poppins(color: AppPalette.textSecondary),
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.all(20),
                     ),
@@ -5217,13 +5193,13 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
+                    color: AppPalette.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 10),
                 Container(
                   decoration: BoxDecoration(
-                    color: Colors.grey.withValues(alpha: 0.1),
+                    color: AppPalette.surfaceMuted,
                     borderRadius: BorderRadius.circular(15),
                   ),
                   child: TextField(
@@ -5233,10 +5209,11 @@ class _MainScreenState extends State<MainScreen>
                     style: GoogleFonts.poppins(),
                     decoration: InputDecoration(
                       hintText: 'Masukkan target jumlah',
-                      hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                      hintStyle:
+                          GoogleFonts.poppins(color: AppPalette.textSecondary),
                       prefixText: 'Rp ',
                       prefixStyle: GoogleFonts.poppins(
-                        color: const Color(0xFFFF69B4),
+                        color: AppPalette.primary,
                         fontWeight: FontWeight.bold,
                       ),
                       border: InputBorder.none,
@@ -5252,7 +5229,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
+                    color: AppPalette.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -5270,12 +5247,12 @@ class _MainScreenState extends State<MainScreen>
                           padding: const EdgeInsets.all(15),
                           decoration: BoxDecoration(
                             color: selectedEmoji == emoji
-                                ? const Color(0xFFFF69B4).withValues(alpha: 0.2)
-                                : Colors.grey.withValues(alpha: 0.1),
+                                ? AppPalette.primary.withValues(alpha: 0.2)
+                                : AppPalette.surfaceMuted,
                             borderRadius: BorderRadius.circular(15),
                             border: Border.all(
                               color: selectedEmoji == emoji
-                                  ? const Color(0xFFFF69B4)
+                                  ? AppPalette.primary
                                   : Colors.transparent,
                               width: 2,
                             ),
@@ -5295,7 +5272,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFF333333),
+                    color: AppPalette.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -5315,13 +5292,13 @@ class _MainScreenState extends State<MainScreen>
                   child: Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.1),
+                      color: AppPalette.surfaceMuted,
                       borderRadius: BorderRadius.circular(15),
                     ),
                     child: Row(
                       children: [
                         const Icon(Icons.calendar_today,
-                            color: Color(0xFFFF69B4)),
+                            color: AppPalette.primary),
                         const SizedBox(width: 15),
                         Text(
                           selectedDate != null
@@ -5329,8 +5306,8 @@ class _MainScreenState extends State<MainScreen>
                               : 'Pilih tanggal target',
                           style: GoogleFonts.poppins(
                             color: selectedDate != null
-                                ? const Color(0xFF333333)
-                                : Colors.grey,
+                                ? AppPalette.textPrimary
+                                : AppPalette.textSecondary,
                           ),
                         ),
                       ],
@@ -5378,7 +5355,7 @@ class _MainScreenState extends State<MainScreen>
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFF69B4),
+                      backgroundColor: AppPalette.primary,
                       padding: const EdgeInsets.symmetric(vertical: 18),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(15),
@@ -5535,7 +5512,7 @@ class _MainScreenState extends State<MainScreen>
                     style: GoogleFonts.poppins(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFFFF69B4),
+                      color: AppPalette.primary,
                     ),
                   ),
                   const SizedBox(height: 25),
@@ -5552,13 +5529,13 @@ class _MainScreenState extends State<MainScreen>
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 10),
                           Container(
                             decoration: BoxDecoration(
-                              color: Colors.grey.withValues(alpha: 0.1),
+                              color: AppPalette.surfaceMuted,
                               borderRadius: BorderRadius.circular(15),
                             ),
                             child: TextField(
@@ -5566,8 +5543,9 @@ class _MainScreenState extends State<MainScreen>
                               style: GoogleFonts.poppins(),
                               decoration: InputDecoration(
                                 hintText: 'Contoh: Dress cantik, Sepatu heels',
-                                hintStyle:
-                                    GoogleFonts.poppins(color: Colors.grey),
+                                hintStyle: GoogleFonts.poppins(
+                                  color: AppPalette.textSecondary,
+                                ),
                                 border: InputBorder.none,
                                 contentPadding: const EdgeInsets.all(20),
                               ),
@@ -5581,13 +5559,13 @@ class _MainScreenState extends State<MainScreen>
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 10),
                           Container(
                             decoration: BoxDecoration(
-                              color: Colors.grey.withValues(alpha: 0.1),
+                              color: AppPalette.surfaceMuted,
                               borderRadius: BorderRadius.circular(15),
                             ),
                             child: TextField(
@@ -5597,11 +5575,12 @@ class _MainScreenState extends State<MainScreen>
                               style: GoogleFonts.poppins(),
                               decoration: InputDecoration(
                                 hintText: 'Masukkan harga',
-                                hintStyle:
-                                    GoogleFonts.poppins(color: Colors.grey),
+                                hintStyle: GoogleFonts.poppins(
+                                  color: AppPalette.textSecondary,
+                                ),
                                 prefixText: 'Rp ',
                                 prefixStyle: GoogleFonts.poppins(
-                                  color: const Color(0xFFFF69B4),
+                                  color: AppPalette.primary,
                                   fontWeight: FontWeight.bold,
                                 ),
                                 border: InputBorder.none,
@@ -5617,7 +5596,7 @@ class _MainScreenState extends State<MainScreen>
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -5636,13 +5615,13 @@ class _MainScreenState extends State<MainScreen>
                                     padding: const EdgeInsets.all(15),
                                     decoration: BoxDecoration(
                                       color: selectedEmoji == emoji
-                                          ? const Color(0xFFFF69B4)
+                                          ? AppPalette.primary
                                               .withValues(alpha: 0.2)
-                                          : Colors.grey.withValues(alpha: 0.1),
+                                          : AppPalette.surfaceMuted,
                                       borderRadius: BorderRadius.circular(15),
                                       border: Border.all(
                                         color: selectedEmoji == emoji
-                                            ? const Color(0xFFFF69B4)
+                                            ? AppPalette.primary
                                             : Colors.transparent,
                                         width: 2,
                                       ),
@@ -5662,7 +5641,7 @@ class _MainScreenState extends State<MainScreen>
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: const Color(0xFF333333),
+                              color: AppPalette.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -5727,10 +5706,10 @@ class _MainScreenState extends State<MainScreen>
                   Container(
                     padding: const EdgeInsets.only(top: 20),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppPalette.surface,
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.grey.withValues(alpha: 0.2),
+                          color: AppPalette.border.withValues(alpha: 0.8),
                           blurRadius: 10,
                           offset: const Offset(0, -5),
                         ),
@@ -5782,24 +5761,24 @@ class _MainScreenState extends State<MainScreen>
                           } on FormatException {
                             _showSnackBarMessage(
                               'Format harga tidak valid! Masukkan angka saja.',
-                              backgroundColor: Colors.red,
+                              backgroundColor: AppPalette.danger,
                             );
                           } on Exception catch (_) {
                             _showSnackBarMessage(
                               'Wishlist gagal disimpan. Coba lagi.',
-                              backgroundColor: Colors.red,
+                              backgroundColor: AppPalette.danger,
                             );
                           }
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFF69B4),
+                          backgroundColor: AppPalette.primary,
                           padding: const EdgeInsets.symmetric(vertical: 18),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(15),
                           ),
                           elevation: 8,
                           shadowColor:
-                              const Color(0xFFFF69B4).withValues(alpha: 0.4),
+                              AppPalette.primary.withValues(alpha: 0.4),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -5888,7 +5867,7 @@ class _MainScreenState extends State<MainScreen>
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
-                              colors: [Color(0xFFFF69B4), Color(0xFFFF1493)],
+                              colors: AppPalette.heroGradient,
                             ),
                             borderRadius: BorderRadius.circular(20),
                           ),
@@ -5920,7 +5899,8 @@ class _MainScreenState extends State<MainScreen>
                                       '${formatRupiah(goal.currentAmount)} / ${formatRupiah(goal.targetAmount)}',
                                       style: GoogleFonts.poppins(
                                         fontSize: 12,
-                                        color: Colors.white70,
+                                        color: Colors.white
+                                            .withValues(alpha: 0.78),
                                       ),
                                     ),
                                   ],
@@ -5936,7 +5916,7 @@ class _MainScreenState extends State<MainScreen>
                           style: GoogleFonts.poppins(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
-                            color: const Color(0xFFFF69B4),
+                            color: AppPalette.primary,
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -5946,14 +5926,14 @@ class _MainScreenState extends State<MainScreen>
                           style: GoogleFonts.poppins(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF333333),
+                            color: AppPalette.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 10),
 
                         Container(
                           decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.1),
+                            color: AppPalette.surfaceMuted,
                             borderRadius: BorderRadius.circular(15),
                           ),
                           child: TextField(
@@ -5963,11 +5943,12 @@ class _MainScreenState extends State<MainScreen>
                             style: GoogleFonts.poppins(),
                             decoration: InputDecoration(
                               hintText: 'Masukkan jumlah',
-                              hintStyle:
-                                  GoogleFonts.poppins(color: Colors.grey),
+                              hintStyle: GoogleFonts.poppins(
+                                color: AppPalette.textSecondary,
+                              ),
                               prefixText: 'Rp ',
                               prefixStyle: GoogleFonts.poppins(
-                                color: const Color(0xFFFF69B4),
+                                color: AppPalette.primary,
                                 fontWeight: FontWeight.bold,
                               ),
                               border: InputBorder.none,
@@ -5982,7 +5963,7 @@ class _MainScreenState extends State<MainScreen>
                           style: GoogleFonts.poppins(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
-                            color: const Color(0xFF333333),
+                            color: AppPalette.textPrimary,
                           ),
                         ),
                         const SizedBox(height: 10),
@@ -6009,7 +5990,7 @@ class _MainScreenState extends State<MainScreen>
                               if (amountController.text.isEmpty) {
                                 _showSnackBarMessage(
                                   'Jumlah top up wajib diisi.',
-                                  backgroundColor: Colors.red,
+                                  backgroundColor: AppPalette.danger,
                                 );
                                 return;
                               }
@@ -6039,12 +6020,12 @@ class _MainScreenState extends State<MainScreen>
                               } on Exception catch (_) {
                                 _showSnackBarMessage(
                                   'Top up goal gagal disimpan. Coba lagi.',
-                                  backgroundColor: Colors.red,
+                                  backgroundColor: AppPalette.danger,
                                 );
                               }
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF69B4),
+                              backgroundColor: AppPalette.primary,
                               padding: const EdgeInsets.symmetric(vertical: 18),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(15),
@@ -6081,17 +6062,17 @@ class _MainScreenState extends State<MainScreen>
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: const Color(0xFFFF69B4).withValues(alpha: 0.1),
+            color: AppPalette.accentSoft,
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: const Color(0xFFFF69B4).withValues(alpha: 0.3),
+              color: AppPalette.accent.withValues(alpha: 0.3),
             ),
           ),
           child: Center(
             child: Text(
               label,
               style: GoogleFonts.poppins(
-                color: const Color(0xFFFF69B4),
+                color: AppPalette.accent,
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
               ),
@@ -6400,7 +6381,7 @@ class _MainScreenState extends State<MainScreen>
                     'Harga: ${formatRupiah(item.price)}',
                     style: GoogleFonts.poppins(
                       fontWeight: FontWeight.bold,
-                      color: const Color(0xFFFF69B4),
+                      color: AppPalette.primary,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -6410,7 +6391,7 @@ class _MainScreenState extends State<MainScreen>
                         : 'Pilih pos sumber; dompet akan mengikuti pos itu agar saldo tetap konsisten.',
                     style: GoogleFonts.poppins(
                       fontSize: 12,
-                      color: Colors.grey,
+                      color: AppPalette.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 16),
