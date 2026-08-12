@@ -28,6 +28,25 @@ void main() {
       expect(result.text, '1.234');
       expect(result.selection.baseOffset, result.text.length);
     });
+
+    test('formatEditUpdate mereset cursor saat semua digit terhapus', () {
+      const oldValue = TextEditingValue(
+        text: '1',
+        selection: TextSelection.collapsed(offset: 1),
+      );
+      const newValue = TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 1),
+      );
+
+      final result = CurrencyInputFormatter().formatEditUpdate(
+        oldValue,
+        newValue,
+      );
+
+      expect(result.text, '');
+      expect(result.selection, const TextSelection.collapsed(offset: 0));
+    });
   });
 
   group('Rupiah parser dan formatter', () {

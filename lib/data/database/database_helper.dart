@@ -493,19 +493,6 @@ class DatabaseHelper {
     );
   }
 
-  Future<String?> getAppPreference(String key) async {
-    final db = await database;
-    final rows = await db.query(
-      'app_preferences',
-      columns: ['value'],
-      where: 'key = ?',
-      whereArgs: [key],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    return rows.first['value'] as String?;
-  }
-
   Future<Map<String, String>> getAppPreferences(Iterable<String> keys) async {
     final db = await database;
     final keyList = keys.toList(growable: false);
@@ -560,17 +547,6 @@ class DatabaseHelper {
     await setAppPreference(
       reminderEnabledPreferenceKey,
       isEnabled ? '1' : '0',
-    );
-  }
-
-  Future<void> setReminderHour(int hour) async {
-    await setAppPreference(reminderHourPreferenceKey, hour.toString());
-  }
-
-  Future<void> setReminderEveningStartHour(int hour) async {
-    await setAppPreference(
-      reminderEveningStartHourPreferenceKey,
-      hour.toString(),
     );
   }
 
@@ -1401,11 +1377,6 @@ class DatabaseHelper {
     return maps.map(DebtPayment.fromMap).toList();
   }
 
-  Future<int> deleteDebtPayment(int id) async {
-    final db = await database;
-    return db.delete('debt_payments', where: 'id = ?', whereArgs: [id]);
-  }
-
   Future<void> recordDebtPayment({
     required int debtId,
     required double amount,
@@ -1614,13 +1585,6 @@ class DatabaseHelper {
     );
   }
 
-  Future<int> insertTransactionBucketAllocation(
-    TransactionBucketAllocation allocation,
-  ) async {
-    final db = await database;
-    return db.insert('transaction_bucket_allocations', allocation.toMap());
-  }
-
   Future<List<TransactionBucketAllocation>> getTransactionBucketAllocations(
     int transactionId,
   ) async {
@@ -1656,11 +1620,6 @@ class DatabaseHelper {
           .add(allocation);
     }
     return grouped;
-  }
-
-  Future<int> insertBucketTransfer(BucketTransfer transfer) async {
-    final db = await database;
-    return db.insert('bucket_transfers', transfer.toMap());
   }
 
   Future<List<BucketTransfer>> getBucketTransfers() async {

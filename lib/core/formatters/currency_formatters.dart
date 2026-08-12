@@ -18,7 +18,12 @@ class CurrencyInputFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) {
     final digits = newValue.text.replaceAll(RegExp(r'[^\d]'), '');
-    if (digits.isEmpty) return newValue.copyWith(text: '');
+    if (digits.isEmpty) {
+      return const TextEditingValue(
+        text: '',
+        selection: TextSelection.collapsed(offset: 0),
+      );
+    }
     final formatted = CurrencyInputFormatter.format(int.parse(digits));
     return newValue.copyWith(
       text: formatted,

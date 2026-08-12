@@ -40,16 +40,6 @@ const String _homeBalanceSourceIdPreferenceKey =
     homeBalanceSourceIdPreferenceKey;
 const String _homeBalanceVisibilityHiddenPreferenceKey =
     homeBalanceVisibilityHiddenPreferenceKey;
-Wallet? _findWalletInList(Iterable<Wallet> wallets, int? walletId) {
-  return findWalletInList(wallets, walletId);
-}
-
-FinancialBucket? _findBucketInList(
-  Iterable<FinancialBucket> buckets,
-  int? bucketId,
-) {
-  return findBucketInList(buckets, bucketId);
-}
 
 // Main Screen with Enhanced Navigation
 class MainScreen extends StatefulWidget {
@@ -659,14 +649,14 @@ class _MainScreenState extends State<MainScreen>
 
     switch (source.type) {
       case 'wallet':
-        final wallet = _findWalletInList(_activeWallets, source.id);
+        final wallet = findWalletInList(_activeWallets, source.id);
         if (wallet == null) return calculateBalanceForWallet(_allTransactions);
         return calculateBalanceForWallet(
           _allTransactions,
           selectedWallet: wallet.name,
         );
       case 'bucket':
-        final bucket = _findBucketInList(_activeBuckets, source.id);
+        final bucket = findBucketInList(_activeBuckets, source.id);
         return bucket?.currentBalance ?? 0;
       case 'total':
       default:
@@ -680,7 +670,7 @@ class _MainScreenState extends State<MainScreen>
 
     switch (source.type) {
       case 'wallet':
-        final wallet = _findWalletInList(_activeWallets, source.id);
+        final wallet = findWalletInList(_activeWallets, source.id);
         if (wallet == null) return 0;
         return effectiveTransactions
             .where((t) => t.type == 'income' && t.wallet == wallet.name)
@@ -701,7 +691,7 @@ class _MainScreenState extends State<MainScreen>
 
     switch (source.type) {
       case 'wallet':
-        final wallet = _findWalletInList(_activeWallets, source.id);
+        final wallet = findWalletInList(_activeWallets, source.id);
         if (wallet == null) return 0;
         return effectiveTransactions
             .where((t) => t.type == 'expense' && t.wallet == wallet.name)
