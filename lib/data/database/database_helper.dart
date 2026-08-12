@@ -626,6 +626,28 @@ class DatabaseHelper {
     );
   }
 
+  Future<({String walletName, int? walletId})> _resolveIncomeSummaryWalletTxn(
+    DatabaseExecutor executor, {
+    required List<FinancialBucket> subsetBuckets,
+    required String fallbackName,
+    int? fallbackWalletId,
+  }) async {
+    if (subsetBuckets.isEmpty) {
+      return (walletName: fallbackName, walletId: fallbackWalletId);
+    }
+
+    if (bucketsShareSameWallet(subsetBuckets)) {
+      return _resolveWalletContextFromBucketTxn(
+        executor,
+        bucket: subsetBuckets.first,
+        fallbackName: fallbackName,
+        fallbackWalletId: fallbackWalletId,
+      );
+    }
+
+    return (walletName: 'Multi Dompet', walletId: null);
+  }
+
   bool _isDebtLinkedTransaction(Transaction transaction) {
     return transaction.affectsBalance &&
         (transaction.category == 'Hutang' || transaction.category == 'Piutang');
@@ -677,40 +699,132 @@ class DatabaseHelper {
     );
   }
 
+  Future<int?> _resolveWalletIdByNameTxn(
+    DatabaseExecutor executor,
+    String walletName,
+  ) async {
+    final trimmedWalletName = walletName.trim();
+    if (trimmedWalletName.isEmpty) return null;
+
+    final rows = await executor.query(
+      'wallets',
+      columns: ['id'],
+      where: 'name = ?',
+      whereArgs: [trimmedWalletName],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['id'] as int?;
+  }
+
+  Future<Map<int, int?>> _loadBucketWalletMapTxn(
+    DatabaseExecutor executor,
+    Iterable<int> bucketIds,
+  ) async {
+    final ids = bucketIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return const {};
+
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final rows = await executor.query(
+      'financial_buckets',
+      columns: ['id', 'walletId'],
+      where: 'id IN ($placeholders)',
+      whereArgs: ids,
+    );
+
+    return {
+      for (final row in rows) row['id'] as int: row['walletId'] as int?,
+    };
+  }
+
+  double _readBalanceAggregate(List<Map<String, Object?>> rows) {
+    if (rows.isEmpty) return 0;
+    final rawValue = rows.first['balance'];
+    if (rawValue is num) return rawValue.toDouble();
+    return 0;
+  }
+
   Future<double> _calculateWalletBalanceTxn(
     DatabaseExecutor executor, {
     required int? walletId,
     required String walletName,
   }) async {
     final trimmedWalletName = walletName.trim();
-    final useWalletId = walletId != null;
-    final rows = await executor.rawQuery(
+    final resolvedWalletId = walletId ??
+        await _resolveWalletIdByNameTxn(executor, trimmedWalletName);
+    if (resolvedWalletId == null && trimmedWalletName.isEmpty) {
+      return 0;
+    }
+
+    if (resolvedWalletId == null) {
+      final directRows = await executor.rawQuery(
+        '''
+        SELECT COALESCE(SUM(
+          CASE
+            WHEN type = 'income' THEN amount
+            WHEN type = 'expense' THEN -amount
+            ELSE 0
+          END
+        ), 0) AS balance
+        FROM transactions
+        WHERE affectsBalance = 1
+          AND wallet = ?
+        ''',
+        [trimmedWalletName],
+      );
+      return _readBalanceAggregate(directRows);
+    }
+
+    final directRows = await executor.rawQuery(
       '''
       SELECT COALESCE(SUM(
         CASE
-          WHEN type = 'income' THEN amount
-          WHEN type = 'expense' THEN -amount
+          WHEN t.type = 'income' THEN t.amount
+          WHEN t.type = 'expense' THEN -t.amount
           ELSE 0
         END
       ), 0) AS balance
-      FROM transactions
-      WHERE affectsBalance = 1
-        AND (
-          (? IS NOT NULL AND walletId = ?)
-          OR (? IS NULL AND wallet = ?)
+      FROM transactions t
+      WHERE t.affectsBalance = 1
+        AND t.walletId = ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM transaction_bucket_allocations a
+          JOIN financial_buckets b ON b.id = a.bucketId
+          WHERE a.transactionId = t.id
+            AND b.walletId = ?
+            AND (
+              (t.type = 'income' AND a.role = 'target')
+              OR (t.type = 'expense' AND a.role = 'source')
+            )
         )
       ''',
-      [
-        useWalletId ? walletId : null,
-        useWalletId ? walletId : null,
-        useWalletId ? walletId : null,
-        trimmedWalletName,
-      ],
+      [resolvedWalletId, resolvedWalletId],
     );
-    if (rows.isEmpty) return 0;
-    final rawBalance = rows.first['balance'];
-    if (rawBalance is num) return rawBalance.toDouble();
-    return double.tryParse(rawBalance?.toString() ?? '') ?? 0;
+    final allocationRows = await executor.rawQuery(
+      '''
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN t.type = 'income' AND a.role = 'target' THEN a.allocatedAmount
+          WHEN t.type = 'expense' AND a.role = 'source' THEN -a.allocatedAmount
+          ELSE 0
+        END
+      ), 0) AS balance
+      FROM transaction_bucket_allocations a
+      JOIN transactions t ON t.id = a.transactionId
+      JOIN financial_buckets b ON b.id = a.bucketId
+      WHERE t.affectsBalance = 1
+        AND b.walletId = ?
+        AND (
+          (t.type = 'income' AND a.role = 'target')
+          OR (t.type = 'expense' AND a.role = 'source')
+        )
+      ''',
+      [resolvedWalletId],
+    );
+
+    return _readBalanceAggregate(directRows) +
+        _readBalanceAggregate(allocationRows);
   }
 
   Future<void> _ensureWalletHasSufficientBalanceTxn(
@@ -916,6 +1030,22 @@ class DatabaseHelper {
 
       await _reverseTransactionAllocationsTxn(txn, transactionId);
 
+      String resolvedWalletNameForWrite = walletName;
+      int? resolvedWalletIdForWrite = resolvedWalletId;
+      if (resolvedAffectsBalance &&
+          type == 'income' &&
+          subsetBuckets != null &&
+          subsetBuckets.isNotEmpty) {
+        final resolvedIncomeWallet = await _resolveIncomeSummaryWalletTxn(
+          txn,
+          subsetBuckets: subsetBuckets,
+          fallbackName: walletName,
+          fallbackWalletId: resolvedWalletId,
+        );
+        resolvedWalletNameForWrite = resolvedIncomeWallet.walletName;
+        resolvedWalletIdForWrite = resolvedIncomeWallet.walletId;
+      }
+
       final updatedRows = await txn.update(
         'transactions',
         {
@@ -925,9 +1055,9 @@ class DatabaseHelper {
           'category': category,
           'description': description,
           'date': date.millisecondsSinceEpoch,
-          'wallet': walletName,
-          'walletId': resolvedWalletId,
-          'walletNameSnapshot': walletName,
+          'wallet': resolvedWalletNameForWrite,
+          'walletId': resolvedWalletIdForWrite,
+          'walletNameSnapshot': resolvedWalletNameForWrite,
           'affectsBalance': resolvedAffectsBalance ? 1 : 0,
         },
         where: 'id = ?',
@@ -1622,6 +1752,11 @@ class DatabaseHelper {
     return grouped;
   }
 
+  Future<Map<int, int?>> getBucketWalletIds(Iterable<int> bucketIds) async {
+    final db = await database;
+    return _loadBucketWalletMapTxn(db, bucketIds);
+  }
+
   Future<List<BucketTransfer>> getBucketTransfers() async {
     final db = await database;
     final maps =
@@ -1743,21 +1878,15 @@ class DatabaseHelper {
     required List<FinancialBucket> subsetBuckets,
     int? walletId,
   }) async {
-    if (!bucketsShareSameWallet(subsetBuckets)) {
-      throw StateError(
-        'Income allocation must target buckets from one effective wallet.',
-      );
-    }
-
     final db = await database;
     final allocations = allocateIncomeToBuckets(amount, subsetBuckets);
     final normalized = normalizeSubsetAllocation(subsetBuckets);
     final now = DateTime.now().millisecondsSinceEpoch;
 
     final txId = await db.transaction((txn) async {
-      final resolvedWallet = await _resolveWalletContextFromBucketTxn(
+      final resolvedWallet = await _resolveIncomeSummaryWalletTxn(
         txn,
-        bucket: subsetBuckets.first,
+        subsetBuckets: subsetBuckets,
         fallbackName: walletName,
         fallbackWalletId: walletId,
       );

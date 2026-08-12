@@ -104,6 +104,8 @@ class _MainScreenState extends State<MainScreen>
   List<UserBadge> _badges = [];
   List<Transaction> _allTransactions = [];
   List<FinancialBucket> _activeBuckets = [];
+  Map<int, List<TransactionBucketAllocation>> _allocationsByTransactionId = {};
+  Map<int, int?> _bucketWalletIdsByBucketId = {};
   Map<int, double> _bucketPeriodIncomeTotals = {};
   Map<int, double> _bucketPeriodExpenseTotals = {};
   String _selectedHomeFilter = 'monthly';
@@ -449,10 +451,45 @@ class _MainScreenState extends State<MainScreen>
 
   Future<void> _loadAllTransactions() async {
     final allTransactions = await _dbHelper.getTransactions();
+    final allocationsByTransactionId =
+        await _dbHelper.getTransactionBucketAllocationsForTransactions(
+      allTransactions.map((transaction) => transaction.id).whereType<int>(),
+    );
+    final bucketWalletIdsByBucketId = await _dbHelper.getBucketWalletIds(
+      allocationsByTransactionId.values
+          .expand((allocations) => allocations)
+          .map((allocation) => allocation.bucketId),
+    );
     if (!mounted) return;
     setState(() {
       _allTransactions = allTransactions;
+      _allocationsByTransactionId = allocationsByTransactionId;
+      _bucketWalletIdsByBucketId = bucketWalletIdsByBucketId;
     });
+  }
+
+  Wallet? _findActiveWalletByName(String walletName) {
+    final matches = _activeWallets.where((wallet) => wallet.name == walletName);
+    return matches.isEmpty ? null : matches.first;
+  }
+
+  List<Transaction> _projectTransactionsForWallet(
+    Iterable<Transaction> transactions,
+    String walletName,
+  ) {
+    final wallet = _findActiveWalletByName(walletName);
+    return projectTransactionsForWalletScope(
+      transactions,
+      walletName: walletName,
+      walletId: wallet?.id,
+      allocationsByTransactionId: _allocationsByTransactionId,
+      bucketWalletById: _bucketWalletIdsByBucketId,
+    );
+  }
+
+  bool _canMutateTransaction(Transaction transaction) {
+    return transaction.id != null &&
+        !isProjectedWalletScopeTransaction(transaction);
   }
 
   List<Transaction> _filterInjectedTransactionsForHome(
@@ -460,37 +497,20 @@ class _MainScreenState extends State<MainScreen>
   ) {
     final now = DateTime.now();
     final range = resolveHomeFilterRange(_selectedHomeFilter, now);
+    final scopedTransactions = _selectedHomeWallet == 'All'
+        ? transactions.toList(growable: false)
+        : _projectTransactionsForWallet(transactions, _selectedHomeWallet);
 
-    return transactions.where((transaction) {
-      final matchesWallet = _selectedHomeWallet == 'All' ||
-          transaction.wallet == _selectedHomeWallet;
+    return scopedTransactions.where((transaction) {
       final matchesRange = transaction.date
               .isAfter(range.start.subtract(const Duration(seconds: 1))) &&
           transaction.date.isBefore(range.end.add(const Duration(seconds: 1)));
-      return matchesWallet && matchesRange;
+      return matchesRange;
     }).toList(growable: false);
   }
 
   Future<void> _loadTransactions() async {
-    if (widget.skipInitialLoad) {
-      final transactions = _filterInjectedTransactionsForHome(_allTransactions);
-      if (!mounted) return;
-      setState(() {
-        _transactions = transactions;
-      });
-
-      await _loadBucketHeroSummaries();
-      return;
-    }
-
-    final now = DateTime.now();
-    final range = resolveHomeFilterRange(_selectedHomeFilter, now);
-
-    final transactions = await _dbHelper.getFilteredTransactions(
-      wallet: _selectedHomeWallet,
-      startDate: range.start,
-      endDate: range.end,
-    );
+    final transactions = _filterInjectedTransactionsForHome(_allTransactions);
 
     if (!mounted) return;
     setState(() {
@@ -605,25 +625,23 @@ class _MainScreenState extends State<MainScreen>
     }
 
     final transactions = List<Transaction>.from(_transactions);
-    final transactionIds = transactions
-        .map((transaction) => transaction.id)
-        .whereType<int>()
-        .toList(growable: false);
-    final allocationsByTransactionId =
-        await _dbHelper.getTransactionBucketAllocationsForTransactions(
-      transactionIds,
-    );
-    if (!mounted || requestEpoch != _bucketHeroSummaryLoadEpoch) return;
-
     final incomeTotals = <int, double>{};
     final expenseTotals = <int, double>{};
 
     for (final transaction in affectingTransactions(transactions)) {
       final transactionId = transaction.id;
       if (transactionId == null) continue;
-      final allocations = allocationsByTransactionId[transactionId] ?? const [];
+      final allocations =
+          _allocationsByTransactionId[transactionId] ?? const [];
+      final isWalletProjection = isProjectedWalletScopeTransaction(transaction);
 
       for (final allocation in allocations) {
+        if (isWalletProjection &&
+            transaction.walletId != null &&
+            _bucketWalletIdsByBucketId[allocation.bucketId] !=
+                transaction.walletId) {
+          continue;
+        }
         if (transaction.type == 'income' && allocation.role == 'target') {
           incomeTotals[allocation.bucketId] =
               (incomeTotals[allocation.bucketId] ?? 0) +
@@ -652,8 +670,7 @@ class _MainScreenState extends State<MainScreen>
         final wallet = findWalletInList(_activeWallets, source.id);
         if (wallet == null) return calculateBalanceForWallet(_allTransactions);
         return calculateBalanceForWallet(
-          _allTransactions,
-          selectedWallet: wallet.name,
+          _projectTransactionsForWallet(_allTransactions, wallet.name),
         );
       case 'bucket':
         final bucket = findBucketInList(_activeBuckets, source.id);
@@ -672,7 +689,7 @@ class _MainScreenState extends State<MainScreen>
       case 'wallet':
         final wallet = findWalletInList(_activeWallets, source.id);
         if (wallet == null) return 0;
-        return effectiveTransactions
+        return _projectTransactionsForWallet(effectiveTransactions, wallet.name)
             .where((t) => t.type == 'income' && t.wallet == wallet.name)
             .fold(0.0, (sum, t) => sum + t.amount);
       case 'bucket':
@@ -693,7 +710,7 @@ class _MainScreenState extends State<MainScreen>
       case 'wallet':
         final wallet = findWalletInList(_activeWallets, source.id);
         if (wallet == null) return 0;
-        return effectiveTransactions
+        return _projectTransactionsForWallet(effectiveTransactions, wallet.name)
             .where((t) => t.type == 'expense' && t.wallet == wallet.name)
             .fold(0.0, (sum, t) => sum + t.amount);
       case 'bucket':
@@ -1497,10 +1514,12 @@ class _MainScreenState extends State<MainScreen>
 
   Widget _buildAnalyticsInsight() {
     final now = DateTime.now();
+    final scopedTransactions = _selectedHomeWallet == 'All'
+        ? _allTransactions
+        : _projectTransactionsForWallet(_allTransactions, _selectedHomeWallet);
     final thisMonthExpense = calculateMonthlyExpenseForInsight(
-      _allTransactions,
+      scopedTransactions,
       now,
-      selectedWallet: _selectedHomeWallet,
     );
 
     String insightText = '';
@@ -1570,15 +1589,15 @@ class _MainScreenState extends State<MainScreen>
 
   List<Transaction> _filteredStatisticsTransactions() {
     final period = _currentPeriodRange();
-    return _allTransactions.where((t) {
-      final matchesWallet =
-          _selectedWallet == 'All' || t.wallet == _selectedWallet;
+    final scopedTransactions = _selectedWallet == 'All'
+        ? _allTransactions
+        : _projectTransactionsForWallet(_allTransactions, _selectedWallet);
+    return scopedTransactions.where((t) {
       final matchesPeriod =
           t.date.isAfter(period.start.subtract(const Duration(seconds: 1))) &&
               t.date.isBefore(period.end.add(const Duration(seconds: 1)));
       return t.affectsBalance &&
           t.category != _internalTransferCategory &&
-          matchesWallet &&
           matchesPeriod;
     }).toList();
   }
@@ -2514,7 +2533,7 @@ class _MainScreenState extends State<MainScreen>
                         Expanded(
                           child: OutlinedButton.icon(
                             key: const Key('transaction_detail_delete_btn'),
-                            onPressed: transaction.id == null
+                            onPressed: !_canMutateTransaction(transaction)
                                 ? null
                                 : () => Navigator.pop(detailContext, 'delete'),
                             icon: const Icon(Icons.delete_outline),
@@ -2538,8 +2557,9 @@ class _MainScreenState extends State<MainScreen>
                         Expanded(
                           child: ElevatedButton.icon(
                             key: const Key('transaction_detail_edit_btn'),
-                            onPressed: () =>
-                                Navigator.pop(detailContext, 'edit'),
+                            onPressed: !_canMutateTransaction(transaction)
+                                ? null
+                                : () => Navigator.pop(detailContext, 'edit'),
                             icon: const Icon(Icons.edit_outlined),
                             label: Text(
                               'Edit',
@@ -2677,7 +2697,7 @@ class _MainScreenState extends State<MainScreen>
       ),
     );
 
-    if (transaction.id == null) {
+    if (!_canMutateTransaction(transaction)) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 15),
         child: card,
@@ -3628,7 +3648,7 @@ class _MainScreenState extends State<MainScreen>
 
   ChartSeriesData _buildExpenseChartSeries() {
     final period = _currentPeriodRange();
-    final effectiveTransactions = affectingTransactions(_allTransactions);
+    final effectiveTransactions = _filteredStatisticsTransactions();
 
     switch (_selectedFilter) {
       case 'weekly':
@@ -3642,7 +3662,6 @@ class _MainScreenState extends State<MainScreen>
             effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
-                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
                     t.date.isAfter(day.subtract(const Duration(seconds: 1))) &&
                     t.date.isBefore(nextDay))
                 .fold(0.0, (sum, t) => sum + t.amount),
@@ -3669,7 +3688,6 @@ class _MainScreenState extends State<MainScreen>
             effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
-                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
                     t.date.isAfter(day.subtract(const Duration(seconds: 1))) &&
                     t.date.isBefore(nextDay))
                 .fold(0.0, (sum, t) => sum + t.amount),
@@ -3693,7 +3711,6 @@ class _MainScreenState extends State<MainScreen>
             effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
-                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
                     t.date.isAfter(
                         monthStart.subtract(const Duration(seconds: 1))) &&
                     t.date.isBefore(nextMonth))
@@ -3719,7 +3736,6 @@ class _MainScreenState extends State<MainScreen>
             effectiveTransactions
                 .where((t) =>
                     t.type == 'expense' &&
-                    (_selectedWallet == 'All' || t.wallet == _selectedWallet) &&
                     t.date.isAfter(day.subtract(const Duration(seconds: 1))) &&
                     t.date.isBefore(nextDay))
                 .fold(0.0, (sum, t) => sum + t.amount),
@@ -4247,6 +4263,8 @@ class _MainScreenState extends State<MainScreen>
         builder: (sheetContext, setState) {
           final categoryOptions =
               selectedType == 'expense' ? expenseCategories : incomeCategories;
+          final hidesWalletSelectorForIncome =
+              affectsBalance && selectedType == 'income' && !hasNoActiveBuckets;
           final isWalletLocked = deriveWalletNameFromBucketSelection() != null;
 
           void showSheetFeedback(
@@ -4493,11 +4511,9 @@ class _MainScreenState extends State<MainScreen>
               );
             } on StateError catch (error) {
               final rawMessage = error.message.toString();
-              final userMessage = rawMessage.contains('one effective wallet')
-                  ? 'Pilih bucket pemasukan dari satu dompet yang sama.'
-                  : rawMessage.contains('debt records')
-                      ? 'Transaksi dari hutang/piutang harus dikelola dari halaman hutang/piutang.'
-                      : 'Transaksi gagal diproses. Cek dompet dan pos yang dipilih.';
+              final userMessage = rawMessage.contains('debt records')
+                  ? 'Transaksi dari hutang/piutang harus dikelola dari halaman hutang/piutang.'
+                  : 'Transaksi gagal diproses. Cek dompet dan pos yang dipilih.';
               showSheetFeedback(
                 userMessage,
                 backgroundColor: Colors.red,
@@ -4900,58 +4916,76 @@ class _MainScreenState extends State<MainScreen>
                                 ),
                               ),
                               const SizedBox(height: 10),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppPalette.surfaceMuted,
-                                  borderRadius: BorderRadius.circular(15),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: selectedWallet,
-                                    isExpanded: true,
-                                    icon: const Icon(
-                                      Icons.keyboard_arrow_down,
-                                      color: AppPalette.primary,
-                                    ),
+                              if (hidesWalletSelectorForIncome)
+                                Container(
+                                  key: const Key('income_wallet_auto_message'),
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: AppPalette.surfaceMuted,
+                                    borderRadius: BorderRadius.circular(15),
+                                  ),
+                                  child: Text(
+                                    'Dompet mengikuti pos yang dipilih. Jika pos berasal dari beberapa dompet, pemasukan akan dibagi otomatis ke dompet masing-masing sesuai persentase pos terpilih.',
                                     style: GoogleFonts.poppins(
-                                      color: AppPalette.textPrimary,
+                                      fontSize: 12,
+                                      color: AppPalette.textSecondary,
                                     ),
-                                    onChanged: isWalletLocked
-                                        ? null
-                                        : (String? newValue) {
-                                            if (newValue == null) return;
-                                            setState(() =>
-                                                selectedWallet = newValue);
-                                          },
-                                    items: availableWallets
-                                        .map<DropdownMenuItem<String>>(
-                                      (Wallet wallet) {
-                                        return DropdownMenuItem<String>(
-                                          value: wallet.name,
-                                          child: Row(
-                                            children: [
-                                              Icon(
-                                                resolveWalletIcon(
-                                                  wallet.iconKey,
-                                                  wallet.name,
+                                  ),
+                                )
+                              else
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 20,
+                                    vertical: 5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppPalette.surfaceMuted,
+                                    borderRadius: BorderRadius.circular(15),
+                                  ),
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: selectedWallet,
+                                      isExpanded: true,
+                                      icon: const Icon(
+                                        Icons.keyboard_arrow_down,
+                                        color: AppPalette.primary,
+                                      ),
+                                      style: GoogleFonts.poppins(
+                                        color: AppPalette.textPrimary,
+                                      ),
+                                      onChanged: isWalletLocked
+                                          ? null
+                                          : (String? newValue) {
+                                              if (newValue == null) return;
+                                              setState(() =>
+                                                  selectedWallet = newValue);
+                                            },
+                                      items: availableWallets
+                                          .map<DropdownMenuItem<String>>(
+                                        (Wallet wallet) {
+                                          return DropdownMenuItem<String>(
+                                            value: wallet.name,
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  resolveWalletIcon(
+                                                    wallet.iconKey,
+                                                    wallet.name,
+                                                  ),
+                                                  size: 16,
+                                                  color: AppPalette.primary,
                                                 ),
-                                                size: 16,
-                                                color: AppPalette.primary,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(wallet.name),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    ).toList(),
+                                                const SizedBox(width: 8),
+                                                Text(wallet.name),
+                                              ],
+                                            ),
+                                          );
+                                        },
+                                      ).toList(),
+                                    ),
                                   ),
                                 ),
-                              ),
                               const SizedBox(height: 20),
                               Container(
                                 key: const Key('transaction_bucket_section'),

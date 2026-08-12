@@ -103,52 +103,143 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: _isLoading
-          ? const SizedBox.shrink()
-          : _debts.isEmpty
-              ? _buildEmpty()
-              : ListView.builder(
-                  key: const Key('debt_list'),
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _debts.length,
-                  itemBuilder: (_, index) => _buildDebtItem(_debts[index]),
-                ),
-      floatingActionButton: FloatingActionButton(
-        key: const Key('debt_fab'),
-        backgroundColor: AppPalette.primary,
-        onPressed: () => _showAddDebtSheet(context),
-        child: const Icon(Icons.add, color: Colors.white),
+      body: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.only(bottom: 16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Hutang / Piutang',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppPalette.primary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    key: const Key('debt_fab'),
+                    onPressed: () => _showAddDebtSheet(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppPalette.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    child: Text(
+                      '+ Catat Baru',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: _isLoading
+                    ? _buildLoadingState()
+                    : _debts.isEmpty
+                        ? _buildEmpty()
+                        : ListView.builder(
+                            key: const Key('debt_list'),
+                            padding: const EdgeInsets.only(bottom: 16),
+                            itemCount: _debts.length,
+                            itemBuilder: (_, index) =>
+                                _buildDebtItem(_debts[index]),
+                          ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildEmpty() => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.handshake_outlined,
-              size: 64,
+  Widget _buildLoadingState() => Container(
+        key: const Key('debt_loading_state'),
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Center(
+          child: Text(
+            'Memuat hutang dan piutang...',
+            style: GoogleFonts.poppins(
+              fontSize: 14,
               color: AppPalette.textSecondary,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Belum ada hutang/piutang',
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+
+  Widget _buildEmpty() => Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.handshake_outlined,
+                size: 64,
                 color: AppPalette.textSecondary,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tap + untuk mencatat hutang atau piutang',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: AppPalette.textSecondary,
+              const SizedBox(height: 20),
+              Text(
+                'Belum ada hutang/piutang',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppPalette.textSecondary,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Text(
+                'Yuk catat hutang atau piutang\nbiar semuanya tetap rapi!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: AppPalette.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                key: const Key('debt_empty_add_btn'),
+                onPressed: () => _showAddDebtSheet(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppPalette.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                ),
+                child: Text(
+                  '+ Catat Hutang / Piutang',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
 
@@ -162,10 +253,10 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
             ? 'Terlambat'
             : 'Aktif';
     final statusColor = debt.status == 'settled'
-      ? AppPalette.success
+        ? AppPalette.success
         : debt.isOverdue
-        ? AppPalette.danger
-        : AppPalette.warning;
+            ? AppPalette.danger
+            : AppPalette.warning;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1698,7 +1789,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: _debt.recordingMode == 'balance'
-                                      ? AppPalette.success.withValues(alpha: 0.1)
+                                      ? AppPalette.success
+                                          .withValues(alpha: 0.1)
                                       : AppPalette.surfaceDisabled,
                                   borderRadius: BorderRadius.circular(10),
                                 ),

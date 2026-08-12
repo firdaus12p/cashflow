@@ -7,13 +7,32 @@ import 'package:cashflow/features/buckets/models/bucket_models.dart';
 import 'package:cashflow/features/wallets/models/wallet.dart';
 import 'package:cashflow/main.dart' show MainScreen;
 
+import 'test_support/db_test_harness.dart';
+
 // Widget-level validation: pesan dan affordance sheet transaksi utama.
 
 void main() {
   const shortTimeout = Timeout(Duration(seconds: 10));
   final now = DateTime(2026, 8, 10);
+  late String dbPath;
+
+  setUp(() async {
+    dbPath = await initializeIsolatedTestDatabase(
+      prefix: 'transaction_bucket_wallet_message_test',
+    );
+    await resetSharedTestDatabase();
+  });
+
+  tearDown(() async {
+    await disposeIsolatedTestDatabase(dbPath);
+  });
 
   Future<void> _pumpHome(WidgetTester tester) async {
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
     await tester.pumpWidget(
       MaterialApp(
         home: MainScreen(
@@ -72,7 +91,7 @@ void main() {
   }
 
   testWidgets(
-    'income lintas dompet menampilkan pesan validasi yang benar',
+    'income lintas dompet menampilkan helper dompet otomatis dan tetap bisa disimpan',
     (tester) async {
       await _pumpHome(tester);
 
@@ -82,6 +101,14 @@ void main() {
       await tester.tap(find.text('Pemasukan').last);
       await _pumpSheet(tester);
 
+      expect(
+          find.byKey(const Key('income_wallet_auto_message')), findsOneWidget);
+      expect(
+        find.textContaining(
+            'pemasukan akan dibagi otomatis ke dompet masing-masing'),
+        findsOneWidget,
+      );
+
       await tester.enterText(find.byType(TextField).first, '500000');
       await tester.enterText(find.byType(TextField).last, 'Gaji lintas dompet');
       await tester.ensureVisible(find.text('Simpan Transaksi'));
@@ -89,10 +116,10 @@ void main() {
       await tester.tap(find.text('Simpan Transaksi'));
       await _pumpSheet(tester);
 
-      expect(
-        find.text('Pilih bucket pemasukan dari satu dompet yang sama.'),
-        findsOneWidget,
-      );
+      final feedbackFinder =
+          find.byKey(const Key('transaction_sheet_feedback'));
+      expect(feedbackFinder, findsNothing);
+      expect(find.text('Gaji lintas dompet'), findsOneWidget);
     },
     timeout: shortTimeout,
   );

@@ -7,6 +7,9 @@ import '../../buckets/models/bucket_models.dart';
 import '../../transactions/models/transaction.dart';
 import '../../wallets/models/wallet.dart';
 
+const String _projectedWalletTransactionSnapshotPrefix =
+    '__wallet_scope_projection__:';
+
 ({DateTime start, DateTime end}) resolveHomeFilterRange(
   String filter,
   DateTime referenceDate,
@@ -85,6 +88,106 @@ double calculateBalanceForWallet(
             ? transaction.amount
             : -transaction.amount);
   });
+}
+
+bool isProjectedWalletScopeTransaction(Transaction transaction) {
+  return transaction.walletNameSnapshot.startsWith(
+    _projectedWalletTransactionSnapshotPrefix,
+  );
+}
+
+double resolveWalletScopedTransactionAmount(
+  Transaction transaction,
+  List<TransactionBucketAllocation> allocations,
+  Map<int, int?> bucketWalletById, {
+  required int? walletId,
+}) {
+  if (walletId == null) return 0;
+
+  final allocationRole = transaction.type == 'income'
+      ? 'target'
+      : transaction.type == 'expense'
+          ? 'source'
+          : null;
+  if (allocationRole == null) return 0;
+
+  return allocations
+      .where((allocation) =>
+          allocation.role == allocationRole &&
+          bucketWalletById[allocation.bucketId] == walletId)
+      .fold<double>(0, (sum, allocation) => sum + allocation.allocatedAmount);
+}
+
+Transaction? projectTransactionForWalletScope(
+  Transaction transaction, {
+  required String walletName,
+  required int? walletId,
+  List<TransactionBucketAllocation> allocations = const [],
+  Map<int, int?> bucketWalletById = const {},
+}) {
+  final allocatedAmount = resolveWalletScopedTransactionAmount(
+    transaction,
+    allocations,
+    bucketWalletById,
+    walletId: walletId,
+  );
+  if (allocatedAmount > 0.001) {
+    final keepsOriginalWallet = transaction.wallet == walletName &&
+        transaction.walletId == walletId &&
+        (transaction.amount - allocatedAmount).abs() <= 0.001;
+    if (keepsOriginalWallet) {
+      return transaction;
+    }
+
+    final snapshotLabel = transaction.walletNameSnapshot.isEmpty
+        ? transaction.wallet
+        : transaction.walletNameSnapshot;
+    return Transaction(
+      id: transaction.id,
+      type: transaction.type,
+      amount: allocatedAmount,
+      category: transaction.category,
+      description: transaction.description,
+      date: transaction.date,
+      wallet: walletName,
+      walletId: walletId,
+      walletNameSnapshot:
+          '$_projectedWalletTransactionSnapshotPrefix$snapshotLabel',
+      affectsBalance: transaction.affectsBalance,
+    );
+  }
+
+  final matchesWallet = walletId != null
+      ? transaction.walletId == walletId || transaction.wallet == walletName
+      : transaction.wallet == walletName;
+  if (!matchesWallet) {
+    return null;
+  }
+  return transaction;
+}
+
+List<Transaction> projectTransactionsForWalletScope(
+  Iterable<Transaction> transactions, {
+  required String walletName,
+  required int? walletId,
+  required Map<int, List<TransactionBucketAllocation>>
+      allocationsByTransactionId,
+  required Map<int, int?> bucketWalletById,
+}) {
+  return transactions
+      .map(
+        (transaction) => projectTransactionForWalletScope(
+          transaction,
+          walletName: walletName,
+          walletId: walletId,
+          allocations: transaction.id == null
+              ? const []
+              : (allocationsByTransactionId[transaction.id!] ?? const []),
+          bucketWalletById: bucketWalletById,
+        ),
+      )
+      .whereType<Transaction>()
+      .toList(growable: false);
 }
 
 Iterable<Transaction> affectingTransactions(

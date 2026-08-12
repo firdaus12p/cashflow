@@ -148,34 +148,81 @@ void main() {
       expect(updatedB.currentBalance, closeTo(300000, 0.01));
     });
 
-    test('income lintas wallet ditolak', () async {
+    test('income lintas wallet dialokasikan ke dompet masing-masing bucket',
+        () async {
       final db = DatabaseHelper();
       await db.database;
+
+      final activeWallets = await db.getActiveWallets();
+      final cashWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Cash');
+      final bankWallet =
+          activeWallets.firstWhere((wallet) => wallet.name == 'Bank');
 
       final cashBucket = await _freshBucket(
         db,
         name: 'Tabungan Cash',
         pct: 60,
-        walletId: 1,
+        walletId: cashWallet.id,
       );
       final bankBucket = await _freshBucket(
         db,
         name: 'Tabungan Bank',
         pct: 40,
-        walletId: 2,
+        walletId: bankWallet.id,
+      );
+
+      final txId = await db.saveIncomeWithAllocations(
+        amount: 500000,
+        category: 'Gaji',
+        description: 'Lintas dompet',
+        date: _now,
+        walletName: 'Cash',
+        walletId: cashWallet.id,
+        subsetBuckets: [cashBucket, bankBucket],
+      );
+
+      final allocations = await db.getTransactionBucketAllocations(txId);
+      final updatedBuckets = await db.getFinancialBuckets();
+      final updatedCashBucket =
+          updatedBuckets.firstWhere((bucket) => bucket.id == cashBucket.id);
+      final updatedBankBucket =
+          updatedBuckets.firstWhere((bucket) => bucket.id == bankBucket.id);
+      final transactions = await db.getTransactions();
+      final summaryTransaction =
+          transactions.firstWhere((transaction) => transaction.id == txId);
+
+      expect(allocations, hasLength(2));
+      expect(
+        allocations.fold<double>(0, (sum, item) => sum + item.allocatedAmount),
+        closeTo(500000, 0.01),
+      );
+      expect(updatedCashBucket.currentBalance, closeTo(300000, 0.01));
+      expect(updatedBankBucket.currentBalance, closeTo(200000, 0.01));
+      expect(summaryTransaction.wallet, 'Multi Dompet');
+      expect(summaryTransaction.walletId, isNull);
+
+      await db.saveExpenseWithSource(
+        amount: 200000,
+        category: 'Belanja',
+        description: 'Belanja bank pas',
+        date: _now.add(const Duration(hours: 1)),
+        walletName: bankWallet.name,
+        walletId: bankWallet.id,
+        sourceBucket: bankBucket,
       );
 
       await expectLater(
-        db.saveIncomeWithAllocations(
-          amount: 500000,
-          category: 'Gaji',
-          description: 'Lintas dompet',
-          date: _now,
-          walletName: 'Cash',
-          walletId: 1,
-          subsetBuckets: [cashBucket, bankBucket],
+        db.saveExpenseWithSource(
+          amount: 1,
+          category: 'Belanja',
+          description: 'Lewat saldo bank',
+          date: _now.add(const Duration(hours: 2)),
+          walletName: bankWallet.name,
+          walletId: bankWallet.id,
+          sourceBucket: bankBucket,
         ),
-        throwsA(isA<StateError>()),
+        throwsA(isA<InsufficientBalanceException>()),
       );
     });
 

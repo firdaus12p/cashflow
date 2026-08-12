@@ -125,52 +125,142 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
           ),
         ],
       ),
-      body: _isLoading
-          ? const SizedBox.shrink()
-          : _buckets.isEmpty
-              ? _buildEmpty()
-              : ListView.builder(
-                  key: const Key('bucket_list'),
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _buckets.length,
-                  itemBuilder: (_, i) => _buildBucketItem(_buckets[i]),
-                ),
-      floatingActionButton: FloatingActionButton(
-        key: const Key('pos_fab'),
-        backgroundColor: AppPalette.primary,
-        onPressed: () => _showAddBucketSheet(context),
-        child: const Icon(Icons.add, color: Colors.white),
+      body: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.only(bottom: 16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Pos Keuangan',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppPalette.primary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    key: const Key('pos_fab'),
+                    onPressed: () => _showAddBucketSheet(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppPalette.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    child: Text(
+                      '+ Tambah Pos',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: _isLoading
+                    ? _buildLoadingState()
+                    : _buckets.isEmpty
+                        ? _buildEmpty()
+                        : ListView.builder(
+                            key: const Key('bucket_list'),
+                            padding: const EdgeInsets.only(bottom: 16),
+                            itemCount: _buckets.length,
+                            itemBuilder: (_, i) => _buildBucketItem(_buckets[i]),
+                          ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildEmpty() => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.pie_chart_outline,
-              size: 64,
+  Widget _buildLoadingState() => Container(
+        key: const Key('pos_loading_state'),
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Center(
+          child: Text(
+            'Memuat pos keuangan...',
+            style: GoogleFonts.poppins(
+              fontSize: 14,
               color: AppPalette.textSecondary,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Belum ada pos keuangan',
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+
+  Widget _buildEmpty() => Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.pie_chart_outline,
+                size: 64,
                 color: AppPalette.textSecondary,
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Tap + untuk membuat pos keuangan global',
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                color: AppPalette.textSecondary,
+              const SizedBox(height: 20),
+              Text(
+                'Belum ada pos keuangan',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppPalette.textSecondary,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Text(
+                'Yuk buat pos keuangan global\nbiar alokasi uang makin rapi!',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: AppPalette.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                key: const Key('pos_empty_add_btn'),
+                onPressed: () => _showAddBucketSheet(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppPalette.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                ),
+                child: Text(
+                  '+ Tambah Pos Keuangan',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
 

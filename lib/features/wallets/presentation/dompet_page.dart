@@ -78,56 +78,145 @@ class _DompetPageState extends State<DompetPage> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: _isLoading
-          // tradeoff: SizedBox.shrink selama loading agar pumpAndSettle test tidak
-          // timeout akibat CircularProgressIndicator yang animate terus-menerus.
-          // Upgrade ke CircularProgressIndicator bila ada shimmer/skeleton loading.
-          ? const SizedBox.shrink()
-          : _wallets.isEmpty
-              ? _buildEmptyWallets()
-              : ListView.builder(
-                  key: const Key('wallet_list'),
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _wallets.length,
-                  itemBuilder: (_, i) => _buildWalletItem(_wallets[i]),
-                ),
-      floatingActionButton: FloatingActionButton(
-        key: const Key('dompet_fab'),
-        backgroundColor: AppPalette.primary,
-        onPressed: () => _showAddWalletSheet(context),
-        child: const Icon(Icons.add, color: Colors.white),
+      body: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.only(bottom: 16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Dompet',
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppPalette.primary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    key: const Key('dompet_fab'),
+                    onPressed: () => _showAddWalletSheet(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppPalette.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                    child: Text(
+                      '+ Tambah Dompet',
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Expanded(
+                child: _isLoading
+                    ? _buildLoadingWallets()
+                    : _wallets.isEmpty
+                        ? _buildEmptyWallets()
+                        : ListView.builder(
+                            key: const Key('wallet_list'),
+                            padding: const EdgeInsets.only(bottom: 16),
+                            itemCount: _wallets.length,
+                            itemBuilder: (_, i) => _buildWalletItem(_wallets[i]),
+                          ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingWallets() {
+    return Container(
+      key: const Key('dompet_loading_state'),
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppPalette.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Center(
+        child: Text(
+          'Memuat dompet...',
+          style: GoogleFonts.poppins(
+            fontSize: 14,
+            color: AppPalette.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }
 
   Widget _buildEmptyWallets() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.account_balance_wallet_outlined,
-            size: 64,
-            color: AppPalette.textSecondary,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Belum ada dompet',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppPalette.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.account_balance_wallet_outlined,
+              size: 64,
               color: AppPalette.textSecondary,
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Tap + untuk menambah dompet baru',
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              color: AppPalette.textSecondary,
+            const SizedBox(height: 20),
+            Text(
+              'Belum ada dompet',
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppPalette.textSecondary,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 10),
+            Text(
+              'Yuk tambahkan dompet baru\nbiar keuangan kamu makin rapi!',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                color: AppPalette.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              key: const Key('dompet_empty_add_btn'),
+              onPressed: () => _showAddWalletSheet(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppPalette.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              ),
+              child: Text(
+                '+ Tambah Dompet',
+                style: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
