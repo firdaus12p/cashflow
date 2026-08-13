@@ -105,6 +105,28 @@ void main() {
       );
     });
 
+    testWidgets('quick menu berisi item Reset Data', (tester) async {
+      await pumpApp(tester);
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('home_quick_menu')),
+          matching: find.text('Reset Data'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('item Reset Data punya key quick_menu_reset_data',
+        (tester) async {
+      await pumpApp(tester);
+
+      expect(
+        find.byKey(const Key('quick_menu_reset_data')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('quick menu bisa digeser horizontal', (tester) async {
       await pumpApp(tester);
 
@@ -131,15 +153,19 @@ void main() {
           tester.getSize(find.byKey(const Key('quick_menu_pengingat')));
       final badgeSize =
           tester.getSize(find.byKey(const Key('quick_menu_badge_pencapaian')));
+      final resetSize =
+          tester.getSize(find.byKey(const Key('quick_menu_reset_data')));
 
       expect(hutangSize.width, dompetSize.width);
       expect(posSize.width, dompetSize.width);
       expect(pengingatSize.width, dompetSize.width);
       expect(badgeSize.width, dompetSize.width);
+      expect(resetSize.width, dompetSize.width);
       expect(hutangSize.height, dompetSize.height);
       expect(posSize.height, dompetSize.height);
       expect(pengingatSize.height, dompetSize.height);
       expect(badgeSize.height, dompetSize.height);
+      expect(resetSize.height, dompetSize.height);
     });
 
     testWidgets('label quick menu panjang tetap satu baris dengan ellipsis',

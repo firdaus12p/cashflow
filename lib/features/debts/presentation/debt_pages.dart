@@ -27,11 +27,13 @@ class HutangPiutangPage extends StatefulWidget {
     this.initialDebts,
     this.initialWallets,
     this.initialBuckets,
+    this.initialBucketSystemEnabled,
   });
 
   final List<Debt>? initialDebts;
   final List<Wallet>? initialWallets;
   final List<FinancialBucket>? initialBuckets;
+  final bool? initialBucketSystemEnabled;
 
   @override
   State<HutangPiutangPage> createState() => _HutangPiutangPageState();
@@ -41,6 +43,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
   late List<Debt> _debts;
   late List<Wallet> _wallets;
   late List<FinancialBucket> _buckets;
+  bool _bucketSystemEnabled = true;
   final ReminderScheduler _reminderScheduler = ReminderScheduler();
   bool _isLoading = false;
 
@@ -58,6 +61,8 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
 
     _wallets = widget.initialWallets ?? const [];
     _buckets = widget.initialBuckets ?? const [];
+    _bucketSystemEnabled =
+        widget.initialBucketSystemEnabled ?? _bucketSystemEnabled;
     if (widget.initialWallets == null || widget.initialBuckets == null) {
       _loadReferenceData();
     }
@@ -68,10 +73,13 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
         widget.initialWallets ?? await DatabaseHelper().getActiveWallets();
     final buckets =
         widget.initialBuckets ?? await DatabaseHelper().getActiveBuckets();
+    final bucketSystemEnabled = widget.initialBucketSystemEnabled ??
+        await DatabaseHelper().getBucketSystemEnabled();
     if (!mounted) return;
     setState(() {
       _wallets = wallets;
       _buckets = buckets;
+      _bucketSystemEnabled = bucketSystemEnabled;
     });
   }
 
@@ -334,6 +342,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
                 initialPayments: widget.initialDebts != null ? const [] : null,
                 initialWallets: _wallets,
                 initialBuckets: _buckets,
+                initialBucketSystemEnabled: _bucketSystemEnabled,
               ),
             ),
           ).then((_) => _loadDebts());
@@ -350,6 +359,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
       builder: (ctx) => DebtFormSheet(
         initialWallets: _wallets.isEmpty ? null : _wallets,
         initialBuckets: _buckets.isEmpty ? null : _buckets,
+        initialBucketSystemEnabled: _bucketSystemEnabled,
         onSaved: _refreshReminderSchedule,
       ),
     );
@@ -365,12 +375,14 @@ class DebtFormSheet extends StatefulWidget {
     this.initialDebt,
     this.initialWallets,
     this.initialBuckets,
+    this.initialBucketSystemEnabled,
     this.onSaved,
   });
 
   final Debt? initialDebt;
   final List<Wallet>? initialWallets;
   final List<FinancialBucket>? initialBuckets;
+  final bool? initialBucketSystemEnabled;
   final Future<void> Function()? onSaved;
 
   @override
@@ -387,6 +399,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   DateTime? _dueDate;
   List<Wallet> _wallets = const [];
   List<FinancialBucket> _buckets = const [];
+  bool _bucketSystemEnabled = true;
   Wallet? _selectedWallet;
   FinancialBucket? _selectedBucket;
   String? _sheetFeedbackMessage;
@@ -410,6 +423,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     _dueDate = debt?.dueDate;
     _wallets = widget.initialWallets ?? const [];
     _buckets = widget.initialBuckets ?? const [];
+    _bucketSystemEnabled =
+        widget.initialBucketSystemEnabled ?? _bucketSystemEnabled;
     _selectedWallet =
         _wallets.where((wallet) => wallet.id == debt?.walletId).isNotEmpty
             ? _wallets.firstWhere((wallet) => wallet.id == debt?.walletId)
@@ -418,7 +433,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         _buckets.where((bucket) => bucket.id == debt?.bucketId).isNotEmpty
             ? _buckets.firstWhere((bucket) => bucket.id == debt?.bucketId)
             : (_buckets.isNotEmpty ? _buckets.first : null);
-    if (_selectedMode == 'balance' && _selectedBucket?.walletId != null) {
+    if (_bucketSystemEnabled &&
+        _selectedMode == 'balance' &&
+        _selectedBucket?.walletId != null) {
       final matches =
           _wallets.where((wallet) => wallet.id == _selectedBucket?.walletId);
       if (matches.isNotEmpty) {
@@ -439,13 +456,18 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         (widget.initialDebt == null
             ? await DatabaseHelper().getActiveBuckets()
             : await DatabaseHelper().getFinancialBuckets());
+    final bucketSystemEnabled = widget.initialBucketSystemEnabled ??
+        await DatabaseHelper().getBucketSystemEnabled();
     if (!mounted) return;
     setState(() {
       _wallets = wallets;
       _buckets = buckets;
+      _bucketSystemEnabled = bucketSystemEnabled;
       _selectedWallet ??= wallets.isNotEmpty ? wallets.first : null;
       _selectedBucket ??= buckets.isNotEmpty ? buckets.first : null;
-      if (_selectedMode == 'balance' && _selectedBucket?.walletId != null) {
+      if (_bucketSystemEnabled &&
+          _selectedMode == 'balance' &&
+          _selectedBucket?.walletId != null) {
         final matches =
             wallets.where((wallet) => wallet.id == _selectedBucket?.walletId);
         if (matches.isNotEmpty) {
@@ -553,7 +575,11 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     }
 
     final requiresFinancialBinding = _selectedMode == 'balance';
-    if (requiresFinancialBinding && _selectedBucket?.walletId != null) {
+    final modeUsesBuckets = requiresFinancialBinding && _bucketSystemEnabled;
+    if (!modeUsesBuckets) {
+      _selectedBucket = null;
+    }
+    if (modeUsesBuckets && _selectedBucket?.walletId != null) {
       final matches =
           _wallets.where((wallet) => wallet.id == _selectedBucket?.walletId);
       if (matches.isNotEmpty) {
@@ -564,18 +590,17 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       _showValidationMessage('Pilih dompet untuk mode Masuk ke saldo');
       return;
     }
-    if (requiresFinancialBinding && _buckets.isEmpty) {
+    if (modeUsesBuckets && _buckets.isEmpty) {
       _showValidationMessage(
         'Buat pos keuangan aktif dulu untuk mode Masuk ke saldo',
       );
       return;
     }
-    if (requiresFinancialBinding &&
-        hasIncompleteBucketConfiguration(_buckets)) {
+    if (modeUsesBuckets && hasIncompleteBucketConfiguration(_buckets)) {
       _showValidationMessage(_bucketConfigurationIncompleteMessage);
       return;
     }
-    if (requiresFinancialBinding && _selectedBucket == null) {
+    if (modeUsesBuckets && _selectedBucket == null) {
       _showValidationMessage('Pilih pos keuangan untuk mode Masuk ke saldo');
       return;
     }
@@ -584,54 +609,54 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     final now = DateTime.now();
     final existing = widget.initialDebt;
 
-    if (requiresFinancialBinding && existing == null) {
-      try {
-        if (_selectedType == 'debt') {
-          await db.saveIncomeWithAllocations(
-            amount: amount,
-            category: 'Hutang',
-            description: 'Hutang dari $person',
-            date: now,
-            walletName: _selectedWallet!.name,
-            subsetBuckets: [_selectedBucket!],
-            walletId: _selectedWallet!.id,
-          );
-        } else {
-          await db.saveExpenseWithSource(
-            amount: amount,
-            category: 'Piutang',
-            description: 'Piutang ke $person',
-            date: now,
-            walletName: _selectedWallet!.name,
-            sourceBucket: _selectedBucket!,
-            walletId: _selectedWallet!.id,
-          );
-        }
-      } on InsufficientBalanceException {
-        _showValidationMessage(_insufficientBalanceMessage);
-        return;
-      }
-    }
-
     if (existing == null) {
-      await db.insertDebt(
-        Debt(
-          type: _selectedType,
-          personName: person,
-          principalAmount: amount,
-          remainingAmount: amount,
-          borrowedDate: _borrowedDate,
-          dueDate: _dueDate,
-          recordingMode: _selectedMode,
-          walletId: _selectedWallet?.id,
-          bucketId: _selectedBucket?.id,
-          note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-          createdDate: now,
-          updatedDate: now,
-        ),
-      );
+      if (requiresFinancialBinding) {
+        try {
+          await db.createDebtWithBalanceEffect(
+            debt: Debt(
+              type: _selectedType,
+              personName: person,
+              principalAmount: amount,
+              remainingAmount: amount,
+              borrowedDate: _borrowedDate,
+              dueDate: _dueDate,
+              recordingMode: _selectedMode,
+              walletId: _selectedWallet?.id,
+              note:
+                  _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+              createdDate: now,
+              updatedDate: now,
+            ),
+            walletName: _selectedWallet!.name,
+            bucketSystemEnabled: modeUsesBuckets,
+            affectedBucket: modeUsesBuckets ? _selectedBucket : null,
+          );
+        } on InsufficientBalanceException {
+          _showValidationMessage(_insufficientBalanceMessage);
+          return;
+        }
+      } else {
+        await db.insertDebt(
+          Debt(
+            type: _selectedType,
+            personName: person,
+            principalAmount: amount,
+            remainingAmount: amount,
+            borrowedDate: _borrowedDate,
+            dueDate: _dueDate,
+            recordingMode: _selectedMode,
+            walletId: _selectedWallet?.id,
+            bucketId: modeUsesBuckets ? _selectedBucket?.id : null,
+            note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+            createdDate: now,
+            updatedDate: now,
+          ),
+        );
+      }
     } else {
-      final paidAmount = existing.principalAmount - existing.remainingAmount;
+      final existingDebt = existing;
+      final paidAmount =
+          existingDebt.principalAmount - existingDebt.remainingAmount;
       if (amount + 0.001 < paidAmount) {
         _showValidationMessage(
           'Nominal total tidak boleh lebih kecil dari yang sudah dibayar.',
@@ -642,7 +667,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
           (amount - paidAmount).clamp(0.0, amount).toDouble();
       await db.updateDebt(
         Debt(
-          id: existing.id,
+          id: existingDebt.id,
           type: _selectedType,
           personName: person,
           principalAmount: amount,
@@ -651,10 +676,10 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
           dueDate: _dueDate,
           recordingMode: _selectedMode,
           walletId: _selectedWallet?.id,
-          bucketId: _selectedBucket?.id,
+          bucketId: modeUsesBuckets ? _selectedBucket?.id : null,
           note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
           status: updatedRemaining <= 0 ? 'settled' : 'active',
-          createdDate: existing.createdDate,
+          createdDate: existingDebt.createdDate,
           updatedDate: now,
         ),
       );
@@ -985,7 +1010,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                           const SizedBox(height: 8),
                           DropdownButtonFormField<Wallet>(
                             key: const Key('debt_wallet_dropdown'),
-                            value: _selectedWallet,
+                            initialValue: _selectedWallet,
                             items: _wallets
                                 .map(
                                   (wallet) => DropdownMenuItem<Wallet>(
@@ -1006,7 +1031,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                 )
                                 .toList(),
                             onChanged: lockBalanceFields ||
-                                    _selectedMode == 'balance'
+                                    (_selectedMode == 'balance' &&
+                                        _bucketSystemEnabled)
                                 ? null
                                 : (wallet) =>
                                     setState(() => _selectedWallet = wallet),
@@ -1030,52 +1056,71 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          DropdownButtonFormField<FinancialBucket>(
-                            key: const Key('debt_bucket_dropdown'),
-                            value: _selectedBucket,
-                            items: _buckets
-                                .map(
-                                  (bucket) => DropdownMenuItem<FinancialBucket>(
-                                    value: bucket,
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          bucket.resolvedIcon,
-                                          size: 16,
-                                          color: AppPalette.primary,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(bucket.name),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: lockBalanceFields
-                                ? null
-                                : (bucket) => setState(() {
-                                      _selectedBucket = bucket;
-                                      if (_selectedMode == 'balance' &&
-                                          bucket?.walletId != null) {
-                                        final matches = _wallets.where(
-                                          (wallet) =>
-                                              wallet.id == bucket?.walletId,
-                                        );
-                                        if (matches.isNotEmpty) {
-                                          _selectedWallet = matches.first;
-                                        }
-                                      }
-                                    }),
-                            decoration: InputDecoration(
-                              hintText: 'Pilih pos keuangan',
-                              filled: true,
-                              fillColor: AppPalette.surfaceMuted,
-                              border: OutlineInputBorder(
+                          if (!_bucketSystemEnabled)
+                            Container(
+                              key: const Key('debt_bucket_mode_off_message'),
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: AppPalette.surfaceMuted,
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
+                              ),
+                              child: Text(
+                                'Sistem pos sedang nonaktif. Catatan ini akan mengikuti dompet saja.',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: AppPalette.textSecondary,
+                                ),
+                              ),
+                            )
+                          else
+                            DropdownButtonFormField<FinancialBucket>(
+                              key: const Key('debt_bucket_dropdown'),
+                              initialValue: _selectedBucket,
+                              items: _buckets
+                                  .map(
+                                    (bucket) =>
+                                        DropdownMenuItem<FinancialBucket>(
+                                      value: bucket,
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            bucket.resolvedIcon,
+                                            size: 16,
+                                            color: AppPalette.primary,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Text(bucket.name),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: lockBalanceFields
+                                  ? null
+                                  : (bucket) => setState(() {
+                                        _selectedBucket = bucket;
+                                        if (_selectedMode == 'balance' &&
+                                            bucket?.walletId != null) {
+                                          final matches = _wallets.where(
+                                            (wallet) =>
+                                                wallet.id == bucket?.walletId,
+                                          );
+                                          if (matches.isNotEmpty) {
+                                            _selectedWallet = matches.first;
+                                          }
+                                        }
+                                      }),
+                              decoration: InputDecoration(
+                                hintText: 'Pilih pos keuangan',
+                                filled: true,
+                                fillColor: AppPalette.surfaceMuted,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
                               ),
                             ),
-                          ),
                           const SizedBox(height: 20),
                           Text(
                             'Catatan Tambahan',
@@ -1229,7 +1274,9 @@ class HutangDetailPage extends StatefulWidget {
     this.initialPayments,
     this.initialWallets,
     this.initialBuckets,
+    this.initialBucketSystemEnabled,
     this.recordDebtPayment,
+    this.refreshReminderSchedule,
     this.loadDebtById,
     this.loadPaymentsByDebt,
   });
@@ -1238,6 +1285,7 @@ class HutangDetailPage extends StatefulWidget {
   final List<DebtPayment>? initialPayments;
   final List<Wallet>? initialWallets;
   final List<FinancialBucket>? initialBuckets;
+  final bool? initialBucketSystemEnabled;
   final Future<void> Function({
     required int debtId,
     required double amount,
@@ -1247,6 +1295,7 @@ class HutangDetailPage extends StatefulWidget {
     int? bucketId,
     FinancialBucket? affectedBucket,
   })? recordDebtPayment;
+  final Future<void> Function()? refreshReminderSchedule;
   final Future<Debt?> Function(int debtId)? loadDebtById;
   final Future<List<DebtPayment>> Function(int debtId)? loadPaymentsByDebt;
 
@@ -1260,6 +1309,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
   final ReminderScheduler _reminderScheduler = ReminderScheduler();
   List<Wallet> _availableWallets = const [];
   List<FinancialBucket> _availableBuckets = const [];
+  bool _bucketSystemEnabled = true;
   String? _paymentSheetFeedbackMessage;
   Color _paymentSheetFeedbackColor = AppPalette.danger;
   Timer? _paymentSheetFeedbackTimer;
@@ -1277,6 +1327,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
     }
     _availableWallets = widget.initialWallets ?? const [];
     _availableBuckets = widget.initialBuckets ?? const [];
+    _bucketSystemEnabled =
+        widget.initialBucketSystemEnabled ?? _bucketSystemEnabled;
     if (widget.initialWallets == null || widget.initialBuckets == null) {
       _loadReferenceData();
     }
@@ -1287,11 +1339,20 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
         widget.initialWallets ?? await DatabaseHelper().getWallets();
     final buckets =
         widget.initialBuckets ?? await DatabaseHelper().getFinancialBuckets();
+    final bucketSystemEnabled = widget.initialBucketSystemEnabled ??
+        await DatabaseHelper().getBucketSystemEnabled();
     if (!mounted) return;
     setState(() {
       _availableWallets = wallets;
       _availableBuckets = buckets;
+      _bucketSystemEnabled = bucketSystemEnabled;
     });
+  }
+
+  List<FinancialBucket> _activeSelectableBuckets() {
+    return _availableBuckets
+        .where((bucket) => !bucket.isArchived)
+        .toList(growable: false);
   }
 
   Wallet? _findWalletById(int? walletId) {
@@ -1339,6 +1400,11 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
   }
 
   Future<void> _refreshReminderSchedule() async {
+    final refresher = widget.refreshReminderSchedule;
+    if (refresher != null) {
+      await refresher();
+      return;
+    }
     await _reminderScheduler.rescheduleForTonight();
   }
 
@@ -1380,6 +1446,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                       _availableWallets.isEmpty ? null : _availableWallets,
                   initialBuckets:
                       _availableBuckets.isEmpty ? null : _availableBuckets,
+                  initialBucketSystemEnabled: _bucketSystemEnabled,
                   onSaved: _refreshReminderSchedule,
                 ),
               );
@@ -1422,7 +1489,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
               if (confirm != true || !mounted) return;
               await DatabaseHelper().deleteDebt(_debt.id!);
               await _refreshReminderSchedule();
-              if (mounted) Navigator.pop(context);
+              if (!mounted || !context.mounted) return;
+              Navigator.pop(context);
             },
           ),
         ],
@@ -1648,16 +1716,22 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
 
   Future<void> _showPaymentSheet(BuildContext context) async {
     final amountCtrl = TextEditingController();
+    final selectableBuckets = _activeSelectableBuckets();
+    final bucketModeEnabled =
+        _debt.recordingMode == 'balance' && _bucketSystemEnabled;
     final paymentWallet = _availableWallets.where((wallet) {
       return wallet.id == _debt.walletId;
     }).isNotEmpty
         ? _availableWallets.firstWhere((wallet) => wallet.id == _debt.walletId)
         : null;
-    FinancialBucket? selectedBucket = _availableBuckets.where((bucket) {
-      return bucket.id == _debt.bucketId;
-    }).isNotEmpty
-        ? _availableBuckets.firstWhere((bucket) => bucket.id == _debt.bucketId)
-        : (_availableBuckets.isNotEmpty ? _availableBuckets.first : null);
+    FinancialBucket? selectedBucket = bucketModeEnabled
+        ? (selectableBuckets.where((bucket) {
+            return bucket.id == _debt.bucketId;
+          }).isNotEmpty
+            ? selectableBuckets
+                .firstWhere((bucket) => bucket.id == _debt.bucketId)
+            : (selectableBuckets.isNotEmpty ? selectableBuckets.first : null))
+        : null;
     double sheetDragOffset = 0;
     _paymentSheetFeedbackTimer?.cancel();
     _paymentSheetFeedbackMessage = null;
@@ -1809,7 +1883,9 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                     Expanded(
                                       child: Text(
                                         _debt.recordingMode == 'balance'
-                                            ? 'Masuk ke saldo — memengaruhi pos keuangan'
+                                            ? (_bucketSystemEnabled
+                                                ? 'Masuk ke saldo — memengaruhi pos keuangan'
+                                                : 'Masuk ke saldo — sementara hanya memengaruhi dompet')
                                             : 'Catatan saja — tidak mengubah saldo',
                                         style: GoogleFonts.poppins(
                                           fontSize: 11,
@@ -1859,11 +1935,12 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                 ),
                               if (paymentWallet != null)
                                 const SizedBox(height: 16),
-                              if (_debt.recordingMode == 'balance') ...[
+                              if (_debt.recordingMode == 'balance' &&
+                                  _bucketSystemEnabled) ...[
                                 DropdownButtonFormField<FinancialBucket>(
                                   key: const Key('payment_bucket_dropdown'),
-                                  value: selectedBucket,
-                                  items: _availableBuckets
+                                  initialValue: selectedBucket,
+                                  items: selectableBuckets
                                       .map(
                                         (bucket) =>
                                             DropdownMenuItem<FinancialBucket>(
@@ -1882,6 +1959,25 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(12),
                                       borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                              ] else if (_debt.recordingMode == 'balance') ...[
+                                Container(
+                                  key: const Key(
+                                      'payment_bucket_mode_off_message'),
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: AppPalette.surfaceMuted,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    'Sistem pos sedang nonaktif. Pembayaran ini akan mengikuti dompet saja.',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12,
+                                      color: AppPalette.textSecondary,
                                     ),
                                   ),
                                 ),
@@ -1942,7 +2038,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       );
                                       return;
                                     }
-                                    if (_debt.recordingMode == 'balance' &&
+                                    if (bucketModeEnabled &&
                                         _availableBuckets.isEmpty) {
                                       _showPaymentSheetFeedback(
                                         ctx,
@@ -1951,7 +2047,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       );
                                       return;
                                     }
-                                    if (_debt.recordingMode == 'balance' &&
+                                    if (bucketModeEnabled &&
                                         hasIncompleteBucketConfiguration(
                                             _availableBuckets)) {
                                       _showPaymentSheetFeedback(
@@ -1961,7 +2057,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       );
                                       return;
                                     }
-                                    if (_debt.recordingMode == 'balance' &&
+                                    if (bucketModeEnabled &&
                                         selectedBucket == null) {
                                       _showPaymentSheetFeedback(
                                         ctx,
@@ -1979,7 +2075,9 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                           paymentDate: DateTime.now(),
                                           recordingMode: _debt.recordingMode,
                                           walletId: _debt.walletId,
-                                          bucketId: _debt.bucketId,
+                                          bucketId: bucketModeEnabled
+                                              ? _debt.bucketId
+                                              : null,
                                           affectedBucket: selectedBucket,
                                         );
                                       } else {
@@ -1990,11 +2088,14 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                           paymentDate: DateTime.now(),
                                           recordingMode: _debt.recordingMode,
                                           walletId: _debt.walletId,
-                                          bucketId: _debt.bucketId,
+                                          bucketId: bucketModeEnabled
+                                              ? _debt.bucketId
+                                              : null,
                                           affectedBucket: selectedBucket,
                                         );
                                       }
                                     } on RangeError {
+                                      if (!ctx.mounted) return;
                                       _showPaymentSheetFeedback(
                                         ctx,
                                         setModalState,
@@ -2002,6 +2103,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       );
                                       return;
                                     } on ArgumentError {
+                                      if (!ctx.mounted) return;
                                       _showPaymentSheetFeedback(
                                         ctx,
                                         setModalState,
@@ -2009,6 +2111,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       );
                                       return;
                                     } on InsufficientBalanceException {
+                                      if (!ctx.mounted) return;
                                       _showPaymentSheetFeedback(
                                         ctx,
                                         setModalState,
@@ -2016,6 +2119,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       );
                                       return;
                                     } on StateError {
+                                      if (!ctx.mounted) return;
                                       _showPaymentSheetFeedback(
                                         ctx,
                                         setModalState,
@@ -2024,7 +2128,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                       return;
                                     }
                                     await _refreshReminderSchedule();
-                                    if (ctx.mounted) Navigator.pop(ctx, true);
+                                    if (!ctx.mounted) return;
+                                    Navigator.pop(ctx, true);
                                   },
                                   child: Text(
                                     'Simpan',

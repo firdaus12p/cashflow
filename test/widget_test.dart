@@ -387,7 +387,7 @@ void main() {
     await tester.tap(find.text('+ Tambah Item'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Tambah ke Wishlist'));
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Tambah ke Wishlist'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('wishlist_sheet_feedback')), findsOneWidget);

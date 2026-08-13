@@ -160,14 +160,14 @@ void main() {
     });
   });
 
-  group('BR-04 — warning flow arsip dompet berhistori', () {
-    testWidgets('tombol arsip tersedia untuk setiap wallet', (tester) async {
+  group('BR-04 — warning flow hapus dompet berhistori', () {
+    testWidgets('tombol hapus tersedia untuk setiap wallet', (tester) async {
       await _pumpDompetPage(tester, initialWallets: _fakeWallets);
 
-      expect(find.byKey(const Key('wallet_archive_btn')), findsWidgets);
+      expect(find.byKey(const Key('wallet_delete_btn')), findsWidgets);
     });
 
-    testWidgets('arsip dompet berhistori menampilkan warning dialog',
+    testWidgets('hapus dompet berhistori menampilkan warning dialog',
         (tester) async {
       Future<int> hasHistory(Wallet wallet) =>
           Future.value(wallet.id == 1 ? 1 : 0);
@@ -178,10 +178,11 @@ void main() {
         transactionCountForWallet: hasHistory,
       );
 
-      await tester.tap(find.byKey(const Key('wallet_archive_btn')).first);
+      await tester.tap(find.byKey(const Key('wallet_delete_btn')).first);
       await _pumpUi(tester);
 
-      expect(find.byKey(const Key('wallet_archive_warning')), findsOneWidget);
+      expect(find.byKey(const Key('wallet_delete_warning')), findsOneWidget);
+      expect(find.text('Hapus Dompet?'), findsOneWidget);
     });
   });
 }

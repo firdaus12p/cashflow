@@ -24,14 +24,13 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  Future<void> _savePreference(String key, String value) async {
-    await DatabaseHelper().setAppPreference(key, value);
-  }
-
-  Future<void> _pumpInjectedHome(
+  Future<void> pumpInjectedHome(
     WidgetTester tester, {
     required List<Wallet> wallets,
     required List<Transaction> transactions,
+    String? sourceType,
+    int? sourceId,
+    bool? isHidden,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -40,6 +39,9 @@ void main() {
           initialTransactions: transactions,
           initialAllTransactions: transactions,
           initialWallets: wallets,
+          initialHomeBalanceSourceType: sourceType,
+          initialHomeBalanceSourceId: sourceId,
+          initialHomeBalanceVisibilityHidden: isHidden,
           persistHomeHeroPreferences: false,
         ),
       ),
@@ -49,7 +51,24 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
   }
 
-  testWidgets('preferensi hero tersimpan dan dipulihkan saat app dibuka ulang',
+  test('preferensi hero tersimpan di storage lokal', () async {
+    final db = DatabaseHelper();
+    await db.setAppPreference(_sourceTypePreferenceKey, 'wallet');
+    await db.setAppPreference(_sourceIdPreferenceKey, '1');
+    await db.setAppPreference(_visibilityHiddenPreferenceKey, '1');
+
+    final preferences = await db.getAppPreferences([
+      _sourceTypePreferenceKey,
+      _sourceIdPreferenceKey,
+      _visibilityHiddenPreferenceKey,
+    ]);
+
+    expect(preferences[_sourceTypePreferenceKey], 'wallet');
+    expect(preferences[_sourceIdPreferenceKey], '1');
+    expect(preferences[_visibilityHiddenPreferenceKey], '1');
+  });
+
+  testWidgets('preferensi hero dipulihkan pada hero card saat app dibuka ulang',
       (tester) async {
     final wallet = Wallet(
       id: 1,
@@ -86,14 +105,13 @@ void main() {
       ),
     ];
 
-    await _savePreference(_sourceTypePreferenceKey, 'wallet');
-    await _savePreference(_sourceIdPreferenceKey, '1');
-    await _savePreference(_visibilityHiddenPreferenceKey, '1');
-
-    await _pumpInjectedHome(
+    await pumpInjectedHome(
       tester,
       wallets: [wallet],
       transactions: transactions,
+      sourceType: 'wallet',
+      sourceId: 1,
+      isHidden: true,
     );
 
     expect(find.text('Saldo Cash'), findsOneWidget);

@@ -194,6 +194,107 @@ void main() {
       expect(payments.length, 1);
       expect(payments.first.amount, 100000.0);
     });
+
+    test(
+        'insertDebt balance mode dompet-only tetap butuh transaksi saldo terpisah',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final walletId = await db.insertWallet(Wallet(
+        name: 'Cash Baru',
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 200000,
+        category: 'Hutang',
+        description: 'Hutang dari Budi',
+        date: _now,
+        wallet: 'Cash Baru',
+        walletId: walletId,
+        walletNameSnapshot: 'Cash Baru',
+      ));
+
+      final id = await db.insertDebt(Debt(
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 200000,
+        remainingAmount: 200000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: walletId,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      final debt = await db.getDebtById(id);
+      final transactions = await db.getTransactions();
+
+      expect(debt, isNotNull);
+      expect(
+        transactions.where((tx) => tx.description == 'Hutang dari Budi').length,
+        1,
+      );
+    });
+
+    test('insertDebt balance mode dompet-only tidak menyimpan bucketId',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final walletId = await db.insertWallet(Wallet(
+        name: 'Wallet Tes',
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      final id = await db.insertDebt(Debt(
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 200000,
+        remainingAmount: 200000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: walletId,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      final debt = await db.getDebtById(id);
+      expect(debt?.bucketId, isNull);
+    });
+
+    test('create debt balance-mode dompet-only harus atomik', () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final before = await db.getTransactions();
+
+      await expectLater(
+        db.createDebtWithBalanceEffect(
+          debt: Debt(
+            type: 'debt',
+            personName: 'Budi',
+            principalAmount: 200000,
+            remainingAmount: 200000,
+            borrowedDate: _now,
+            recordingMode: 'balance',
+            walletId: null,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+          walletName: '',
+          bucketSystemEnabled: false,
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      final after = await db.getTransactions();
+      expect(after.length, before.length);
+    });
   });
 
   // ---------------------------------------------------------------------------

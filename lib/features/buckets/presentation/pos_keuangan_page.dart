@@ -20,11 +20,20 @@ class PosKeuanganPage extends StatefulWidget {
     super.key,
     this.initialBuckets,
     this.initialWallets,
+    this.initialBucketSystemEnabled,
+    this.previewBucketReconciliations,
+    this.applyBucketReconciliations,
+    this.setBucketSystemEnabled,
     @visibleForTesting this.bucketBalanceOverride,
   });
 
   final List<FinancialBucket>? initialBuckets;
   final List<Wallet>? initialWallets;
+  final bool? initialBucketSystemEnabled;
+  final Future<Map<int, BucketReconciliationPreview>> Function()?
+      previewBucketReconciliations;
+  final Future<void> Function()? applyBucketReconciliations;
+  final Future<void> Function(bool isEnabled)? setBucketSystemEnabled;
   final Map<int, double>? bucketBalanceOverride;
 
   @override
@@ -34,6 +43,7 @@ class PosKeuanganPage extends StatefulWidget {
 class _PosKeuanganPageState extends State<PosKeuanganPage> {
   late List<FinancialBucket> _buckets;
   late List<Wallet> _wallets;
+  bool _bucketSystemEnabled = true;
   bool _isLoading = false;
   Timer? _bucketSheetFeedbackTimer;
   Timer? _transferSheetFeedbackTimer;
@@ -43,6 +53,8 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
     super.initState();
     final provided = widget.initialBuckets;
     _wallets = widget.initialWallets ?? const [];
+    _bucketSystemEnabled =
+        widget.initialBucketSystemEnabled ?? _bucketSystemEnabled;
     if (provided != null) {
       _buckets = provided;
       if (widget.initialWallets == null) {
@@ -60,19 +72,25 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
     final buckets = await DatabaseHelper().getActiveBuckets();
     final wallets =
         widget.initialWallets ?? await DatabaseHelper().getActiveWallets();
+    final bucketSystemEnabled = widget.initialBucketSystemEnabled ??
+        await DatabaseHelper().getBucketSystemEnabled();
     if (!mounted) return;
     setState(() {
       _buckets = buckets;
       _wallets = wallets;
+      _bucketSystemEnabled = bucketSystemEnabled;
       _isLoading = false;
     });
   }
 
   Future<void> _loadBuckets() async {
     final buckets = await DatabaseHelper().getActiveBuckets();
+    final bucketSystemEnabled = widget.initialBucketSystemEnabled ??
+        await DatabaseHelper().getBucketSystemEnabled();
     if (!mounted) return;
     setState(() {
       _buckets = buckets;
+      _bucketSystemEnabled = bucketSystemEnabled;
       _isLoading = false;
     });
   }
@@ -95,6 +113,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
 
   @override
   Widget build(BuildContext context) {
+    final totalPercentage = getBucketPercentageTotal(_buckets);
     final isValid = validateBucketPercentages(_buckets);
     return Scaffold(
       key: const Key('page_pos_keuangan'),
@@ -114,7 +133,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
             child: Chip(
               key: const Key('bucket_percent_indicator'),
               label: Text(
-                '${getBucketPercentageTotal(_buckets).toStringAsFixed(0)}%',
+                '${totalPercentage.toStringAsFixed(0)}%',
                 style: GoogleFonts.poppins(
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
@@ -133,20 +152,69 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Text(
+                'Pos Keuangan',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppPalette.primary,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                key: const Key('bucket_header_controls'),
+                spacing: 10,
+                runSpacing: 10,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Expanded(
-                    child: Text(
-                      'Pos Keuangan',
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppPalette.primary,
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: AppPalette.surface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: _bucketSystemEnabled
+                            ? AppPalette.primary.withValues(alpha: 0.18)
+                            : AppPalette.border,
                       ),
-                      overflow: TextOverflow.ellipsis,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      child: Row(
+                        key: const Key('bucket_toggle_control'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Mode Pos',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppPalette.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Switch(
+                            key: const Key('bucket_system_toggle_btn'),
+                            value: _bucketSystemEnabled,
+                            onChanged: _isLoading
+                                ? null
+                                : (_) => _handleBucketSystemToggle(),
+                            activeThumbColor: AppPalette.primary,
+                            activeTrackColor:
+                                AppPalette.primary.withValues(alpha: 0.35),
+                            inactiveThumbColor: Colors.white,
+                            inactiveTrackColor: AppPalette.textSecondary
+                                .withValues(alpha: 0.35),
+                            materialTapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 10),
                   ElevatedButton(
                     key: const Key('pos_fab'),
                     onPressed: () => _showAddBucketSheet(context),
@@ -177,7 +245,8 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                             key: const Key('bucket_list'),
                             padding: const EdgeInsets.only(bottom: 16),
                             itemCount: _buckets.length,
-                            itemBuilder: (_, i) => _buildBucketItem(_buckets[i]),
+                            itemBuilder: (_, i) =>
+                                _buildBucketItem(_buckets[i]),
                           ),
               ),
             ],
@@ -263,6 +332,173 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
           ),
         ),
       );
+
+  Future<void> _handleBucketSystemToggle() async {
+    final setBucketSystemEnabled = widget.setBucketSystemEnabled ??
+        DatabaseHelper().setBucketSystemEnabled;
+    final previewBucketReconciliations = widget.previewBucketReconciliations ??
+        DatabaseHelper().previewBucketReconciliations;
+    final applyBucketReconciliations = widget.applyBucketReconciliations ??
+        DatabaseHelper().applyBucketReconciliations;
+
+    if (_bucketSystemEnabled) {
+      await setBucketSystemEnabled(false);
+      if (!mounted) return;
+      setState(() {
+        _bucketSystemEnabled = false;
+      });
+      await _loadBuckets();
+      return;
+    }
+
+    if (!validateBucketPercentages(_buckets)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            bucketConfigurationIncompleteMessage,
+            style: GoogleFonts.poppins(),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final previews = await previewBucketReconciliations();
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('bucket_system_activate_dialog'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Aktifkan Pos?',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Uang tetap di dompet yang sama. Pos hanya membagi saldo dompet itu ke pos-pos miliknya.',
+                style: GoogleFonts.poppins(fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: ListView(
+                  key: const Key('bucket_reconciliation_list'),
+                  shrinkWrap: true,
+                  children: previews.entries.map((entry) {
+                    final wallet = _wallets.firstWhere(
+                      (candidate) => candidate.id == entry.key,
+                      orElse: () => Wallet(
+                        id: entry.key,
+                        name: 'Dompet ${entry.key}',
+                        createdDate: DateTime.now(),
+                        updatedDate: DateTime.now(),
+                      ),
+                    );
+                    final preview = entry.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            wallet.name,
+                            style: GoogleFonts.poppins(
+                              fontWeight: FontWeight.w700,
+                              color: AppPalette.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Saldo dompet ${formatRupiah(preview.walletBalance)} | Delta ${formatRupiah(preview.delta)}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              color: preview.canApply
+                                  ? AppPalette.textSecondary
+                                  : AppPalette.danger,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ..._buckets
+                              .where((bucket) => bucket.walletId == wallet.id)
+                              .map((bucket) {
+                            final bucketId = bucket.id;
+                            final change = bucketId == null
+                                ? 0.0
+                                : (preview.balanceChanges[bucketId] ?? 0.0);
+                            final resultingBalance = bucketId == null
+                                ? bucket.currentBalance
+                                : (preview.resultingBalances[bucketId] ??
+                                    bucket.currentBalance);
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text(
+                                '${bucket.name}: ${formatRupiah(bucket.currentBalance)} -> ${formatRupiah(resultingBalance)} (${change >= 0 ? '+' : ''}${formatRupiah(change)})',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  color: AppPalette.textSecondary,
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    );
+                  }).toList(growable: false),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: AppPalette.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await applyBucketReconciliations();
+                await setBucketSystemEnabled(true);
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                setState(() {
+                  _bucketSystemEnabled = true;
+                });
+                await _loadBuckets();
+              } on StateError {
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Salah satu dompet belum bisa disinkronkan karena hasilnya akan membuat saldo pos negatif.',
+                      style: GoogleFonts.poppins(),
+                    ),
+                  ),
+                );
+              }
+            },
+            child: Text(
+              'Sinkronkan & Aktifkan',
+              style: GoogleFonts.poppins(color: AppPalette.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildBucketItem(FinancialBucket bucket) {
     final linkedWallet =
@@ -397,18 +633,18 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                   onPressed: () => _showTransferSheet(context, bucket),
                 ),
                 IconButton(
-                  key: const Key('bucket_archive_btn'),
+                  key: const Key('bucket_delete_btn'),
                   visualDensity: VisualDensity.compact,
                   constraints: const BoxConstraints(
                     minWidth: 40,
                     minHeight: 40,
                   ),
                   icon: const Icon(
-                    Icons.archive_outlined,
+                    Icons.delete_outline,
                     color: AppPalette.textSecondary,
                   ),
-                  tooltip: 'Arsipkan',
-                  onPressed: () => _handleArchive(bucket),
+                  tooltip: 'Hapus Pos',
+                  onPressed: () => _handleDelete(bucket),
                 ),
               ],
             ),
@@ -418,10 +654,64 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
     );
   }
 
-  Future<void> _handleArchive(FinancialBucket bucket) async {
+  Future<void> _handleDelete(FinancialBucket bucket) async {
     if (!mounted) return;
-    await DatabaseHelper().archiveFinancialBucket(bucket.id!);
-    _loadBuckets();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('bucket_delete_dialog'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Hapus Pos?',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+        ),
+        content: Text(
+          'Pos ini hanya bisa dihapus jika saldonya sudah 0. Pindahkan dulu semua isi pos ke pos lain sebelum menghapusnya.',
+          style: GoogleFonts.poppins(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: AppPalette.textSecondary),
+            ),
+          ),
+          TextButton(
+            key: const Key('bucket_delete_confirm_btn'),
+            onPressed: () async {
+              try {
+                await DatabaseHelper()
+                    .removeFinancialBucketFromActive(bucket.id!);
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                await _loadBuckets();
+              } on StateError catch (error) {
+                if (!dialogContext.mounted) return;
+                Navigator.pop(dialogContext);
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      error.message.toString().contains('emptied')
+                          ? 'Saldo pos harus dipindahkan dulu sampai 0 sebelum dihapus.'
+                          : 'Minimal harus ada satu pos aktif yang tersisa.',
+                      style: GoogleFonts.poppins(),
+                    ),
+                  ),
+                );
+              }
+            },
+            child: Text(
+              'Hapus',
+              style: GoogleFonts.poppins(color: AppPalette.danger),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildSheetDragHandle({
@@ -648,7 +938,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                 const SizedBox(height: 10),
                                 DropdownButtonFormField<Wallet>(
                                   key: const Key('bucket_wallet_dropdown'),
-                                  value: selectedWallet,
+                                  initialValue: selectedWallet,
                                   items: _wallets
                                       .map(
                                         (wallet) => DropdownMenuItem<Wallet>(
@@ -829,7 +1119,8 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
 
                                 if (!ctx.mounted) return;
                                 Navigator.pop(ctx);
-                                _loadBuckets();
+                                if (!mounted) return;
+                                await _loadBuckets();
                               },
                               child: Text(
                                 'Simpan',
@@ -979,7 +1270,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                 const SizedBox(height: 16),
                                 DropdownButtonFormField<FinancialBucket>(
                                   key: const Key('transfer_target_dropdown'),
-                                  value: selectedTarget,
+                                  initialValue: selectedTarget,
                                   items: targets
                                       .map(
                                         (bucket) => DropdownMenuItem(
@@ -1075,7 +1366,8 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
 
                                 if (!ctx.mounted) return;
                                 Navigator.pop(ctx);
-                                _loadBuckets();
+                                if (!mounted) return;
+                                await _loadBuckets();
                               },
                               child: Text(
                                 'Transfer',

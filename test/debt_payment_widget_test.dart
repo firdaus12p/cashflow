@@ -119,6 +119,7 @@ void main() {
             callOrder.add('loadPayments');
             return currentPayments;
           },
+          refreshReminderSchedule: () async {},
         ),
       ),
     );

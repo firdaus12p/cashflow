@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+
+import '../../../core/icons/app_icons.dart';
+
 class SavingGoal {
   final int? id;
   final String name;
@@ -51,4 +55,6 @@ class SavingGoal {
       targetAmount > 0 ? (currentAmount / targetAmount).clamp(0.0, 1.0) : 0.0;
 
   String get effectiveIcon => iconKey ?? emoji;
+
+  IconData get resolvedIcon => resolveGoalIcon(iconKey);
 }

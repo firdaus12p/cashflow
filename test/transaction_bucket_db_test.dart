@@ -746,4 +746,245 @@ void main() {
       expect(updatedBucket.currentBalance, closeTo(250000, 0.01));
     });
   });
+
+  group('Hapus pos aktif dengan guard saldo dan histori — DELTA-26', () {
+    test('hapus pos bersaldo ditolak sampai saldo dipindahkan ke pos lain',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final bucketA = await _freshBucket(db, name: 'Belanja', pct: 60);
+      await _freshBucket(db, name: 'Sedekah', pct: 40);
+
+      await db.saveIncomeWithAllocations(
+        amount: 500000,
+        category: 'Gaji',
+        description: 'Saldo awal',
+        date: _now,
+        walletName: 'Cash',
+        walletId: 1,
+        subsetBuckets: [bucketA],
+      );
+
+      await expectLater(
+        db.removeFinancialBucketFromActive(bucketA.id!),
+        throwsA(isA<StateError>()),
+      );
+
+      final buckets = await db.getFinancialBuckets();
+      final updatedBucket =
+          buckets.firstWhere((bucket) => bucket.id == bucketA.id);
+      expect(updatedBucket.isArchived, isFalse);
+      expect(updatedBucket.currentBalance, greaterThan(0));
+    });
+
+    test('hapus pos dengan saldo 0 mengeluarkan pos dari daftar aktif',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final bucketA = await _freshBucket(db, name: 'Belanja', pct: 60);
+      final bucketB = await _freshBucket(db, name: 'Sedekah', pct: 40);
+
+      await db.executeBucketTransfer(
+        fromBucketId: bucketA.id!,
+        toBucketId: bucketB.id!,
+        amount: bucketA.currentBalance,
+        transferDate: _now,
+      );
+
+      await db.removeFinancialBucketFromActive(bucketA.id!);
+
+      final activeBuckets = await db.getActiveBuckets();
+      final allBuckets = await db.getFinancialBuckets();
+      final removedBucket =
+          allBuckets.firstWhere((bucket) => bucket.id == bucketA.id);
+
+      expect(activeBuckets.any((bucket) => bucket.id == bucketA.id), isFalse);
+      expect(removedBucket.isArchived, isTrue);
+    });
+
+    test('hapus pos aktif terakhir ditolak', () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final bucketId = await db.insertFinancialBucket(
+        FinancialBucket(
+          name: 'Satu-satunya Pos',
+          walletId: 1,
+          allocationPercentage: 100,
+          createdDate: _now,
+          updatedDate: _now,
+        ),
+      );
+
+      await expectLater(
+        db.removeFinancialBucketFromActive(bucketId),
+        throwsA(isA<StateError>()),
+      );
+
+      final activeBuckets = await db.getActiveBuckets();
+      expect(activeBuckets, hasLength(1));
+    });
+  });
+
+  group('Mode pos & rekonsiliasi saldo — FEAT-08', () {
+    test(
+        'applyBucketReconciliations membagi saldo dompet ke bucket dompet yang sama saat aktivasi pertama',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final wallets = await db.getActiveWallets();
+      final cashWallet = wallets.firstWhere((wallet) => wallet.name == 'Cash');
+      final bankWallet = wallets.firstWhere((wallet) => wallet.name == 'Bank');
+
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 600000,
+        category: 'Gaji',
+        description: 'Saldo awal Cash',
+        date: _now,
+        wallet: cashWallet.name,
+        walletId: cashWallet.id,
+        walletNameSnapshot: cashWallet.name,
+      ));
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 400000,
+        category: 'Gaji',
+        description: 'Saldo awal Bank',
+        date: _now,
+        wallet: bankWallet.name,
+        walletId: bankWallet.id,
+        walletNameSnapshot: bankWallet.name,
+      ));
+
+      final cashA = await _freshBucket(
+        db,
+        name: 'Kebutuhan Cash',
+        pct: 10,
+        walletId: cashWallet.id,
+      );
+      final cashB = await _freshBucket(
+        db,
+        name: 'Jajan Cash',
+        pct: 20,
+        walletId: cashWallet.id,
+      );
+      final cashC = await _freshBucket(
+        db,
+        name: 'Tabungan Cash',
+        pct: 30,
+        walletId: cashWallet.id,
+      );
+      final bankBucket = await _freshBucket(
+        db,
+        name: 'Dana Bank',
+        pct: 40,
+        walletId: bankWallet.id,
+      );
+
+      final previews = await db.previewBucketReconciliations();
+      final cashPreview = previews[cashWallet.id];
+      final bankPreview = previews[bankWallet.id];
+
+      expect(cashPreview, isNotNull);
+      expect(bankPreview, isNotNull);
+      expect(cashPreview!.delta, closeTo(600000, 0.01));
+      expect(cashPreview.balanceChanges[cashA.id], closeTo(100000, 1));
+      expect(cashPreview.balanceChanges[cashB.id], closeTo(200000, 1));
+      expect(cashPreview.balanceChanges[cashC.id], closeTo(300000, 1));
+      expect(bankPreview!.delta, closeTo(400000, 0.01));
+      expect(bankPreview.balanceChanges[bankBucket.id], closeTo(400000, 1));
+
+      await db.applyBucketReconciliations();
+
+      final updatedBuckets = await db.getFinancialBuckets();
+      expect(
+        updatedBuckets
+            .firstWhere((bucket) => bucket.id == cashA.id)
+            .currentBalance,
+        closeTo(100000, 1),
+      );
+      expect(
+        updatedBuckets
+            .firstWhere((bucket) => bucket.id == cashB.id)
+            .currentBalance,
+        closeTo(200000, 1),
+      );
+      expect(
+        updatedBuckets
+            .firstWhere((bucket) => bucket.id == cashC.id)
+            .currentBalance,
+        closeTo(300000, 1),
+      );
+      expect(
+        updatedBuckets
+            .firstWhere((bucket) => bucket.id == bankBucket.id)
+            .currentBalance,
+        closeTo(400000, 1),
+      );
+    });
+
+    test('applyBucketReconciliations ditolak bila hasil sinkronisasi negatif',
+        () async {
+      final db = DatabaseHelper();
+      final rawDb = await db.database;
+
+      final cashWallet = (await db.getActiveWallets())
+          .firstWhere((wallet) => wallet.name == 'Cash');
+
+      await rawDb.insert(
+        'transactions',
+        Transaction(
+          type: 'expense',
+          amount: 100000,
+          category: 'Koreksi',
+          description: 'Simulasi saldo negatif',
+          date: _now,
+          wallet: cashWallet.name,
+          walletId: cashWallet.id,
+          walletNameSnapshot: cashWallet.name,
+        ).toMap(),
+      );
+
+      await db.insertFinancialBucket(FinancialBucket(
+        name: 'Kebutuhan Cash',
+        walletId: cashWallet.id,
+        allocationPercentage: 10,
+        currentBalance: 50000,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+      await db.insertFinancialBucket(FinancialBucket(
+        name: 'Jajan Cash',
+        walletId: cashWallet.id,
+        allocationPercentage: 20,
+        currentBalance: 200000,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+      await db.insertFinancialBucket(FinancialBucket(
+        name: 'Tabungan Cash',
+        walletId: cashWallet.id,
+        allocationPercentage: 30,
+        currentBalance: 350000,
+        createdDate: _now,
+        updatedDate: _now,
+      ));
+
+      final previews = await db.previewBucketReconciliations();
+      final cashPreview = previews[cashWallet.id];
+
+      expect(cashPreview, isNotNull);
+      expect(cashPreview!.delta, closeTo(-700000, 0.01));
+      expect(cashPreview.canApply, isFalse);
+
+      await expectLater(
+        db.applyBucketReconciliations(),
+        throwsA(isA<StateError>()),
+      );
+    });
+  });
 }

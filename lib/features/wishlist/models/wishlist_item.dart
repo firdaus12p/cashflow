@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+
+import '../../../core/icons/app_icons.dart';
+
 class WishlistItem {
   final int? id;
   final String name;
@@ -42,4 +46,6 @@ class WishlistItem {
   }
 
   String get effectiveIcon => iconKey ?? emoji;
+
+  IconData get resolvedIcon => resolveWishlistIcon(iconKey);
 }

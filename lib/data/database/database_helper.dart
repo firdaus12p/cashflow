@@ -29,6 +29,14 @@ class DatabaseHelper {
   static Database? _database;
   static String? _overridePath;
 
+  static const List<({String name, String iconKey, String color})>
+      _defaultWalletSeeds = [
+    (name: 'Cash', iconKey: 'cash', color: '#3296D3'),
+    (name: 'E-Wallet', iconKey: 'e_wallet', color: '#3CB8C8'),
+    (name: 'Bank', iconKey: 'bank', color: '#2FBB6C'),
+    (name: 'Tabungan', iconKey: 'savings', color: '#F6BC4B'),
+  ];
+
   DatabaseHelper._internal();
 
   factory DatabaseHelper() => _instance;
@@ -208,7 +216,7 @@ class DatabaseHelper {
       )
     ''');
 
-    await _seedDefaultWallets(db);
+    await _ensureDefaultWalletSeeds(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -343,8 +351,6 @@ class DatabaseHelper {
           createdDate INTEGER NOT NULL
         )
       ''');
-
-      await _seedDefaultWallets(db);
     }
 
     if (oldVersion < 4) {
@@ -365,6 +371,26 @@ class DatabaseHelper {
       await db.execute(
           'ALTER TABLE bucket_transfers ADD COLUMN toWalletIdSnapshot INTEGER');
       await _backfillBucketWalletIds(db);
+    }
+
+    await _ensureDefaultWalletSeeds(db);
+  }
+
+  Future<void> _ensureDefaultWalletSeeds(DatabaseExecutor executor) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final wallet in _defaultWalletSeeds) {
+      await executor.insert(
+        'wallets',
+        {
+          'name': wallet.name,
+          'iconKey': wallet.iconKey,
+          'color': wallet.color,
+          'isArchived': 0,
+          'createdDate': now,
+          'updatedDate': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
     }
   }
 
@@ -470,16 +496,6 @@ class DatabaseHelper {
     return _resolveDefaultBucketWalletId(executor);
   }
 
-  Future<void> _seedDefaultWallets(Database db) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    for (final name in ['Cash', 'E-Wallet', 'Bank', 'Tabungan']) {
-      await db.execute(
-        'INSERT OR IGNORE INTO wallets (name, isArchived, createdDate, updatedDate) VALUES (?, 0, ?, ?)',
-        [name, now, now],
-      );
-    }
-  }
-
   Future<void> setAppPreference(String key, String value) async {
     final db = await database;
     await db.insert(
@@ -509,6 +525,19 @@ class DatabaseHelper {
     return {
       for (final row in rows) row['key'] as String: row['value'] as String,
     };
+  }
+
+  Future<bool> getBucketSystemEnabled() async {
+    final preferences =
+        await getAppPreferences([bucketSystemEnabledPreferenceKey]);
+    return preferences[bucketSystemEnabledPreferenceKey] != '0';
+  }
+
+  Future<void> setBucketSystemEnabled(bool isEnabled) async {
+    await setAppPreference(
+      bucketSystemEnabledPreferenceKey,
+      isEnabled ? '1' : '0',
+    );
   }
 
   Future<ReminderPreferences> getReminderPreferences() async {
@@ -735,6 +764,55 @@ class DatabaseHelper {
     return {
       for (final row in rows) row['id'] as int: row['walletId'] as int?,
     };
+  }
+
+  Future<Map<int, List<FinancialBucket>>> _loadActiveBucketsByWalletTxn(
+    DatabaseExecutor executor,
+  ) async {
+    final rows = await executor.query(
+      'financial_buckets',
+      where: 'isArchived = 0',
+      orderBy: 'createdDate ASC',
+    );
+    final grouped = <int, List<FinancialBucket>>{};
+    for (final row in rows) {
+      final bucket = FinancialBucket.fromMap(row);
+      final walletId = bucket.walletId;
+      if (walletId == null) continue;
+      (grouped[walletId] ??= <FinancialBucket>[]).add(bucket);
+    }
+    return grouped;
+  }
+
+  Future<Map<int, BucketReconciliationPreview>>
+      _previewBucketReconciliationsTxn(
+    DatabaseExecutor executor,
+  ) async {
+    await _ensureBucketWalletBindings(executor);
+    final bucketsByWallet = await _loadActiveBucketsByWalletTxn(executor);
+    final previews = <int, BucketReconciliationPreview>{};
+
+    for (final entry in bucketsByWallet.entries) {
+      final walletId = entry.key;
+      final walletContext = await _resolveWalletContextByIdTxn(
+        executor,
+        walletId: walletId,
+        fallbackName: 'Cash',
+        fallbackWalletId: walletId,
+      );
+      final walletBalance = await _calculateWalletBalanceTxn(
+        executor,
+        walletId: walletId,
+        walletName: walletContext.walletName,
+      );
+      previews[walletId] = previewBucketReconciliation(
+        walletBalance: walletBalance,
+        activeBucketsForWallet: entry.value,
+        isReactivation: true,
+      );
+    }
+
+    return previews;
   }
 
   double _readBalanceAggregate(List<Map<String, Object?>> rows) {
@@ -1262,6 +1340,56 @@ class DatabaseHelper {
     return txId;
   }
 
+  Future<int> _insertIncomeWithBucketsTxn(
+    DatabaseExecutor txn, {
+    required double amount,
+    required String category,
+    required String description,
+    required DateTime date,
+    required String walletName,
+    required List<FinancialBucket> subsetBuckets,
+    int? walletId,
+  }) async {
+    final allocations = allocateIncomeToBuckets(amount, subsetBuckets);
+    final normalized = normalizeSubsetAllocation(subsetBuckets);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final resolvedWallet = await _resolveIncomeSummaryWalletTxn(
+      txn,
+      subsetBuckets: subsetBuckets,
+      fallbackName: walletName,
+      fallbackWalletId: walletId,
+    );
+    final txId = await txn.insert('transactions', {
+      'type': 'income',
+      'amount': amount,
+      'category': category,
+      'description': description,
+      'date': date.millisecondsSinceEpoch,
+      'wallet': resolvedWallet.walletName,
+      'walletId': resolvedWallet.walletId,
+      'walletNameSnapshot': resolvedWallet.walletName,
+      'affectsBalance': 1,
+    });
+
+    for (final bucket in subsetBuckets) {
+      final bucketId = bucket.id!;
+      await txn.insert('transaction_bucket_allocations', {
+        'transactionId': txId,
+        'bucketId': bucketId,
+        'normalizedPercentage': normalized[bucketId] ?? 0,
+        'allocatedAmount': allocations[bucketId] ?? 0,
+        'role': 'target',
+        'createdDate': now,
+      });
+      await txn.rawUpdate(
+        'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
+        [allocations[bucketId] ?? 0, now, bucketId],
+      );
+    }
+
+    return txId;
+  }
+
   Future<void> purchaseWishlistItem(
     WishlistItem item, {
     FinancialBucket? sourceBucket,
@@ -1448,6 +1576,94 @@ class DatabaseHelper {
     return id;
   }
 
+  Future<int> createDebtWithBalanceEffect({
+    required Debt debt,
+    required String walletName,
+    required bool bucketSystemEnabled,
+    FinancialBucket? affectedBucket,
+  }) async {
+    final db = await database;
+    final now = DateTime.now();
+
+    final id = await db.transaction((txn) async {
+      final walletId = debt.walletId;
+      if (walletId == null || walletName.trim().isEmpty) {
+        throw StateError('Debt with balance effect requires a wallet.');
+      }
+
+      final isDebtType = debt.type == 'debt';
+      final category = isDebtType ? 'Hutang' : 'Piutang';
+      final description =
+          '${isDebtType ? 'Hutang dari' : 'Piutang ke'} ${debt.personName}';
+
+      if (bucketSystemEnabled && affectedBucket != null) {
+        if (isDebtType) {
+          await _insertIncomeWithBucketsTxn(
+            txn,
+            amount: debt.principalAmount,
+            category: category,
+            description: description,
+            date: now,
+            walletName: walletName,
+            walletId: walletId,
+            subsetBuckets: [affectedBucket],
+          );
+        } else {
+          await _insertExpenseWithSourceTxn(
+            txn,
+            amount: debt.principalAmount,
+            category: category,
+            description: description,
+            date: now,
+            walletName: walletName,
+            sourceBucket: affectedBucket,
+            walletId: walletId,
+          );
+        }
+      } else {
+        if (isDebtType) {
+          await txn.insert('transactions', {
+            'type': 'income',
+            'amount': debt.principalAmount,
+            'category': category,
+            'description': description,
+            'date': now.millisecondsSinceEpoch,
+            'wallet': walletName,
+            'walletId': walletId,
+            'walletNameSnapshot': walletName,
+            'affectsBalance': 1,
+          });
+        } else {
+          await _ensureWalletHasSufficientBalanceTxn(
+            txn,
+            amount: debt.principalAmount,
+            walletId: walletId,
+            walletName: walletName,
+          );
+          await txn.insert('transactions', {
+            'type': 'expense',
+            'amount': debt.principalAmount,
+            'category': category,
+            'description': description,
+            'date': now.millisecondsSinceEpoch,
+            'wallet': walletName,
+            'walletId': walletId,
+            'walletNameSnapshot': walletName,
+            'affectsBalance': 1,
+          });
+        }
+      }
+
+      final payload = debt.toMap();
+      payload['bucketId'] =
+          bucketSystemEnabled ? affectedBucket?.id ?? debt.bucketId : null;
+      return txn.insert('debts', payload);
+    });
+
+    await markFinancialActivity(now);
+    return id;
+  }
+
   Future<List<Debt>> getDebts() async {
     final db = await database;
     final maps = await db.query('debts', orderBy: 'createdDate DESC');
@@ -1566,15 +1782,18 @@ class DatabaseHelper {
     }
 
     await db.transaction((txn) async {
-      if (recordingMode == 'balance' &&
-          affectedBucket != null &&
-          debt.type == 'debt') {
+      if (recordingMode == 'balance' && debt.type == 'debt') {
         await _ensureWalletHasSufficientBalanceTxn(
           txn,
           amount: amount,
           walletId: resolvedWalletId,
           walletName: resolvedWalletName,
         );
+      }
+
+      if (recordingMode == 'balance' &&
+          affectedBucket != null &&
+          debt.type == 'debt') {
         await _ensureBucketHasSufficientBalanceTxn(
           txn,
           bucketId: affectedBucket.id!,
@@ -1641,6 +1860,20 @@ class DatabaseHelper {
             [amount, now, affectedBucket.id!],
           );
         }
+      } else if (recordingMode == 'balance') {
+        await txn.insert('transactions', {
+          'type': debt.type == 'debt' ? 'expense' : 'income',
+          'amount': amount,
+          'category': debt.type == 'debt' ? 'Hutang' : 'Piutang',
+          'description': debt.type == 'debt'
+              ? 'Pembayaran hutang ${debt.personName}'
+              : 'Pembayaran piutang ${debt.personName}',
+          'date': paymentDate.millisecondsSinceEpoch,
+          'wallet': resolvedWalletName,
+          'walletId': resolvedWalletId,
+          'walletNameSnapshot': resolvedWalletName,
+          'affectsBalance': 1,
+        });
       }
     });
 
@@ -1705,14 +1938,47 @@ class DatabaseHelper {
     });
   }
 
-  Future<int> archiveFinancialBucket(int id) async {
+  Future<int> removeFinancialBucketFromActive(int id) async {
     final db = await database;
-    return db.update(
-      'financial_buckets',
-      {'isArchived': 1, 'updatedDate': DateTime.now().millisecondsSinceEpoch},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        'financial_buckets',
+        columns: ['id', 'currentBalance'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      if (rows.isEmpty) return 0;
+      final currentBalance =
+          (rows.first['currentBalance'] as num?)?.toDouble() ?? 0;
+      if (currentBalance > bucketPercentageTolerance) {
+        throw StateError('Financial bucket must be emptied before removal.');
+      }
+
+      final activeCount = Sqflite.firstIntValue(
+            await txn.rawQuery(
+              'SELECT COUNT(*) FROM financial_buckets WHERE isArchived = 0',
+            ),
+          ) ??
+          0;
+      if (activeCount <= 1) {
+        throw StateError('At least one active financial bucket must remain.');
+      }
+
+      return txn.update(
+        'financial_buckets',
+        {
+          'isArchived': 1,
+          'updatedDate': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  Future<int> archiveFinancialBucket(int id) async {
+    return removeFinancialBucketFromActive(id);
   }
 
   Future<List<TransactionBucketAllocation>> getTransactionBucketAllocations(
@@ -1755,6 +2021,39 @@ class DatabaseHelper {
   Future<Map<int, int?>> getBucketWalletIds(Iterable<int> bucketIds) async {
     final db = await database;
     return _loadBucketWalletMapTxn(db, bucketIds);
+  }
+
+  Future<Map<int, BucketReconciliationPreview>>
+      previewBucketReconciliations() async {
+    final db = await database;
+    return db.transaction((txn) => _previewBucketReconciliationsTxn(txn));
+  }
+
+  Future<void> applyBucketReconciliations() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final previews = await _previewBucketReconciliationsTxn(txn);
+      final blockingWalletIds = previews.entries
+          .where((entry) => !entry.value.canApply)
+          .map((entry) => entry.key)
+          .toList(growable: false);
+      if (blockingWalletIds.isNotEmpty) {
+        throw StateError(
+          'Bucket reconciliation would produce negative balances.',
+        );
+      }
+
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (final preview in previews.values) {
+        for (final change in preview.balanceChanges.entries) {
+          if (change.value.abs() <= bucketPercentageTolerance) continue;
+          await txn.rawUpdate(
+            'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
+            [change.value, now, change.key],
+          );
+        }
+      }
+    });
   }
 
   Future<List<BucketTransfer>> getBucketTransfers() async {
@@ -1879,46 +2178,17 @@ class DatabaseHelper {
     int? walletId,
   }) async {
     final db = await database;
-    final allocations = allocateIncomeToBuckets(amount, subsetBuckets);
-    final normalized = normalizeSubsetAllocation(subsetBuckets);
-    final now = DateTime.now().millisecondsSinceEpoch;
-
     final txId = await db.transaction((txn) async {
-      final resolvedWallet = await _resolveIncomeSummaryWalletTxn(
+      return _insertIncomeWithBucketsTxn(
         txn,
+        amount: amount,
+        category: category,
+        description: description,
+        date: date,
+        walletName: walletName,
+        walletId: walletId,
         subsetBuckets: subsetBuckets,
-        fallbackName: walletName,
-        fallbackWalletId: walletId,
       );
-      final txId = await txn.insert('transactions', {
-        'type': 'income',
-        'amount': amount,
-        'category': category,
-        'description': description,
-        'date': date.millisecondsSinceEpoch,
-        'wallet': resolvedWallet.walletName,
-        'walletId': resolvedWallet.walletId,
-        'walletNameSnapshot': resolvedWallet.walletName,
-        'affectsBalance': 1,
-      });
-
-      for (final bucket in subsetBuckets) {
-        final bucketId = bucket.id!;
-        await txn.insert('transaction_bucket_allocations', {
-          'transactionId': txId,
-          'bucketId': bucketId,
-          'normalizedPercentage': normalized[bucketId] ?? 0,
-          'allocatedAmount': allocations[bucketId] ?? 0,
-          'role': 'target',
-          'createdDate': now,
-        });
-        await txn.rawUpdate(
-          'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
-          [allocations[bucketId] ?? 0, now, bucketId],
-        );
-      }
-
-      return txId;
     });
     await markFinancialActivity(DateTime.now());
     return txId;
@@ -1973,5 +2243,34 @@ class DatabaseHelper {
     });
     await markFinancialActivity(DateTime.now());
     return txId;
+  }
+
+  // Deletes all user data and restores the app to a clean initial state.
+  // Uses direct DELETE statements to bypass per-entity guards (balance checks,
+  // archive-only rules, debt-linked blocks) that would prevent a full wipe.
+  Future<void> resetAllData() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // Order matters: dependent rows before parent rows.
+      const tables = [
+        'transaction_bucket_allocations',
+        'bucket_transfers',
+        'debt_payments',
+        'debts',
+        'financial_buckets',
+        'transactions',
+        'saving_goals',
+        'wishlist',
+        'badges',
+        'app_preferences',
+        'wallets',
+      ];
+      for (final table in tables) {
+        await txn.delete(table);
+      }
+      // Reset autoincrement counters so IDs restart from 1.
+      await txn.execute('DELETE FROM sqlite_sequence');
+      await _ensureDefaultWalletSeeds(txn);
+    });
   }
 }

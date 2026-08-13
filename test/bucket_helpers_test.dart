@@ -16,18 +16,11 @@ void main() {
         updatedDate: now,
       );
 
-  FinancialBucket bucketWithWallet(
-    int id,
-    double pct, {
-    required int walletId,
-    double balance = 0,
-  }) =>
-      FinancialBucket(
+  FinancialBucket archivedBucket(int id, double pct) => FinancialBucket(
         id: id,
-        name: 'Bucket $id',
-        walletId: walletId,
+        name: 'Bucket Arsip $id',
         allocationPercentage: pct,
-        currentBalance: balance,
+        isArchived: true,
         createdDate: now,
         updatedDate: now,
       );
@@ -69,6 +62,53 @@ void main() {
 
     test('daftar kosong ditolak', () {
       expect(validateBucketPercentages([]), isFalse);
+    });
+
+    test('dua dompet masing-masing 100% tetap ditolak bila total global 200%', () {
+      expect(
+        validateBucketPercentages([
+          bucket(1, 60),
+          bucket(2, 40),
+          bucket(3, 70),
+          bucket(4, 30),
+        ]),
+        isFalse,
+      );
+    });
+
+    test('campuran lintas dompet tetap mengikuti total global', () {
+      expect(
+        validateBucketPercentages([
+          FinancialBucket(
+            id: 1,
+            name: 'Bucket 1',
+            walletId: 1,
+            allocationPercentage: 50,
+            createdDate: now,
+            updatedDate: now,
+          ),
+          FinancialBucket(
+            id: 2,
+            name: 'Bucket 2',
+            walletId: 2,
+            allocationPercentage: 30,
+            createdDate: now,
+            updatedDate: now,
+          ),
+        ]),
+        isFalse,
+      );
+    });
+
+    test('bucket arsip tidak ikut dihitung dalam validasi global aktif', () {
+      expect(
+        validateBucketPercentages([
+          bucket(1, 60),
+          bucket(2, 40),
+          archivedBucket(3, 100),
+        ]),
+        isTrue,
+      );
     });
   });
 
@@ -135,8 +175,22 @@ void main() {
     test('dua bucket dalam wallet yang sama diterima', () {
       expect(
         bucketsShareSameWallet([
-          bucketWithWallet(1, 60, walletId: 1),
-          bucketWithWallet(2, 40, walletId: 1),
+          FinancialBucket(
+            id: 1,
+            name: 'Bucket 1',
+            walletId: 1,
+            allocationPercentage: 60,
+            createdDate: now,
+            updatedDate: now,
+          ),
+          FinancialBucket(
+            id: 2,
+            name: 'Bucket 2',
+            walletId: 1,
+            allocationPercentage: 40,
+            createdDate: now,
+            updatedDate: now,
+          ),
         ]),
         isTrue,
       );
@@ -145,8 +199,22 @@ void main() {
     test('bucket lintas wallet ditolak', () {
       expect(
         bucketsShareSameWallet([
-          bucketWithWallet(1, 60, walletId: 1),
-          bucketWithWallet(2, 40, walletId: 2),
+          FinancialBucket(
+            id: 1,
+            name: 'Bucket 1',
+            walletId: 1,
+            allocationPercentage: 60,
+            createdDate: now,
+            updatedDate: now,
+          ),
+          FinancialBucket(
+            id: 2,
+            name: 'Bucket 2',
+            walletId: 2,
+            allocationPercentage: 40,
+            createdDate: now,
+            updatedDate: now,
+          ),
         ]),
         isFalse,
       );

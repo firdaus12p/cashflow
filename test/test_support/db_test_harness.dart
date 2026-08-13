@@ -8,8 +8,6 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:cashflow/data/database/database_helper.dart';
 
-const _defaultWalletNames = ['Cash', 'E-Wallet', 'Bank', 'Tabungan'];
-
 const _tableResetOrder = [
   'transaction_bucket_allocations',
   'bucket_transfers',
@@ -63,17 +61,11 @@ Future<void> resetSharedTestDatabase() async {
     }
 
     await txn.execute('DELETE FROM sqlite_sequence');
-
-    final now = DateTime.now().millisecondsSinceEpoch;
-    for (final name in _defaultWalletNames) {
-      await txn.insert('wallets', {
-        'name': name,
-        'isArchived': 0,
-        'createdDate': now,
-        'updatedDate': now,
-      });
-    }
   });
+
+  await DatabaseHelper.closeDatabase();
+  DatabaseHelper.overrideDatabasePath(':memory:');
+  await DatabaseHelper().database;
 }
 
 Future<void> disposeSharedTestDatabase() async {

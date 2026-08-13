@@ -58,7 +58,7 @@ void main() {
               id: 11,
               name: 'Belanja Cash',
               walletId: 1,
-              allocationPercentage: 60,
+              allocationPercentage: 100,
               currentBalance: 0,
               createdDate: now,
               updatedDate: now,
@@ -67,12 +67,13 @@ void main() {
               id: 22,
               name: 'Belanja Bank',
               walletId: 2,
-              allocationPercentage: 40,
+              allocationPercentage: 100,
               currentBalance: 0,
               createdDate: now,
               updatedDate: now,
             ),
           ],
+          initialBucketSystemEnabled: true,
           initialHomeBalanceSourceType: 'total',
           initialHomeBalanceVisibilityHidden: false,
           persistHomeHeroPreferences: false,
@@ -91,7 +92,7 @@ void main() {
   }
 
   testWidgets(
-    'income lintas dompet menampilkan helper dompet otomatis dan tetap bisa disimpan',
+    'income lintas dompet menampilkan helper dompet otomatis dan diblokir bila konfigurasi pos global belum 100%',
     (tester) async {
       await _pumpHome(tester);
 
@@ -118,8 +119,13 @@ void main() {
 
       final feedbackFinder =
           find.byKey(const Key('transaction_sheet_feedback'));
-      expect(feedbackFinder, findsNothing);
-      expect(find.text('Gaji lintas dompet'), findsOneWidget);
+      expect(feedbackFinder, findsOneWidget);
+      expect(
+        find.text(
+          'Pos keuangan belum 100%. Selesaikan dulu di halaman Pos Keuangan.',
+        ),
+        findsOneWidget,
+      );
     },
     timeout: shortTimeout,
   );
@@ -144,7 +150,79 @@ void main() {
 
       await tester.tap(find.text('Pengeluaran').last);
       await _pumpSheet(tester);
-      expect(find.byKey(const Key('expense_bucket_dropdown')), findsOneWidget);
+      expect(find.byKey(const Key('expense_bucket_dropdown')), findsNothing);
+      expect(find.text('Pos keuangan belum 100%'), findsOneWidget);
+    },
+    timeout: shortTimeout,
+  );
+
+  testWidgets(
+    'income lintas dompet valid tetap bisa disimpan saat total pos global 100%',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MainScreen(
+            skipInitialLoad: true,
+            initialTransactions: const [],
+            initialAllTransactions: const [],
+            initialWallets: [
+              Wallet(
+                id: 1,
+                name: 'Cash',
+                createdDate: now,
+                updatedDate: now,
+              ),
+              Wallet(
+                id: 2,
+                name: 'Bank',
+                createdDate: now,
+                updatedDate: now,
+              ),
+            ],
+            initialBuckets: [
+              FinancialBucket(
+                id: 11,
+                name: 'Belanja Cash',
+                walletId: 1,
+                allocationPercentage: 60,
+                currentBalance: 0,
+                createdDate: now,
+                updatedDate: now,
+              ),
+              FinancialBucket(
+                id: 22,
+                name: 'Belanja Bank',
+                walletId: 2,
+                allocationPercentage: 40,
+                currentBalance: 0,
+                createdDate: now,
+                updatedDate: now,
+              ),
+            ],
+            initialBucketSystemEnabled: true,
+            initialHomeBalanceSourceType: 'total',
+            initialHomeBalanceVisibilityHidden: false,
+            persistHomeHeroPreferences: false,
+          ),
+        ),
+      );
+      await _pumpSheet(tester);
+
+      await tester.tap(find.byType(FloatingActionButton).first);
+      await _pumpSheet(tester);
+
+      await tester.tap(find.text('Pemasukan').last);
+      await _pumpSheet(tester);
+
+      await tester.enterText(find.byType(TextField).first, '500000');
+      await tester.enterText(find.byType(TextField).last, 'Gaji valid');
+      await tester.ensureVisible(find.text('Simpan Transaksi'));
+      await _pumpSheet(tester);
+      await tester.tap(find.text('Simpan Transaksi'));
+      await _pumpSheet(tester);
+
+      expect(find.byKey(const Key('transaction_sheet_feedback')), findsNothing);
+      expect(find.text('Gaji valid'), findsOneWidget);
     },
     timeout: shortTimeout,
   );
@@ -217,6 +295,86 @@ void main() {
 
       expect(find.byKey(const Key('transaction_sheet_feedback')), findsNothing);
       expect(find.text('Keterangan wajib diisi.'), findsNothing);
+    },
+    timeout: shortTimeout,
+  );
+
+  testWidgets(
+    'mode pos nonaktif menyembunyikan tuntutan alokasi bucket pada sheet transaksi',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MainScreen(
+            skipInitialLoad: true,
+            initialTransactions: const [],
+            initialAllTransactions: const [],
+            initialWallets: [
+              Wallet(
+                id: 1,
+                name: 'Cash',
+                createdDate: now,
+                updatedDate: now,
+              ),
+            ],
+            initialBuckets: [
+              FinancialBucket(
+                id: 11,
+                name: 'Belanja Cash',
+                walletId: 1,
+                allocationPercentage: 100,
+                currentBalance: 0,
+                createdDate: now,
+                updatedDate: now,
+              ),
+            ],
+            initialBucketSystemEnabled: false,
+            initialHomeBalanceSourceType: 'total',
+            initialHomeBalanceVisibilityHidden: false,
+            persistHomeHeroPreferences: false,
+          ),
+        ),
+      );
+      await _pumpSheet(tester);
+
+      await tester.tap(find.byType(FloatingActionButton).first);
+      await _pumpSheet(tester);
+
+      expect(find.byKey(const Key('bucket_mode_off_message')), findsOneWidget);
+      expect(find.byKey(const Key('income_bucket_selector')), findsNothing);
+      expect(find.byKey(const Key('expense_bucket_dropdown')), findsNothing);
+    },
+    timeout: shortTimeout,
+  );
+
+  testWidgets(
+    'tanpa dompet aktif sheet transaksi tidak menyintesis Cash dan langsung memberi feedback',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MainScreen(
+            skipInitialLoad: true,
+            initialTransactions: const [],
+            initialAllTransactions: const [],
+            initialWallets: const [],
+            initialBuckets: const [],
+            initialBucketSystemEnabled: false,
+            initialHomeBalanceSourceType: 'total',
+            initialHomeBalanceVisibilityHidden: false,
+            persistHomeHeroPreferences: false,
+          ),
+        ),
+      );
+      await _pumpSheet(tester);
+
+      await tester.tap(find.byType(FloatingActionButton).first);
+      await _pumpSheet(tester);
+
+      expect(
+        find.text(
+            'Aktifkan minimal satu dompet dulu sebelum membuat transaksi.'),
+        findsOneWidget,
+      );
+      expect(find.text('Tambah Transaksi 💰'), findsNothing);
     },
     timeout: shortTimeout,
   );

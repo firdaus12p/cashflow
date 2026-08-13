@@ -41,4 +41,17 @@ void main() {
     expect(preferences[sourceIdPreferenceKey], '1');
     expect(preferences[visibilityHiddenPreferenceKey], '1');
   });
+
+  test('status mode pos bisa dibaca dan disimpan kembali dari storage lokal',
+      () async {
+    final db = DatabaseHelper();
+
+    expect(await db.getBucketSystemEnabled(), isTrue);
+
+    await db.setBucketSystemEnabled(false);
+    expect(await db.getBucketSystemEnabled(), isFalse);
+
+    await db.setBucketSystemEnabled(true);
+    expect(await db.getBucketSystemEnabled(), isTrue);
+  });
 }

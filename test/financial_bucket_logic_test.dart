@@ -209,4 +209,132 @@ void main() {
       expect(bankBalance, closeTo(200000, 0.01));
     });
   });
+
+  group('previewBucketReconciliation — FEAT-08', () {
+    test('aktivasi pertama membagi saldo dompet hanya ke pos dompet itu', () {
+      final preview = previewBucketReconciliation(
+        walletBalance: 600000,
+        activeBucketsForWallet: [
+          FinancialBucket(
+            id: 1,
+            name: 'Kebutuhan',
+            walletId: 2,
+            allocationPercentage: 10,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+          FinancialBucket(
+            id: 2,
+            name: 'Jajan',
+            walletId: 2,
+            allocationPercentage: 20,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+          FinancialBucket(
+            id: 3,
+            name: 'Tabungan',
+            walletId: 2,
+            allocationPercentage: 30,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+        ],
+        isReactivation: false,
+      );
+
+      expect(preview.canApply, isTrue);
+      expect(preview.delta, closeTo(600000, 0.01));
+      expect(preview.balanceChanges[1], closeTo(100000, 1));
+      expect(preview.balanceChanges[2], closeTo(200000, 1));
+      expect(preview.balanceChanges[3], closeTo(300000, 1));
+    });
+
+    test(
+        'reaktivasi dengan delta positif membagi tambahan saldo sesuai persen lokal',
+        () {
+      final preview = previewBucketReconciliation(
+        walletBalance: 900000,
+        activeBucketsForWallet: [
+          FinancialBucket(
+            id: 1,
+            name: 'Kebutuhan',
+            walletId: 2,
+            allocationPercentage: 10,
+            currentBalance: 100000,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+          FinancialBucket(
+            id: 2,
+            name: 'Jajan',
+            walletId: 2,
+            allocationPercentage: 20,
+            currentBalance: 200000,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+          FinancialBucket(
+            id: 3,
+            name: 'Tabungan',
+            walletId: 2,
+            allocationPercentage: 30,
+            currentBalance: 300000,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+        ],
+        isReactivation: true,
+      );
+
+      expect(preview.canApply, isTrue);
+      expect(preview.delta, closeTo(300000, 0.01));
+      expect(preview.balanceChanges[1], closeTo(50000, 1));
+      expect(preview.balanceChanges[2], closeTo(100000, 1));
+      expect(preview.balanceChanges[3], closeTo(150000, 1));
+    });
+
+    test(
+        'reaktivasi ditolak bila saldo dompet negatif membuat hasil sinkronisasi ikut negatif',
+        () {
+      final preview = previewBucketReconciliation(
+        walletBalance: -100000,
+        activeBucketsForWallet: [
+          FinancialBucket(
+            id: 1,
+            name: 'Kebutuhan',
+            walletId: 2,
+            allocationPercentage: 10,
+            currentBalance: 50000,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+          FinancialBucket(
+            id: 2,
+            name: 'Jajan',
+            walletId: 2,
+            allocationPercentage: 20,
+            currentBalance: 200000,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+          FinancialBucket(
+            id: 3,
+            name: 'Tabungan',
+            walletId: 2,
+            allocationPercentage: 30,
+            currentBalance: 350000,
+            createdDate: _now,
+            updatedDate: _now,
+          ),
+        ],
+        isReactivation: true,
+      );
+
+      expect(preview.delta, closeTo(-700000, 0.01));
+      expect(preview.canApply, isFalse);
+      expect(preview.balanceChanges[1], closeTo(-58333.33, 1));
+      expect(preview.resultingBalances[1]! < 0, isTrue);
+    });
+  });
 }

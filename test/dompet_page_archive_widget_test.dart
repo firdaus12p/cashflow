@@ -40,13 +40,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
   }
 
-  testWidgets('arsip dompet tanpa histori tidak menampilkan warning',
+  testWidgets('hapus dompet tanpa histori tidak menampilkan warning',
       (tester) async {
     await pumpApp(tester);
 
-    await tester.tap(find.byKey(const Key('wallet_archive_btn')).first);
+    await tester.tap(find.byKey(const Key('wallet_delete_btn')).first);
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('wallet_archive_warning')), findsNothing);
+    expect(find.byKey(const Key('wallet_delete_warning')), findsNothing);
   });
 }

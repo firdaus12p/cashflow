@@ -26,6 +26,7 @@ import 'package:cashflow/features/transactions/models/transaction.dart';
 import 'package:cashflow/features/wallets/models/wallet.dart';
 import 'package:cashflow/features/wallets/presentation/dompet_page.dart';
 import 'package:cashflow/features/wishlist/models/wishlist_item.dart';
+import 'package:cashflow/features/reset/presentation/reset_data_page.dart';
 
 const String _bucketConfigurationIncompleteText =
     bucketConfigurationIncompleteText;
@@ -41,6 +42,32 @@ const String _homeBalanceSourceIdPreferenceKey =
 const String _homeBalanceVisibilityHiddenPreferenceKey =
     homeBalanceVisibilityHiddenPreferenceKey;
 
+const List<({String key, IconData icon})> _goalIconOptions = [
+  (key: 'savings', icon: Icons.savings_outlined),
+  (key: 'flag', icon: Icons.flag_outlined),
+  (key: 'home', icon: Icons.home_outlined),
+  (key: 'car', icon: Icons.directions_car_outlined),
+  (key: 'phone', icon: Icons.phone_iphone_outlined),
+  (key: 'shopping', icon: Icons.shopping_bag_outlined),
+  (key: 'game', icon: Icons.sports_esports_outlined),
+  (key: 'book', icon: Icons.menu_book_outlined),
+  (key: 'flight', icon: Icons.flight_takeoff_outlined),
+  (key: 'favorite', icon: Icons.favorite_outline),
+];
+
+const List<({String key, IconData icon})> _wishlistIconOptions = [
+  (key: 'shopping', icon: Icons.shopping_bag_outlined),
+  (key: 'apparel', icon: Icons.checkroom_outlined),
+  (key: 'shoe', icon: Icons.storefront_outlined),
+  (key: 'beauty', icon: Icons.auto_awesome_outlined),
+  (key: 'phone', icon: Icons.phone_iphone_outlined),
+  (key: 'laptop', icon: Icons.laptop_mac_outlined),
+  (key: 'game', icon: Icons.sports_esports_outlined),
+  (key: 'book', icon: Icons.menu_book_outlined),
+  (key: 'home', icon: Icons.home_outlined),
+  (key: 'car', icon: Icons.directions_car_outlined),
+];
+
 // Main Screen with Enhanced Navigation
 class MainScreen extends StatefulWidget {
   const MainScreen({
@@ -50,10 +77,12 @@ class MainScreen extends StatefulWidget {
     @visibleForTesting this.initialAllTransactions,
     @visibleForTesting this.initialWallets,
     @visibleForTesting this.initialBuckets,
+    @visibleForTesting this.initialBucketSystemEnabled,
     @visibleForTesting this.initialHomeBalanceSourceType,
     @visibleForTesting this.initialHomeBalanceSourceId,
     @visibleForTesting this.initialHomeBalanceVisibilityHidden,
     @visibleForTesting this.initialReminderPreferences,
+    @visibleForTesting this.persistBucketSystemPreference = true,
     this.initialNotificationPayload,
     @visibleForTesting this.persistHomeHeroPreferences = true,
   });
@@ -74,6 +103,9 @@ class MainScreen extends StatefulWidget {
   final List<FinancialBucket>? initialBuckets;
 
   @visibleForTesting
+  final bool? initialBucketSystemEnabled;
+
+  @visibleForTesting
   final String? initialHomeBalanceSourceType;
 
   @visibleForTesting
@@ -84,6 +116,9 @@ class MainScreen extends StatefulWidget {
 
   @visibleForTesting
   final ReminderPreferences? initialReminderPreferences;
+
+  @visibleForTesting
+  final bool persistBucketSystemPreference;
 
   final NotificationPayload? initialNotificationPayload;
 
@@ -104,6 +139,7 @@ class _MainScreenState extends State<MainScreen>
   List<UserBadge> _badges = [];
   List<Transaction> _allTransactions = [];
   List<FinancialBucket> _activeBuckets = [];
+  bool _bucketSystemEnabled = true;
   Map<int, List<TransactionBucketAllocation>> _allocationsByTransactionId = {};
   Map<int, int?> _bucketWalletIdsByBucketId = {};
   Map<int, double> _bucketPeriodIncomeTotals = {};
@@ -129,6 +165,9 @@ class _MainScreenState extends State<MainScreen>
       widget.initialHomeBalanceSourceType != null ||
       widget.initialHomeBalanceSourceId != null ||
       widget.initialHomeBalanceVisibilityHidden != null;
+
+  bool get _shouldLoadPersistedBucketSystemPreference =>
+      widget.persistBucketSystemPreference && !widget.skipInitialLoad;
 
   HomeBalanceSourceResolution get _resolvedHomeBalanceSource =>
       resolveHomeBalanceSource(
@@ -167,6 +206,8 @@ class _MainScreenState extends State<MainScreen>
               initialDebts: widget.skipInitialLoad ? const [] : null,
               initialWallets: widget.skipInitialLoad ? _activeWallets : null,
               initialBuckets: widget.skipInitialLoad ? _activeBuckets : null,
+              initialBucketSystemEnabled:
+                  widget.skipInitialLoad ? _bucketSystemEnabled : null,
             ),
           ),
         ).then((_) => _syncReminderSchedule());
@@ -312,6 +353,8 @@ class _MainScreenState extends State<MainScreen>
     _activeWallets = List<Wallet>.from(widget.initialWallets ?? const []);
     _activeBuckets =
         List<FinancialBucket>.from(widget.initialBuckets ?? const []);
+    _bucketSystemEnabled =
+        widget.initialBucketSystemEnabled ?? _bucketSystemEnabled;
     _transactions =
         List<Transaction>.from(widget.initialTransactions ?? const []);
     _allTransactions =
@@ -323,10 +366,15 @@ class _MainScreenState extends State<MainScreen>
         widget.initialHomeBalanceVisibilityHidden ?? false;
 
     if (widget.skipInitialLoad) {
+      if (_shouldLoadPersistedBucketSystemPreference) {
+        _loadBucketSystemEnabled();
+      }
       if (!_hasInjectedHomeBalancePreferences) {
         _loadHomeHeroPreferences();
       }
-      _loadBucketHeroSummaries();
+      if (_transactions.isNotEmpty) {
+        _loadBucketHeroSummaries();
+      }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _handleInitialNotificationPayload();
       });
@@ -338,10 +386,15 @@ class _MainScreenState extends State<MainScreen>
         widget.initialAllTransactions == null) {
       _loadAllData();
     } else {
+      if (_shouldLoadPersistedBucketSystemPreference) {
+        _loadBucketSystemEnabled();
+      }
       if (!_hasInjectedHomeBalancePreferences) {
         _loadHomeHeroPreferences();
       }
-      _loadBucketHeroSummaries();
+      if (_transactions.isNotEmpty) {
+        _loadBucketHeroSummaries();
+      }
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -402,6 +455,7 @@ class _MainScreenState extends State<MainScreen>
 
   Future<void> _loadAllData() async {
     try {
+      await _loadBucketSystemEnabled();
       await _loadWallets();
       await _loadBuckets();
       await _loadHomeHeroPreferences();
@@ -446,6 +500,14 @@ class _MainScreenState extends State<MainScreen>
     if (!mounted) return;
     setState(() {
       _activeBuckets = buckets;
+    });
+  }
+
+  Future<void> _loadBucketSystemEnabled() async {
+    final isEnabled = await _dbHelper.getBucketSystemEnabled();
+    if (!mounted) return;
+    setState(() {
+      _bucketSystemEnabled = isEnabled;
     });
   }
 
@@ -759,6 +821,7 @@ class _MainScreenState extends State<MainScreen>
         name: 'Langkah Pertama',
         description: 'Transaksi pertama kamu! Keep going!',
         emoji: '🌟',
+        iconKey: 'star',
         earnedDate: DateTime.now(),
         type: 'first',
       );
@@ -789,6 +852,7 @@ class _MainScreenState extends State<MainScreen>
         name: 'Hemat Banget',
         description: 'Kamu lebih banyak nabung daripada belanja bulan ini!',
         emoji: '🏆',
+        iconKey: 'trophy',
         earnedDate: DateTime.now(),
         type: 'saving',
       );
@@ -804,6 +868,7 @@ class _MainScreenState extends State<MainScreen>
           name: 'Goal Master',
           description: 'Berhasil capai target ${goal.name}!',
           emoji: '🎯',
+          iconKey: 'goal',
           earnedDate: DateTime.now(),
           type: 'goal_${goal.id}',
         );
@@ -1388,6 +1453,8 @@ class _MainScreenState extends State<MainScreen>
                         widget.skipInitialLoad ? _activeWallets : null,
                     initialBuckets:
                         widget.skipInitialLoad ? _activeBuckets : null,
+                    initialBucketSystemEnabled:
+                        widget.skipInitialLoad ? _bucketSystemEnabled : null,
                   ),
                 ),
               ).then((_) async {
@@ -1408,9 +1475,11 @@ class _MainScreenState extends State<MainScreen>
                         widget.skipInitialLoad ? _activeBuckets : null,
                     initialWallets:
                         widget.skipInitialLoad ? _activeWallets : null,
+                    initialBucketSystemEnabled:
+                        widget.skipInitialLoad ? _bucketSystemEnabled : null,
                   ),
                 ),
-              ).then((_) => _loadBuckets()),
+              ).then((_) => _loadAllData()),
             ),
             const SizedBox(width: 12),
             _buildQuickMenuItem(
@@ -1454,6 +1523,23 @@ class _MainScreenState extends State<MainScreen>
                       ),
                     ),
                     body: _buildBadgesPage(showPageTitle: false),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            _buildQuickMenuItem(
+              itemKey: const Key('quick_menu_reset_data'),
+              icon: Icons.restart_alt,
+              label: 'Reset Data',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ResetDataPage(
+                    onResetComplete: () {
+                      _loadAllData();
+                      Navigator.pop(context);
+                    },
                   ),
                 ),
               ),
@@ -1657,7 +1743,11 @@ class _MainScreenState extends State<MainScreen>
                   children: [
                     Row(
                       children: [
-                        Text(goal.emoji, style: const TextStyle(fontSize: 20)),
+                        Icon(
+                          goal.resolvedIcon,
+                          color: AppPalette.primary,
+                          size: 20,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -2970,9 +3060,10 @@ class _MainScreenState extends State<MainScreen>
               color: priorityColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(15),
             ),
-            child: Text(
-              item.emoji,
-              style: const TextStyle(fontSize: 24),
+            child: Icon(
+              item.resolvedIcon,
+              color: priorityColor,
+              size: 24,
             ),
           ),
           const SizedBox(width: 15),
@@ -3278,9 +3369,10 @@ class _MainScreenState extends State<MainScreen>
                     ),
                     borderRadius: BorderRadius.circular(50),
                   ),
-                  child: Text(
-                    badge.emoji,
-                    style: const TextStyle(fontSize: 28),
+                  child: Icon(
+                    badge.resolvedIcon,
+                    color: Colors.white,
+                    size: 28,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -3349,7 +3441,11 @@ class _MainScreenState extends State<MainScreen>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('📈', style: TextStyle(fontSize: 48)),
+              const Icon(
+                Icons.insights_outlined,
+                size: 48,
+                color: AppPalette.info,
+              ),
               const SizedBox(height: 16),
               Text(
                 'Belum ada data pengeluaran',
@@ -3907,9 +4003,12 @@ class _MainScreenState extends State<MainScreen>
                       : AppPalette.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(
-                  goal.emoji,
-                  style: const TextStyle(fontSize: 28),
+                child: Icon(
+                  goal.resolvedIcon,
+                  color: goal.progress >= 1.0
+                      ? AppPalette.success
+                      : AppPalette.primary,
+                  size: 28,
                 ),
               ),
               const SizedBox(width: 15),
@@ -3955,11 +4054,11 @@ class _MainScreenState extends State<MainScreen>
                 itemBuilder: (context) => [
                   const PopupMenuItem(
                     value: 'add_money',
-                    child: Text('💰 Tambah Uang'),
+                    child: Text('Tambah Uang'),
                   ),
                   const PopupMenuItem(
                     value: 'delete',
-                    child: Text('🗑️ Hapus Goal'),
+                    child: Text('Hapus Goal'),
                   ),
                 ],
                 child: Container(
@@ -4139,8 +4238,10 @@ class _MainScreenState extends State<MainScreen>
             : expenseCategories.first);
 
     final availableWallets = List<Wallet>.from(_activeWallets);
-    final fallbackWalletName = initialTransaction?.wallet ?? 'Cash';
-    if (!availableWallets.any((wallet) => wallet.name == fallbackWalletName)) {
+    final fallbackWalletName = initialTransaction?.wallet;
+    if (fallbackWalletName != null &&
+        fallbackWalletName.isNotEmpty &&
+        !availableWallets.any((wallet) => wallet.name == fallbackWalletName)) {
       availableWallets.insert(
         0,
         Wallet(
@@ -4151,13 +4252,11 @@ class _MainScreenState extends State<MainScreen>
       );
     }
     if (availableWallets.isEmpty) {
-      availableWallets.add(
-        Wallet(
-          name: fallbackWalletName,
-          createdDate: now,
-          updatedDate: now,
-        ),
+      _showSnackBarMessage(
+        'Aktifkan minimal satu dompet dulu sebelum membuat transaksi.',
+        backgroundColor: AppPalette.danger,
       );
+      return;
     }
 
     String selectedWallet = availableWallets
@@ -4167,17 +4266,17 @@ class _MainScreenState extends State<MainScreen>
         )
         .name;
 
-    final hasNoActiveBuckets = _activeBuckets.isEmpty;
-    final bucketConfigurationIncomplete =
-        hasIncompleteBucketConfiguration(_activeBuckets);
+    final transactionBuckets =
+        _bucketSystemEnabled ? _activeBuckets : const <FinancialBucket>[];
+    final hasNoActiveBuckets = transactionBuckets.isEmpty;
 
     FinancialBucket? selectedExpenseBucket =
-        _activeBuckets.isNotEmpty ? _activeBuckets.first : null;
+        transactionBuckets.isNotEmpty ? transactionBuckets.first : null;
     final Set<int> selectedIncomeBucketIds = <int>{};
 
     if (isEditing &&
         initialTransaction.id != null &&
-        _activeBuckets.isNotEmpty) {
+        transactionBuckets.isNotEmpty) {
       final allocations = await _dbHelper.getTransactionBucketAllocations(
         initialTransaction.id!,
       );
@@ -4192,7 +4291,7 @@ class _MainScreenState extends State<MainScreen>
             .where((allocation) => allocation.role == 'source')
             .toList();
         if (sourceAllocations.isNotEmpty) {
-          final matchingBuckets = _activeBuckets
+          final matchingBuckets = transactionBuckets
               .where((bucket) => bucket.id == sourceAllocations.first.bucketId)
               .toList();
           if (matchingBuckets.isNotEmpty) {
@@ -4202,7 +4301,7 @@ class _MainScreenState extends State<MainScreen>
       }
     } else {
       selectedIncomeBucketIds.addAll(
-        _activeBuckets
+        transactionBuckets
             .where((bucket) => bucket.id != null)
             .map((bucket) => bucket.id!),
       );
@@ -4212,13 +4311,17 @@ class _MainScreenState extends State<MainScreen>
         selectedIncomeBucketIds.isEmpty &&
         affectsBalance) {
       selectedIncomeBucketIds.addAll(
-        _activeBuckets
+        transactionBuckets
             .where((bucket) => bucket.id != null)
             .map((bucket) => bucket.id!),
       );
     }
 
+    final bucketConfigurationIncomplete = _bucketSystemEnabled &&
+        hasIncompleteBucketConfiguration(_activeBuckets);
+
     String? deriveWalletNameFromBucketSelection() {
+      if (!_bucketSystemEnabled) return null;
       if (!affectsBalance ||
           hasNoActiveBuckets ||
           bucketConfigurationIncomplete) {
@@ -4226,7 +4329,7 @@ class _MainScreenState extends State<MainScreen>
       }
 
       if (selectedType == 'income') {
-        final subsetBuckets = _activeBuckets
+        final subsetBuckets = transactionBuckets
             .where((bucket) =>
                 bucket.id != null &&
                 selectedIncomeBucketIds.contains(bucket.id))
@@ -4255,6 +4358,8 @@ class _MainScreenState extends State<MainScreen>
     String? sheetFeedbackMessage;
     Color sheetFeedbackColor = Colors.red;
 
+    if (!mounted || !context.mounted) return;
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -4263,8 +4368,12 @@ class _MainScreenState extends State<MainScreen>
         builder: (sheetContext, setState) {
           final categoryOptions =
               selectedType == 'expense' ? expenseCategories : incomeCategories;
-          final hidesWalletSelectorForIncome =
-              affectsBalance && selectedType == 'income' && !hasNoActiveBuckets;
+          final bucketConfigurationIncomplete = _bucketSystemEnabled &&
+              hasIncompleteBucketConfiguration(_activeBuckets);
+          final hidesWalletSelectorForIncome = affectsBalance &&
+              selectedType == 'income' &&
+              _bucketSystemEnabled &&
+              !hasNoActiveBuckets;
           final isWalletLocked = deriveWalletNameFromBucketSelection() != null;
 
           void showSheetFeedback(
@@ -4383,7 +4492,7 @@ class _MainScreenState extends State<MainScreen>
                     );
                   }
                 } else {
-                  final subsetBuckets = _activeBuckets
+                  final subsetBuckets = transactionBuckets
                       .where((bucket) =>
                           bucket.id != null &&
                           selectedIncomeBucketIds.contains(bucket.id))
@@ -4637,9 +4746,10 @@ class _MainScreenState extends State<MainScreen>
                                                   selectedCategory =
                                                       expenseCategories.first;
                                                 }
-                                                if (_activeBuckets.isNotEmpty) {
+                                                if (transactionBuckets
+                                                    .isNotEmpty) {
                                                   selectedExpenseBucket ??=
-                                                      _activeBuckets.first;
+                                                      transactionBuckets.first;
                                                 }
                                                 syncWalletToBucketSelection();
                                               }),
@@ -4708,7 +4818,7 @@ class _MainScreenState extends State<MainScreen>
                                                     .isEmpty) {
                                                   selectedIncomeBucketIds
                                                       .addAll(
-                                                    _activeBuckets
+                                                    transactionBuckets
                                                         .where((bucket) =>
                                                             bucket.id != null)
                                                         .map(
@@ -5020,6 +5130,27 @@ class _MainScreenState extends State<MainScreen>
                                           ),
                                         ),
                                       )
+                                    else if (!_bucketSystemEnabled)
+                                      Container(
+                                        key: const Key(
+                                            'bucket_mode_off_message'),
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(14),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.withValues(
+                                            alpha: 0.08,
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(15),
+                                        ),
+                                        child: Text(
+                                          'Sistem pos sedang nonaktif. Transaksi akan memakai dompet saja sampai pos diaktifkan lagi.',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 12,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      )
                                     else if (selectedType == 'income')
                                       Container(
                                         key: const Key(
@@ -5053,7 +5184,7 @@ class _MainScreenState extends State<MainScreen>
                                                 : Wrap(
                                                     spacing: 8,
                                                     runSpacing: 8,
-                                                    children: _activeBuckets
+                                                    children: transactionBuckets
                                                         .map((bucket) {
                                                       final bucketId =
                                                           bucket.id!;
@@ -5114,8 +5245,8 @@ class _MainScreenState extends State<MainScreen>
                                         key: const Key(
                                           'expense_bucket_dropdown',
                                         ),
-                                        value: selectedExpenseBucket,
-                                        items: _activeBuckets
+                                        initialValue: selectedExpenseBucket,
+                                        items: transactionBuckets
                                             .map(
                                               (bucket) => DropdownMenuItem<
                                                   FinancialBucket>(
@@ -5224,21 +5355,8 @@ class _MainScreenState extends State<MainScreen>
   void _showAddGoalDialog() {
     final TextEditingController nameController = TextEditingController();
     final TextEditingController targetController = TextEditingController();
-    String selectedEmoji = '💰';
+    String selectedIconKey = 'savings';
     DateTime? selectedDate;
-
-    final List<String> emojiOptions = [
-      '💰',
-      '🎯',
-      '🏠',
-      '🚗',
-      '📱',
-      '👗',
-      '🎮',
-      '📚',
-      '✈️',
-      '💍'
-    ];
 
     showModalBottomSheet(
       context: context,
@@ -5279,7 +5397,7 @@ class _MainScreenState extends State<MainScreen>
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    'Buat Target Tabungan 🎯',
+                    'Buat Target Tabungan',
                     style: GoogleFonts.poppins(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -5361,9 +5479,9 @@ class _MainScreenState extends State<MainScreen>
                           ),
                           const SizedBox(height: 20),
 
-                          // Emoji selection
+                          // Icon selection
                           Text(
-                            'Pilih Emoji',
+                            'Pilih Ikon',
                             style: GoogleFonts.poppins(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -5375,31 +5493,34 @@ class _MainScreenState extends State<MainScreen>
                             height: 60,
                             child: ListView.builder(
                               scrollDirection: Axis.horizontal,
-                              itemCount: emojiOptions.length,
+                              itemCount: _goalIconOptions.length,
                               itemBuilder: (context, index) {
-                                final emoji = emojiOptions[index];
+                                final option = _goalIconOptions[index];
                                 return GestureDetector(
                                   onTap: () =>
-                                      setState(() => selectedEmoji = emoji),
+                                      setState(() => selectedIconKey = option.key),
                                   child: Container(
                                     margin: const EdgeInsets.only(right: 10),
                                     padding: const EdgeInsets.all(15),
                                     decoration: BoxDecoration(
-                                      color: selectedEmoji == emoji
+                                      color: selectedIconKey == option.key
                                           ? AppPalette.primary
                                               .withValues(alpha: 0.2)
                                           : AppPalette.surfaceMuted,
                                       borderRadius: BorderRadius.circular(15),
                                       border: Border.all(
-                                        color: selectedEmoji == emoji
+                                        color: selectedIconKey == option.key
                                             ? AppPalette.primary
                                             : Colors.transparent,
                                         width: 2,
                                       ),
                                     ),
-                                    child: Text(
-                                      emoji,
-                                      style: const TextStyle(fontSize: 24),
+                                    child: Icon(
+                                      option.icon,
+                                      color: selectedIconKey == option.key
+                                          ? AppPalette.primary
+                                          : AppPalette.textSecondary,
+                                      size: 24,
                                     ),
                                   ),
                                 );
@@ -5487,7 +5608,8 @@ class _MainScreenState extends State<MainScreen>
                             name: nameController.text,
                             targetAmount:
                                 parseCurrencyInput(targetController.text),
-                            emoji: selectedEmoji,
+                            emoji: '💰',
+                            iconKey: selectedIconKey,
                             createdDate: DateTime.now(),
                             targetDate: selectedDate,
                           );
@@ -5498,7 +5620,7 @@ class _MainScreenState extends State<MainScreen>
                           if (!context.mounted) return;
                           Navigator.pop(context);
                           _showSnackBarMessage(
-                              'Target tabungan berhasil dibuat! 🎯');
+                              'Target tabungan berhasil dibuat!');
                         } on Exception catch (_) {
                           _showSnackBarMessage(
                             'Target tabungan gagal disimpan. Coba lagi.',
@@ -5514,7 +5636,7 @@ class _MainScreenState extends State<MainScreen>
                         ),
                       ),
                       child: Text(
-                        'Buat Target 🎯',
+                        'Buat Target',
                         style: GoogleFonts.poppins(
                           color: Colors.white,
                           fontSize: 16,
@@ -5536,23 +5658,10 @@ class _MainScreenState extends State<MainScreen>
   void _showAddWishlistDialog() {
     final TextEditingController nameController = TextEditingController();
     final TextEditingController priceController = TextEditingController();
-    String selectedEmoji = '🛍️';
+    String selectedIconKey = 'shopping';
     String selectedPriority = 'medium';
     String? sheetFeedbackMessage;
     Color sheetFeedbackColor = Colors.red;
-
-    final List<String> emojiOptions = [
-      '🛍️',
-      '👗',
-      '👠',
-      '💄',
-      '📱',
-      '💻',
-      '🎮',
-      '📚',
-      '🏠',
-      '🚗'
-    ];
 
     final List<Map<String, dynamic>> priorities = [
       {'value': 'high', 'label': 'Prioritas Tinggi', 'color': Colors.red},
@@ -5663,7 +5772,7 @@ class _MainScreenState extends State<MainScreen>
                       const SizedBox(height: 16),
                     ],
                     Text(
-                      'Tambah ke Wishlist 🛍️',
+                      'Tambah ke Wishlist',
                       style: GoogleFonts.poppins(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -5746,9 +5855,9 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Emoji selection
+                            // Icon selection
                             Text(
-                              'Pilih Emoji',
+                              'Pilih Ikon',
                               style: GoogleFonts.poppins(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -5760,30 +5869,36 @@ class _MainScreenState extends State<MainScreen>
                               height: 60,
                               child: ListView.builder(
                                 scrollDirection: Axis.horizontal,
-                                itemCount: emojiOptions.length,
+                                itemCount: _wishlistIconOptions.length,
                                 itemBuilder: (context, index) {
-                                  final emoji = emojiOptions[index];
+                                  final option = _wishlistIconOptions[index];
                                   return GestureDetector(
                                     onTap: () =>
-                                        setState(() => selectedEmoji = emoji),
+                                        setState(() =>
+                                            selectedIconKey = option.key),
                                     child: Container(
                                       margin: const EdgeInsets.only(right: 10),
                                       padding: const EdgeInsets.all(15),
                                       decoration: BoxDecoration(
-                                        color: selectedEmoji == emoji
+                                        color: selectedIconKey == option.key
                                             ? AppPalette.primary
                                                 .withValues(alpha: 0.2)
                                             : AppPalette.surfaceMuted,
                                         borderRadius: BorderRadius.circular(15),
                                         border: Border.all(
-                                          color: selectedEmoji == emoji
+                                          color: selectedIconKey == option.key
                                               ? AppPalette.primary
                                               : Colors.transparent,
                                           width: 2,
                                         ),
                                       ),
-                                      child: Text(emoji,
-                                          style: const TextStyle(fontSize: 24)),
+                                      child: Icon(
+                                        option.icon,
+                                        color: selectedIconKey == option.key
+                                            ? AppPalette.primary
+                                            : AppPalette.textSecondary,
+                                        size: 24,
+                                      ),
                                     ),
                                   );
                                 },
@@ -5896,7 +6011,8 @@ class _MainScreenState extends State<MainScreen>
                               final item = WishlistItem(
                                 name: nameController.text.trim(),
                                 price: parseCurrencyInput(priceController.text),
-                                emoji: selectedEmoji,
+                                emoji: '🛍️',
+                                iconKey: selectedIconKey,
                                 priority: selectedPriority,
                                 createdDate: DateTime.now(),
                               );
@@ -5913,7 +6029,7 @@ class _MainScreenState extends State<MainScreen>
                               }
 
                               _showSnackBarMessage(
-                                '✅ ${item.emoji} ${item.name} berhasil ditambahkan!',
+                                '${item.name} berhasil ditambahkan ke wishlist!',
                               );
                             } on FormatException {
                               _showSnackBarMessage(
@@ -5940,7 +6056,11 @@ class _MainScreenState extends State<MainScreen>
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Text('🛍️', style: TextStyle(fontSize: 20)),
+                              const Icon(
+                                Icons.shopping_bag_outlined,
+                                color: Colors.white,
+                                size: 20,
+                              ),
                               const SizedBox(width: 10),
                               Text(
                                 'Tambah ke Wishlist',
@@ -6035,11 +6155,14 @@ class _MainScreenState extends State<MainScreen>
                               Container(
                                 padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
+                                  color: Colors.white.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(15),
                                 ),
-                                child: Text(goal.emoji,
-                                    style: const TextStyle(fontSize: 24)),
+                                child: Icon(
+                                  goal.resolvedIcon,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
                               ),
                               const SizedBox(width: 15),
                               Expanded(
@@ -6071,7 +6194,7 @@ class _MainScreenState extends State<MainScreen>
                         const SizedBox(height: 25),
 
                         Text(
-                          'Tambah Uang ke Target 💰',
+                          'Tambah Uang ke Target',
                           style: GoogleFonts.poppins(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -6163,6 +6286,7 @@ class _MainScreenState extends State<MainScreen>
                                   targetAmount: goal.targetAmount,
                                   currentAmount: goal.currentAmount + amount,
                                   emoji: goal.emoji,
+                                  iconKey: goal.iconKey,
                                   createdDate: goal.createdDate,
                                   targetDate: goal.targetDate,
                                 );
@@ -6174,7 +6298,7 @@ class _MainScreenState extends State<MainScreen>
 
                                 Navigator.pop(context);
                                 _showSnackBarMessage(
-                                  'Berhasil menambah ${formatRupiah(amount)} ke ${goal.name}! 💰',
+                                  'Berhasil menambah ${formatRupiah(amount)} ke ${goal.name}!',
                                 );
                               } on Exception catch (_) {
                                 _showSnackBarMessage(
@@ -6191,7 +6315,7 @@ class _MainScreenState extends State<MainScreen>
                               ),
                             ),
                             child: Text(
-                              'Tambah Uang 💰',
+                              'Tambah Uang',
                               style: GoogleFonts.poppins(
                                 color: Colors.white,
                                 fontSize: 16,
@@ -6414,18 +6538,9 @@ class _MainScreenState extends State<MainScreen>
   }
 
   void _buyWishlistItem(WishlistItem item) {
-    final bucketConfigurationIncomplete =
-        hasIncompleteBucketConfiguration(_activeBuckets);
     if (_activeWallets.isEmpty) {
       _showSnackBarMessage(
         'Aktifkan minimal satu dompet dulu sebelum membeli item wishlist.',
-        backgroundColor: Colors.red,
-      );
-      return;
-    }
-    if (bucketConfigurationIncomplete) {
-      _showSnackBarMessage(
-        _bucketConfigurationIncompleteMessage,
         backgroundColor: Colors.red,
       );
       return;
@@ -6435,10 +6550,12 @@ class _MainScreenState extends State<MainScreen>
         _activeWallets.where((wallet) => wallet.name == 'Cash').isNotEmpty
             ? _activeWallets.firstWhere((wallet) => wallet.name == 'Cash')
             : _activeWallets.first;
+    final wishlistBuckets =
+        _bucketSystemEnabled ? _activeBuckets : const <FinancialBucket>[];
     FinancialBucket? selectedBucket =
-        _activeBuckets.where((bucket) => bucket.name == 'Belanja').isNotEmpty
-            ? _activeBuckets.firstWhere((bucket) => bucket.name == 'Belanja')
-            : (_activeBuckets.isNotEmpty ? _activeBuckets.first : null);
+        wishlistBuckets.where((bucket) => bucket.name == 'Belanja').isNotEmpty
+            ? wishlistBuckets.firstWhere((bucket) => bucket.name == 'Belanja')
+            : (wishlistBuckets.isNotEmpty ? wishlistBuckets.first : null);
     String? dialogFeedbackMessage;
     Color dialogFeedbackColor = Colors.red;
 
@@ -6450,6 +6567,9 @@ class _MainScreenState extends State<MainScreen>
     }
 
     selectedWallet = deriveWalletFromBucket(selectedBucket) ?? selectedWallet;
+
+    final bucketConfigurationIncomplete = _bucketSystemEnabled &&
+        hasIncompleteBucketConfiguration(_activeBuckets);
 
     showDialog<void>(
       context: context,
@@ -6545,7 +6665,7 @@ class _MainScreenState extends State<MainScreen>
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    _activeBuckets.isEmpty
+                    wishlistBuckets.isEmpty
                         ? 'Belum ada pos keuangan aktif. Pembelian tetap dicatat tanpa pos sumber.'
                         : 'Pilih pos sumber; dompet akan mengikuti pos itu agar saldo tetap konsisten.',
                     style: GoogleFonts.poppins(
@@ -6554,14 +6674,14 @@ class _MainScreenState extends State<MainScreen>
                     ),
                   ),
                   const SizedBox(height: 16),
-                  if (_activeBuckets.isEmpty) ...[
+                  if (wishlistBuckets.isEmpty) ...[
                     Text(
                       'Dompet',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<Wallet>(
-                      value: selectedWallet,
+                      initialValue: selectedWallet,
                       items: _activeWallets
                           .map(
                             (wallet) => DropdownMenuItem<Wallet>(
@@ -6577,15 +6697,15 @@ class _MainScreenState extends State<MainScreen>
                     ),
                     const SizedBox(height: 12),
                   ],
-                  if (_activeBuckets.isNotEmpty) ...[
+                  if (wishlistBuckets.isNotEmpty) ...[
                     Text(
                       'Pos Sumber',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<FinancialBucket>(
-                      value: selectedBucket,
-                      items: _activeBuckets
+                      initialValue: selectedBucket,
+                      items: wishlistBuckets
                           .map(
                             (bucket) => DropdownMenuItem<FinancialBucket>(
                               value: bucket,
@@ -6640,6 +6760,13 @@ class _MainScreenState extends State<MainScreen>
               TextButton(
                 onPressed: () async {
                   clearDialogFeedback();
+                  if (wishlistBuckets.isNotEmpty &&
+                      bucketConfigurationIncomplete) {
+                    showDialogFeedback(
+                      _bucketConfigurationIncompleteMessage,
+                    );
+                    return;
+                  }
                   try {
                     await _dbHelper.purchaseWishlistItem(
                       item,

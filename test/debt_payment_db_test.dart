@@ -244,7 +244,9 @@ void main() {
       final b2 = await _insertBucket(db, name: 'B', pct: 40, balance: 400000);
       final debtId = await _insertDebt(db, mode: 'note');
 
-      final totalBefore = b1.currentBalance + b2.currentBalance; // 1.000.000
+      final bucketsBefore = await db.getFinancialBuckets();
+      final totalBefore =
+          bucketsBefore.fold(0.0, (sum, bucket) => sum + bucket.currentBalance);
 
       await db.recordDebtPayment(
         debtId: debtId,

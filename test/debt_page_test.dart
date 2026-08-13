@@ -84,6 +84,7 @@ Future<void> _pumpDebtPage(
         initialDebts: debts,
         initialWallets: _fakeWallets,
         initialBuckets: _fakeBuckets,
+        initialBucketSystemEnabled: true,
       ),
     ),
   );
@@ -102,6 +103,7 @@ Future<void> _pumpDebtDetail(
         initialPayments: payments,
         initialWallets: _fakeWallets,
         initialBuckets: _fakeBuckets,
+        initialBucketSystemEnabled: true,
       ),
     ),
   );
@@ -234,6 +236,56 @@ void main() {
       expect(find.byKey(const Key('debt_bucket_dropdown')), findsOneWidget);
     });
 
+    testWidgets('form tambah mode pos nonaktif menampilkan pesan dompet-only',
+        (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (ctx) => DebtFormSheet(
+                        initialWallets: _fakeWallets,
+                        initialBuckets: _fakeBuckets,
+                        initialBucketSystemEnabled: false,
+                      ),
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Masuk ke saldo').first,
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(find.text('Masuk ke saldo').first, warnIfMissed: false);
+      await _pumpUi(tester);
+
+      expect(find.byKey(const Key('debt_bucket_mode_off_message')),
+          findsOneWidget);
+      expect(
+        find.text(
+          'Sistem pos sedang nonaktif. Catatan ini akan mengikuti dompet saja.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('debt_bucket_dropdown')), findsNothing);
+    });
+
     testWidgets('form tambah menampilkan field tanggal dan catatan',
         (tester) async {
       await _pumpDebtPage(tester);
@@ -320,6 +372,7 @@ void main() {
                       builder: (ctx) => DebtFormSheet(
                         initialWallets: _fakeWallets,
                         initialBuckets: _fakeBuckets,
+                        initialBucketSystemEnabled: true,
                       ),
                     );
                   },
@@ -447,6 +500,225 @@ void main() {
 
       expect(find.byKey(const Key('payment_mode_indicator')), findsOneWidget);
       expect(find.byKey(const Key('payment_bucket_dropdown')), findsOneWidget);
+    });
+
+    testWidgets(
+        'payment sheet tidak menawarkan bucket yang sudah dihapus untuk pembayaran baru',
+        (tester) async {
+      final debt = Debt(
+        id: 10,
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 500000,
+        remainingAmount: 300000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: 1,
+        bucketId: 99,
+        createdDate: _now,
+        updatedDate: _now,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HutangDetailPage(
+            debt: debt,
+            initialPayments: const [],
+            initialWallets: _fakeWallets,
+            initialBuckets: [
+              FinancialBucket(
+                id: 99,
+                name: 'Pos Lama',
+                walletId: 1,
+                allocationPercentage: 100,
+                currentBalance: 0,
+                isArchived: true,
+                createdDate: _now,
+                updatedDate: _now,
+              ),
+              ..._fakeBuckets,
+            ],
+            initialBucketSystemEnabled: true,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      await _openPaymentSheet(tester);
+
+      expect(find.byKey(const Key('payment_bucket_dropdown')), findsOneWidget);
+      expect(find.text('Dana Darurat'), findsOneWidget);
+    });
+
+    testWidgets(
+        'payment sheet tetap bisa simpan saat total bucket aktif 100% walau histori memuat bucket arsip',
+        (tester) async {
+      final calls = <String>[];
+      final debt = Debt(
+        id: 10,
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 500000,
+        remainingAmount: 300000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: 1,
+        bucketId: 99,
+        createdDate: _now,
+        updatedDate: _now,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HutangDetailPage(
+            debt: debt,
+            initialPayments: const [],
+            initialWallets: _fakeWallets,
+            initialBuckets: [
+              FinancialBucket(
+                id: 99,
+                name: 'Pos Lama',
+                walletId: 1,
+                allocationPercentage: 100,
+                currentBalance: 0,
+                isArchived: true,
+                createdDate: _now,
+                updatedDate: _now,
+              ),
+              ..._fakeBuckets,
+            ],
+            initialBucketSystemEnabled: true,
+            recordDebtPayment: ({
+              required int debtId,
+              required double amount,
+              required DateTime paymentDate,
+              required String recordingMode,
+              int? walletId,
+              int? bucketId,
+              FinancialBucket? affectedBucket,
+            }) async {
+              calls.add('record');
+            },
+            loadDebtById: (debtId) async {
+              calls.add('loadDebt');
+              return debt;
+            },
+            loadPaymentsByDebt: (debtId) async {
+              calls.add('loadPayments');
+              return const <DebtPayment>[];
+            },
+            refreshReminderSchedule: () async {},
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      await _openPaymentSheet(tester);
+      await tester.enterText(
+        find.byKey(const Key('payment_amount_field')),
+        '100000',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('payment_save_btn')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await _pumpUi(tester);
+      tester
+          .widget<ElevatedButton>(find.byKey(const Key('payment_save_btn')))
+          .onPressed!();
+      await tester.pumpAndSettle();
+
+      expect(calls, ['record', 'loadDebt', 'loadPayments']);
+      expect(
+        find.text(
+          'Pos keuangan belum 100%. Selesaikan dulu di halaman Pos Keuangan.',
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+        'payment sheet mode pos nonaktif tidak menahan save karena bucket',
+        (tester) async {
+      final calls = <Map<String, Object?>>[];
+      final debt = Debt(
+        id: 10,
+        type: 'debt',
+        personName: 'Budi',
+        principalAmount: 500000,
+        remainingAmount: 300000,
+        borrowedDate: _now,
+        recordingMode: 'balance',
+        walletId: 1,
+        bucketId: 1,
+        createdDate: _now,
+        updatedDate: _now,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HutangDetailPage(
+            debt: debt,
+            initialPayments: const [],
+            initialWallets: _fakeWallets,
+            initialBuckets: const [],
+            initialBucketSystemEnabled: false,
+            recordDebtPayment: ({
+              required int debtId,
+              required double amount,
+              required DateTime paymentDate,
+              required String recordingMode,
+              int? walletId,
+              int? bucketId,
+              FinancialBucket? affectedBucket,
+            }) async {
+              calls.add({
+                'event': 'record',
+                'bucketId': bucketId,
+                'affectedBucket': affectedBucket,
+              });
+            },
+            loadDebtById: (debtId) async {
+              calls.add({'event': 'loadDebt'});
+              return debt;
+            },
+            loadPaymentsByDebt: (debtId) async {
+              calls.add({'event': 'loadPayments'});
+              return const <DebtPayment>[];
+            },
+            refreshReminderSchedule: () async {},
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      await _openPaymentSheet(tester);
+      await tester.enterText(
+        find.byKey(const Key('payment_amount_field')),
+        '100000',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('payment_save_btn')),
+        200,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await _pumpUi(tester);
+      tester
+          .widget<ElevatedButton>(find.byKey(const Key('payment_save_btn')))
+          .onPressed!();
+      await tester.pumpAndSettle();
+
+      expect(calls.map((entry) => entry['event']).toList(), [
+        'record',
+        'loadDebt',
+        'loadPayments',
+      ]);
+      expect(calls.first['bucketId'], isNull);
+      expect(calls.first['affectedBucket'], isNull);
+      expect(
+        find.text('Buat pos keuangan aktif dulu untuk pembayaran ini.'),
+        findsNothing,
+      );
     });
 
     testWidgets('payment sheet menampilkan drag handle yang konsisten',

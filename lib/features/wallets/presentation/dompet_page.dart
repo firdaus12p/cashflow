@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -13,13 +12,11 @@ class DompetPage extends StatefulWidget {
     this.initialWallets,
     @visibleForTesting this.transactionCountForWallet,
     @visibleForTesting this.deleteWalletById,
-    @visibleForTesting this.archiveWalletById,
   });
 
   final List<Wallet>? initialWallets;
   final Future<int> Function(Wallet)? transactionCountForWallet;
   final Future<void> Function(int walletId)? deleteWalletById;
-  final Future<void> Function(int walletId)? archiveWalletById;
 
   @override
   State<DompetPage> createState() => _DompetPageState();
@@ -130,7 +127,8 @@ class _DompetPageState extends State<DompetPage> {
                             key: const Key('wallet_list'),
                             padding: const EdgeInsets.only(bottom: 16),
                             itemCount: _wallets.length,
-                            itemBuilder: (_, i) => _buildWalletItem(_wallets[i]),
+                            itemBuilder: (_, i) =>
+                                _buildWalletItem(_wallets[i]),
                           ),
               ),
             ],
@@ -252,13 +250,13 @@ class _DompetPageState extends State<DompetPage> {
               onPressed: () => _showAddWalletSheet(context, wallet: wallet),
             ),
             IconButton(
-              key: const Key('wallet_archive_btn'),
+              key: const Key('wallet_delete_btn'),
               icon: const Icon(
-                Icons.archive_outlined,
+                Icons.delete_outline,
                 color: AppPalette.textSecondary,
               ),
-              tooltip: 'Arsipkan',
-              onPressed: () => _handleArchive(wallet),
+              tooltip: 'Hapus',
+              onPressed: () => _handleDelete(wallet),
             ),
           ],
         ),
@@ -266,7 +264,7 @@ class _DompetPageState extends State<DompetPage> {
     );
   }
 
-  Future<void> _handleArchive(Wallet wallet) async {
+  Future<void> _handleDelete(Wallet wallet) async {
     final int count;
     final countFn = widget.transactionCountForWallet;
     if (countFn != null) {
@@ -281,17 +279,17 @@ class _DompetPageState extends State<DompetPage> {
       await showDialog<void>(
         context: context,
         builder: (_) => AlertDialog(
-          key: const Key('wallet_archive_warning'),
+          key: const Key('wallet_delete_warning'),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
           title: Text(
-            'Arsipkan Dompet?',
+            'Hapus Dompet?',
             style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
           ),
           content: Text(
             '"${wallet.name}" masih dipakai di $count catatan historis. '
-            'Arsip direkomendasikan agar riwayat dan cicilan tetap konsisten.',
+            'Dompet akan dikeluarkan dari daftar aktif agar riwayat dan cicilan lama tetap konsisten.',
             style: GoogleFonts.poppins(fontSize: 14),
           ),
           actions: [
@@ -313,31 +311,8 @@ class _DompetPageState extends State<DompetPage> {
                 await _refreshWalletsAfterMutation(wallet.id!);
               },
               child: Text(
-                'Keluarkan dari daftar aktif',
+                'Hapus dari daftar aktif',
                 style: GoogleFonts.poppins(color: AppPalette.danger),
-              ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppPalette.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: () async {
-                Navigator.pop(context);
-                await (widget.archiveWalletById ??
-                    (int walletId) => DatabaseHelper().archiveWallet(walletId))(
-                  wallet.id!,
-                );
-                await _refreshWalletsAfterMutation(wallet.id!);
-              },
-              child: Text(
-                'Arsipkan',
-                style: GoogleFonts.poppins(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
               ),
             ),
           ],

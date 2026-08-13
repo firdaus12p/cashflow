@@ -19,6 +19,38 @@ const Map<String, IconData> availableBucketIcons = {
   'chart': Icons.pie_chart_outline,
 };
 
+const Map<String, IconData> availableGoalIcons = {
+  'savings': Icons.savings_outlined,
+  'flag': Icons.flag_outlined,
+  'home': Icons.home_outlined,
+  'car': Icons.directions_car_outlined,
+  'phone': Icons.phone_iphone_outlined,
+  'shopping': Icons.shopping_bag_outlined,
+  'game': Icons.sports_esports_outlined,
+  'book': Icons.menu_book_outlined,
+  'flight': Icons.flight_takeoff_outlined,
+  'favorite': Icons.favorite_outline,
+};
+
+const Map<String, IconData> availableWishlistIcons = {
+  'shopping': Icons.shopping_bag_outlined,
+  'apparel': Icons.checkroom_outlined,
+  'shoe': Icons.shopping_bag_outlined,
+  'beauty': Icons.auto_awesome_outlined,
+  'phone': Icons.phone_iphone_outlined,
+  'laptop': Icons.laptop_mac_outlined,
+  'game': Icons.sports_esports_outlined,
+  'book': Icons.menu_book_outlined,
+  'home': Icons.home_outlined,
+  'car': Icons.directions_car_outlined,
+};
+
+const Map<String, IconData> availableBadgeIcons = {
+  'star': Icons.star_outline_rounded,
+  'trophy': Icons.emoji_events_outlined,
+  'goal': Icons.flag_outlined,
+};
+
 IconData resolveWalletIcon(String? iconKey, String fallbackName) {
   if (iconKey != null && availableWalletIcons.containsKey(iconKey)) {
     return availableWalletIcons[iconKey]!;
@@ -43,4 +75,25 @@ IconData resolveBucketIcon(String? iconKey) {
     return availableBucketIcons[iconKey]!;
   }
   return Icons.pie_chart_outline;
+}
+
+IconData resolveGoalIcon(String? iconKey) {
+  if (iconKey != null && availableGoalIcons.containsKey(iconKey)) {
+    return availableGoalIcons[iconKey]!;
+  }
+  return Icons.savings_outlined;
+}
+
+IconData resolveWishlistIcon(String? iconKey) {
+  if (iconKey != null && availableWishlistIcons.containsKey(iconKey)) {
+    return availableWishlistIcons[iconKey]!;
+  }
+  return Icons.shopping_bag_outlined;
+}
+
+IconData resolveBadgeIcon(String? iconKey) {
+  if (iconKey != null && availableBadgeIcons.containsKey(iconKey)) {
+    return availableBadgeIcons[iconKey]!;
+  }
+  return Icons.emoji_events_outlined;
 }

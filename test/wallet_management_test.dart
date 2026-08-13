@@ -40,7 +40,7 @@ void main() {
       expect(actives.any((w) => w.name == 'Dompet Test'), isTrue);
     });
 
-    test('archiveWallet membuat dompet tidak muncul di getActiveWallets',
+    test('deleteWallet membuat dompet tanpa referensi hilang dari daftar aktif',
         () async {
       final db = DatabaseHelper();
       await db.database;
@@ -52,13 +52,13 @@ void main() {
         updatedDate: now,
       ));
 
-      await db.archiveWallet(id);
+      await db.deleteWallet(id);
 
       final actives = await db.getActiveWallets();
       expect(actives.any((w) => w.name == 'Dompet Arsip'), isFalse);
 
       final all = await db.getWallets();
-      expect(all.any((w) => w.name == 'Dompet Arsip'), isTrue);
+      expect(all.any((w) => w.name == 'Dompet Arsip'), isFalse);
     });
 
     test('getActiveWallets tidak termasuk wallet yang isArchived=1', () async {
@@ -70,7 +70,7 @@ void main() {
           Wallet(name: 'W Aktif', createdDate: now, updatedDate: now));
       final id2 = await db.insertWallet(
           Wallet(name: 'W Arsip', createdDate: now, updatedDate: now));
-      await db.archiveWallet(id2);
+      await db.deleteWallet(id2);
 
       final actives = await db.getActiveWallets();
       final names = actives.map((w) => w.name).toList();
@@ -78,7 +78,8 @@ void main() {
       expect(names, isNot(contains('W Arsip')));
     });
 
-    test('walletNameSnapshot tetap terbaca setelah dompet diarsipkan',
+    test(
+        'walletNameSnapshot tetap terbaca setelah dompet dihapus dari daftar aktif',
         () async {
       final db = DatabaseHelper();
       final rawDb = await db.database;
@@ -102,7 +103,7 @@ void main() {
         'affectsBalance': 1,
       });
 
-      await db.archiveWallet(walletId);
+      await db.deleteWallet(walletId);
 
       final rows = await rawDb.query(
         'transactions',
@@ -112,13 +113,12 @@ void main() {
       expect(rows.first['walletNameSnapshot'], 'Dompet Historis');
     });
 
-    test('seed wallets tersedia setelah fresh install', () async {
+    test('fresh install tidak lagi memaksa dompet bawaan aktif', () async {
       final db = DatabaseHelper();
       await db.database;
 
       final actives = await db.getActiveWallets();
-      final names = actives.map((w) => w.name).toList();
-      expect(names, containsAll(['Cash', 'E-Wallet', 'Bank', 'Tabungan']));
+      expect(actives, isEmpty);
     });
 
     test('updateWallet menyimpan perubahan nama', () async {
@@ -177,16 +177,18 @@ void main() {
       expect(rows.single['wallet'], 'Nama Lama');
     });
 
-    test('getActiveWallets setelah archive tidak mengandung wallet tersebut',
+    test('getActiveWallets setelah delete tidak mengandung wallet tersebut',
         () async {
       final db = DatabaseHelper();
       await db.database;
-      final wallets = await db.getActiveWallets();
-      final eWallet = wallets.firstWhere((w) => w.name == 'E-Wallet');
-      await db.archiveWallet(eWallet.id!);
+      final now = DateTime.now();
+      final walletId = await db.insertWallet(
+        Wallet(name: 'Wallet Delete', createdDate: now, updatedDate: now),
+      );
+      await db.deleteWallet(walletId);
 
       final actives = await db.getActiveWallets();
-      expect(actives.any((w) => w.name == 'E-Wallet'), isFalse);
+      expect(actives.any((w) => w.id == walletId), isFalse);
     });
 
     test('getWalletReferenceCount menghitung transaksi legacy tanpa walletId',

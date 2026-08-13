@@ -61,6 +61,7 @@ const String homeBalanceSourceTypePreferenceKey = 'homeBalanceSourceType';
 const String homeBalanceSourceIdPreferenceKey = 'homeBalanceSourceId';
 const String homeBalanceVisibilityHiddenPreferenceKey =
     'homeBalanceVisibilityHidden';
+const String bucketSystemEnabledPreferenceKey = 'bucketSystemEnabled';
 
 const String reminderEnabledPreferenceKey = 'reminderEnabled';
 const String reminderHourPreferenceKey = 'reminderHour';

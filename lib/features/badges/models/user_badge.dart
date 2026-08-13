@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+
+import '../../../core/icons/app_icons.dart';
+
 class UserBadge {
   final int? id;
   final String name;
@@ -42,4 +46,6 @@ class UserBadge {
   }
 
   String get effectiveIcon => iconKey ?? emoji;
+
+  IconData get resolvedIcon => resolveBadgeIcon(iconKey);
 }
