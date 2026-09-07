@@ -19,9 +19,9 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  final _now = DateTime(2026);
+  final now = DateTime(2026);
 
-  Debt _debt({
+  Debt debt0({
     int? id,
     String type = 'debt',
     String person = 'Budi',
@@ -37,12 +37,12 @@ void main() {
         personName: person,
         principalAmount: principal,
         remainingAmount: remaining,
-        borrowedDate: _now,
+        borrowedDate: now,
         dueDate: due,
         recordingMode: mode,
         status: status,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       );
 
   // ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      await db.insertDebt(_debt(person: 'Andi'));
+      await db.insertDebt(debt0(person: 'Andi'));
 
       final debts = await db.getDebts();
       expect(debts.any((d) => d.personName == 'Andi'), isTrue);
@@ -64,7 +64,7 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final id = await db.insertDebt(_debt(person: 'Budi'));
+      final id = await db.insertDebt(debt0(person: 'Budi'));
       final found = await db.getDebtById(id);
 
       expect(found, isNotNull);
@@ -75,7 +75,7 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final id = await db.insertDebt(_debt(person: 'Lama'));
+      final id = await db.insertDebt(debt0(person: 'Lama'));
       final old = (await db.getDebtById(id))!;
       await db.updateDebt(Debt(
         id: old.id,
@@ -97,7 +97,7 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final id = await db.insertDebt(_debt());
+      final id = await db.insertDebt(debt0());
       await db.deleteDebt(id);
 
       expect(await db.getDebtById(id), isNull);
@@ -107,11 +107,11 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final id = await db.insertDebt(_debt(mode: 'note'));
+      final id = await db.insertDebt(debt0(mode: 'note'));
       await db.recordDebtPayment(
         debtId: id,
         amount: 50000,
-        paymentDate: _now,
+        paymentDate: now,
         recordingMode: 'note',
       );
 
@@ -128,15 +128,15 @@ void main() {
 
       final walletId = await db.insertWallet(Wallet(
         name: 'Cash Baru',
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       final bucketId = await db.insertFinancialBucket(FinancialBucket(
         name: 'Dana',
         allocationPercentage: 100,
         currentBalance: 0,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       final bucket =
           (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucketId);
@@ -145,7 +145,7 @@ void main() {
         amount: 200000,
         category: 'Hutang',
         description: 'Hutang dari Budi',
-        date: _now,
+        date: now,
         walletName: 'Cash Baru',
         subsetBuckets: [bucket],
         walletId: walletId,
@@ -159,12 +159,12 @@ void main() {
         personName: 'Budi',
         principalAmount: 200000,
         remainingAmount: 200000,
-        borrowedDate: _now,
+        borrowedDate: now,
         recordingMode: 'balance',
         walletId: walletId,
         bucketId: bucketId,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       await db.deleteDebt(id);
@@ -181,13 +181,13 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final debtId = await db.insertDebt(_debt());
+      final debtId = await db.insertDebt(debt0());
       await db.insertDebtPayment(DebtPayment(
         debtId: debtId,
         amount: 100000,
-        paymentDate: _now,
+        paymentDate: now,
         recordingMode: 'note',
-        createdDate: _now,
+        createdDate: now,
       ));
 
       final payments = await db.getDebtPaymentsByDebt(debtId);
@@ -203,8 +203,8 @@ void main() {
 
       final walletId = await db.insertWallet(Wallet(
         name: 'Cash Baru',
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       await db.insertTransaction(Transaction(
@@ -212,7 +212,7 @@ void main() {
         amount: 200000,
         category: 'Hutang',
         description: 'Hutang dari Budi',
-        date: _now,
+        date: now,
         wallet: 'Cash Baru',
         walletId: walletId,
         walletNameSnapshot: 'Cash Baru',
@@ -223,11 +223,11 @@ void main() {
         personName: 'Budi',
         principalAmount: 200000,
         remainingAmount: 200000,
-        borrowedDate: _now,
+        borrowedDate: now,
         recordingMode: 'balance',
         walletId: walletId,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       final debt = await db.getDebtById(id);
@@ -247,8 +247,8 @@ void main() {
 
       final walletId = await db.insertWallet(Wallet(
         name: 'Wallet Tes',
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       final id = await db.insertDebt(Debt(
@@ -256,11 +256,11 @@ void main() {
         personName: 'Budi',
         principalAmount: 200000,
         remainingAmount: 200000,
-        borrowedDate: _now,
+        borrowedDate: now,
         recordingMode: 'balance',
         walletId: walletId,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       final debt = await db.getDebtById(id);
@@ -280,11 +280,11 @@ void main() {
             personName: 'Budi',
             principalAmount: 200000,
             remainingAmount: 200000,
-            borrowedDate: _now,
+            borrowedDate: now,
             recordingMode: 'balance',
             walletId: null,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
           walletName: '',
           bucketSystemEnabled: false,
@@ -308,13 +308,13 @@ void main() {
       await db.database;
 
       final id =
-          await db.insertDebt(_debt(principal: 500000, remaining: 500000));
+          await db.insertDebt(debt0(principal: 500000, remaining: 500000));
 
       // gap: method belum ada
       await db.recordDebtPayment(
         debtId: id,
         amount: 150000,
-        paymentDate: _now,
+        paymentDate: now,
         recordingMode: 'note',
       );
 
@@ -327,11 +327,11 @@ void main() {
       await db.database;
 
       final id =
-          await db.insertDebt(_debt(principal: 200000, remaining: 200000));
+          await db.insertDebt(debt0(principal: 200000, remaining: 200000));
       await db.recordDebtPayment(
         debtId: id,
         amount: 200000,
-        paymentDate: _now,
+        paymentDate: now,
         recordingMode: 'note',
       );
 
@@ -344,11 +344,11 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final id = await db.insertDebt(_debt());
+      final id = await db.insertDebt(debt0());
       await db.recordDebtPayment(
         debtId: id,
         amount: 50000,
-        paymentDate: _now,
+        paymentDate: now,
         recordingMode: 'note',
       );
 
@@ -362,13 +362,13 @@ void main() {
       await db.database;
 
       final id =
-          await db.insertDebt(_debt(principal: 200000, remaining: 50000));
+          await db.insertDebt(debt0(principal: 200000, remaining: 50000));
 
       await expectLater(
         db.recordDebtPayment(
           debtId: id,
           amount: 60000,
-          paymentDate: _now,
+          paymentDate: now,
           recordingMode: 'note',
         ),
         throwsA(isA<RangeError>()),

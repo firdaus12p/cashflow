@@ -6,6 +6,13 @@ import 'local_notification_service.dart';
 
 const int _defaultScheduleHorizonDays = 7;
 
+/// The database reset committed, but pending reminders could not be cancelled.
+class ReminderCleanupException implements Exception {
+  const ReminderCleanupException(this.cause);
+
+  final Object cause;
+}
+
 class ReminderScheduler {
   ReminderScheduler({
     DatabaseHelper? databaseHelper,
@@ -17,15 +24,37 @@ class ReminderScheduler {
   final DatabaseHelper _databaseHelper;
   final ReminderNotificationService _notificationService;
 
-  Future<void> rescheduleForTonight({DateTime? now}) async {
+  // All instances share the OS notification store. Read snapshots only after
+  // earlier work finishes, and keep database reset + cancellation indivisible.
+  static Future<void> _queue = Future<void>.value();
+
+  static Future<void> _serialize(Future<void> Function() operation) {
+    final result = _queue.then((_) => operation());
+    _queue = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
+
+  Future<void> resetAllData() => _serialize(() async {
+        await _databaseHelper.resetAllData();
+        try {
+          await _notificationService.cancelAllPendingReminders();
+        } catch (error) {
+          throw ReminderCleanupException(error);
+        }
+      });
+
+  Future<void> rescheduleForTonight({DateTime? now}) =>
+      _serialize(() => _rescheduleForTonight(now: now));
+
+  Future<void> _rescheduleForTonight({DateTime? now}) async {
     final referenceTime = now ?? DateTime.now();
     final preferences = await _databaseHelper.getReminderPreferences();
-    final debts = await _databaseHelper.getDebts();
 
     await _notificationService.cancelAllPendingReminders();
     if (!preferences.isEnabled) {
       return;
     }
+    final debts = await _databaseHelper.getDebts();
 
     for (var offset = 0; offset < _defaultScheduleHorizonDays; offset++) {
       final scheduledTime = DateTime(

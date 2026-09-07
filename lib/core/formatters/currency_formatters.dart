@@ -24,7 +24,9 @@ class CurrencyInputFormatter extends TextInputFormatter {
         selection: TextSelection.collapsed(offset: 0),
       );
     }
-    final formatted = CurrencyInputFormatter.format(int.parse(digits));
+    final amount = tryParseCurrencyInput(digits);
+    if (amount == null) return oldValue;
+    final formatted = CurrencyInputFormatter.format(amount.toInt());
     return newValue.copyWith(
       text: formatted,
       selection: TextSelection.collapsed(offset: formatted.length),
@@ -39,7 +41,13 @@ double parseCurrencyInput(String input) {
 double? tryParseCurrencyInput(String input) {
   final digits = input.replaceAll(RegExp(r'[^\d]'), '');
   if (digits.isEmpty) return null;
-  return double.tryParse(digits);
+  final significant = digits.replaceFirst(RegExp(r'^0+'), '');
+  if (significant.isEmpty) return 0;
+  // SQLite REAL and Dart double preserve integer rupiah exactly up to 2^53 - 1.
+  if (significant.length > 16) return null;
+  final amount = int.tryParse(significant);
+  if (amount == null || amount > 9007199254740991) return null;
+  return amount.toDouble();
 }
 
 final NumberFormat _rupiahNumberFormatter =

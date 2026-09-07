@@ -1,5 +1,7 @@
 // ignore_for_file: depend_on_referenced_packages
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +10,35 @@ import 'package:cashflow/main.dart';
 
 void main() {
   final now = DateTime(2026, 8, 10);
+
+  testWidgets('mode toggle rejects reentry and recovers after failure',
+      (tester) async {
+    final pending = Completer<void>();
+    var calls = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: PosKeuanganPage(
+      initialBuckets: const [],
+      initialWallets: const [],
+      initialBucketSystemEnabled: true,
+      setBucketSystemEnabled: (_) {
+        calls++;
+        return pending.future;
+      },
+    )));
+    final toggle = find.byKey(const Key('bucket_system_toggle_btn'));
+    final change = tester.widget<Switch>(toggle).onChanged!;
+    change(false);
+    change(false);
+    await tester.pump();
+    expect(calls, 1);
+    expect(tester.widget<Switch>(toggle).onChanged, isNull);
+    pending.completeError(Exception('Simulated failure'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(toggle).onChanged, isNotNull);
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    expect(find.text('Mode pos gagal diubah. Coba lagi.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   Future<void> pumpPage(
     WidgetTester tester, {
@@ -147,14 +178,16 @@ void main() {
     expect(find.text('Mode Pos'), findsOneWidget);
     expect(find.byKey(const Key('bucket_system_toggle_btn')), findsOneWidget);
     expect(
-      tester.widget<Switch>(find.byKey(const Key('bucket_system_toggle_btn')))
+      tester
+          .widget<Switch>(find.byKey(const Key('bucket_system_toggle_btn')))
           .value,
       isFalse,
     );
     expect(find.text('Aktifkan Pos'), findsNothing);
   });
 
-  testWidgets('header pos keuangan di layar sempit tidak overflow dan tetap wrap',
+  testWidgets(
+      'header pos keuangan di layar sempit tidak overflow dan tetap wrap',
       (tester) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1.0;

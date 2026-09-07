@@ -61,7 +61,11 @@ Aplikasi **Cashflow** adalah aplikasi pencatat pemasukan dan pengeluaran harian 
 
 ## 📦 Build APK
 
-Untuk membuild aplikasi menjadi APK:
+Build release wajib memakai signing production dari `android/key.properties`; tidak ada fallback ke signing debug. File lokal tersebut harus berisi `keyAlias`, `keyPassword`, `storeFile`, dan `storePassword` yang tidak kosong, dengan `storeFile` menunjuk ke file keystore yang tersedia. Gunakan path absolut untuk menghindari ambiguitas; path relatif pada konfigurasi ini dihitung dari `android/app`.
+
+Task Gradle `validateProductionSigning` dijalankan sebelum `preReleaseBuild` dan menolak konfigurasi yang tidak lengkap atau file keystore yang tidak ada. Jangan commit `key.properties`, keystore (`*.jks` / `*.keystore`), atau password; pola file tersebut sudah diabaikan oleh `android/.gitignore`. Build debug tetap dapat digunakan tanpa konfigurasi signing release.
+
+Setelah konfigurasi signing production tersedia, build APK:
 
 ```bash
 flutter build apk --release

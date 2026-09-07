@@ -64,7 +64,8 @@ void main() {
       expect(validateBucketPercentages([]), isFalse);
     });
 
-    test('dua dompet masing-masing 100% tetap ditolak bila total global 200%', () {
+    test('dua dompet masing-masing 100% tetap ditolak bila total global 200%',
+        () {
       expect(
         validateBucketPercentages([
           bucket(1, 60),

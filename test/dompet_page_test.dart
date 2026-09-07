@@ -39,13 +39,13 @@ final _fakeWallets = [
 ];
 
 void main() {
-  Future<void> _pumpUi(WidgetTester tester) async {
+  Future<void> pumpUi(WidgetTester tester) async {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 16));
   }
 
-  Future<void> _pumpDompetPage(
+  Future<void> pumpDompetPage(
     WidgetTester tester, {
     List<Wallet>? initialWallets,
     Future<int> Function(Wallet)? transactionCountForWallet,
@@ -58,42 +58,42 @@ void main() {
         ),
       ),
     );
-    await _pumpUi(tester);
+    await pumpUi(tester);
   }
 
   group('DompetPage — tampilan dan interaksi', () {
     testWidgets('DompetPage menampilkan wallet_list ketika ada data',
         (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       expect(find.byKey(const Key('wallet_list')), findsOneWidget);
     });
 
     testWidgets('DompetPage menampilkan nama wallet', (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       expect(find.text('Cash'), findsOneWidget);
       expect(find.text('E-Wallet'), findsOneWidget);
     });
 
     testWidgets('DompetPage punya tombol tambah dompet (FAB)', (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       expect(find.byKey(const Key('dompet_fab')), findsOneWidget);
     });
 
     testWidgets('DompetPage punya tombol edit untuk setiap wallet',
         (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       expect(find.byKey(const Key('wallet_edit_btn')), findsWidgets);
     });
 
     testWidgets('form tambah dompet muncul setelah tap FAB', (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       await tester.tap(find.byKey(const Key('dompet_fab')));
-      await _pumpUi(tester);
+      await pumpUi(tester);
 
       expect(find.byKey(const Key('wallet_name_field')), findsOneWidget);
       expect(find.byKey(const Key('wallet_save_btn')), findsOneWidget);
@@ -115,7 +115,7 @@ void main() {
           ),
         ),
       );
-      await _pumpUi(tester);
+      await pumpUi(tester);
 
       await tester.tap(find.byKey(const Key('dompet_fab')));
       await tester.pumpAndSettle();
@@ -133,10 +133,10 @@ void main() {
 
     testWidgets('form edit dompet muncul setelah tap tombol edit',
         (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       await tester.tap(find.byKey(const Key('wallet_edit_btn')).first);
-      await _pumpUi(tester);
+      await pumpUi(tester);
 
       expect(find.text('Edit Dompet'), findsOneWidget);
       expect(find.byKey(const Key('wallet_name_field')), findsOneWidget);
@@ -145,7 +145,7 @@ void main() {
 
     testWidgets('DompetPage merender ikon dari iconKey tersimpan',
         (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       expect(find.byIcon(Icons.payments_outlined), findsWidgets);
       expect(find.byIcon(Icons.phone_android_outlined), findsWidgets);
@@ -153,7 +153,7 @@ void main() {
 
     testWidgets('DompetPage menampilkan empty state bila tidak ada wallet',
         (tester) async {
-      await _pumpDompetPage(tester, initialWallets: const []);
+      await pumpDompetPage(tester, initialWallets: const []);
 
       expect(find.text('Belum ada dompet'), findsOneWidget);
       expect(find.byKey(const Key('wallet_list')), findsNothing);
@@ -162,7 +162,7 @@ void main() {
 
   group('BR-04 — warning flow hapus dompet berhistori', () {
     testWidgets('tombol hapus tersedia untuk setiap wallet', (tester) async {
-      await _pumpDompetPage(tester, initialWallets: _fakeWallets);
+      await pumpDompetPage(tester, initialWallets: _fakeWallets);
 
       expect(find.byKey(const Key('wallet_delete_btn')), findsWidgets);
     });
@@ -172,14 +172,14 @@ void main() {
       Future<int> hasHistory(Wallet wallet) =>
           Future.value(wallet.id == 1 ? 1 : 0);
 
-      await _pumpDompetPage(
+      await pumpDompetPage(
         tester,
         initialWallets: _fakeWallets,
         transactionCountForWallet: hasHistory,
       );
 
       await tester.tap(find.byKey(const Key('wallet_delete_btn')).first);
-      await _pumpUi(tester);
+      await pumpUi(tester);
 
       expect(find.byKey(const Key('wallet_delete_warning')), findsOneWidget);
       expect(find.text('Hapus Dompet?'), findsOneWidget);

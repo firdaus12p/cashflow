@@ -7,6 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:cashflow/data/database/database_helper.dart';
+import 'package:cashflow/features/transactions/models/transaction.dart'
+    as model;
 
 // DB-level migration tests: memverifikasi kontrak skema lintas versi.
 // Tabel bawaan yang harus tetap ada setelah migrasi.
@@ -122,7 +124,7 @@ Future<void> _createV1Database(String path) async {
 }
 
 // Helper: buat database skema v3 (sebelum app_preferences ada) di path yang diberikan.
-Future<void> _createV3Database(String path) async {
+Future<void> _createV3Database(String path, {bool seedWallets = true}) async {
   final db = await databaseFactoryFfi.openDatabase(
     path,
     options: OpenDatabaseOptions(
@@ -254,7 +256,7 @@ Future<void> _createV3Database(String path) async {
         ''');
 
         final now = DateTime(2026, 8, 9).millisecondsSinceEpoch;
-        for (final name in _seedWalletNames) {
+        for (final name in seedWallets ? _seedWalletNames : <String>[]) {
           await db.insert('wallets', {
             'name': name,
             'iconKey': 'wallet',
@@ -271,70 +273,12 @@ Future<void> _createV3Database(String path) async {
 }
 
 Future<void> _createV4Database(String path) async {
+  await _createV3Database(path, seedWallets: false);
   final db = await databaseFactoryFfi.openDatabase(
     path,
     options: OpenDatabaseOptions(
       version: 4,
-      onCreate: (db, _) async {
-        await db.execute('''
-          CREATE TABLE transactions(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            category TEXT NOT NULL,
-            description TEXT NOT NULL,
-            date INTEGER NOT NULL,
-            wallet TEXT DEFAULT 'Cash',
-            walletId INTEGER,
-            walletNameSnapshot TEXT DEFAULT '',
-            affectsBalance INTEGER DEFAULT 1
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE wallets(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            iconKey TEXT,
-            color TEXT,
-            isArchived INTEGER DEFAULT 0,
-            createdDate INTEGER NOT NULL,
-            updatedDate INTEGER NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE financial_buckets(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            iconKey TEXT,
-            allocationPercentage REAL NOT NULL DEFAULT 0,
-            currentBalance REAL NOT NULL DEFAULT 0,
-            isArchived INTEGER DEFAULT 0,
-            createdDate INTEGER NOT NULL,
-            updatedDate INTEGER NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE transaction_bucket_allocations(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            transactionId INTEGER NOT NULL,
-            bucketId INTEGER NOT NULL,
-            normalizedPercentage REAL NOT NULL,
-            allocatedAmount REAL NOT NULL,
-            role TEXT NOT NULL,
-            createdDate INTEGER NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE bucket_transfers(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            fromBucketId INTEGER NOT NULL,
-            toBucketId INTEGER NOT NULL,
-            amount REAL NOT NULL,
-            note TEXT,
-            transferDate INTEGER NOT NULL,
-            createdDate INTEGER NOT NULL
-          )
-        ''');
+      onUpgrade: (db, _, __) async {
         await db.execute('''
           CREATE TABLE app_preferences(
             key TEXT PRIMARY KEY,
@@ -348,11 +292,107 @@ Future<void> _createV4Database(String path) async {
   await db.close();
 }
 
+Future<void> _createV5Database(String path) async {
+  await _createV4Database(path);
+  final db = await databaseFactoryFfi.openDatabase(
+    path,
+    options: OpenDatabaseOptions(
+      version: 5,
+      onUpgrade: (db, _, __) async {
+        await db.execute(
+            'ALTER TABLE financial_buckets ADD COLUMN walletId INTEGER');
+        await db.execute(
+            'ALTER TABLE bucket_transfers ADD COLUMN fromWalletIdSnapshot INTEGER');
+        await db.execute(
+            'ALTER TABLE bucket_transfers ADD COLUMN toWalletIdSnapshot INTEGER');
+      },
+    ),
+  );
+  await db.close();
+}
+
 void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   });
+
+  tearDown(() async {
+    await DatabaseHelper.closeDatabase();
+  });
+
+  for (final version in [1, 2, 3, 4, 5, 6]) {
+    test('schema v$version reaches v6 with all indexes and preserved data',
+        () async {
+      final directory = await Directory.systemTemp.createTemp('finance_v6_');
+      addTearDown(() async {
+        await DatabaseHelper.closeDatabase();
+        await directory.delete(recursive: true);
+      });
+      final path = p.join(directory.path, 'migration.db');
+      final creators = {
+        1: _createV1Database,
+        2: _createV2Database,
+        3: (String path) => _createV3Database(path),
+        4: _createV4Database,
+        5: _createV5Database,
+      };
+      if (version < 6) {
+        await creators[version]!(path);
+        final oldDb = await databaseFactoryFfi.openDatabase(path);
+        await oldDb.insert('transactions', {
+          'type': 'income',
+          'amount': 100000.0,
+          'category': 'Legacy',
+          'description': 'Preserved',
+          'date': 1,
+        });
+        await oldDb.close();
+      }
+      DatabaseHelper.overrideDatabasePath(path);
+      final db = await DatabaseHelper().database;
+      expect(await db.getVersion(), 6);
+      for (final entry in {
+        'idx_transactions_date': 'date',
+        'idx_transactions_wallet_id': 'walletId',
+        'idx_debts_status': 'status',
+        'idx_debt_payments_debt_id': 'debtId',
+      }.entries) {
+        final columns = await db.rawQuery('PRAGMA index_info(${entry.key})');
+        expect(columns.single['name'], entry.value);
+      }
+      if (version < 6) {
+        expect((await db.query('transactions')).single['description'],
+            'Preserved');
+        final cash = (await DatabaseHelper().getActiveWallets())
+            .firstWhere((wallet) => wallet.name == 'Cash');
+        await DatabaseHelper().insertTransaction(model.Transaction(
+          type: 'expense',
+          amount: 100000,
+          category: 'Test',
+          description: 'Spend migrated balance',
+          date: DateTime(2026),
+          wallet: cash.name,
+          walletId: cash.id,
+        ));
+        await expectLater(
+          DatabaseHelper().insertTransaction(model.Transaction(
+            type: 'expense',
+            amount: 1,
+            category: 'Test',
+            description: 'Overdraw migrated balance',
+            date: DateTime(2026),
+            wallet: cash.name,
+            walletId: cash.id,
+          )),
+          throwsA(isA<InsufficientBalanceException>()),
+        );
+      }
+      await DatabaseHelper.closeDatabase();
+      final reopened = await DatabaseHelper().database;
+      expect(await reopened.getVersion(), 6);
+    });
+  }
 
   group('Fresh install (onCreate v3)', () {
     setUp(() {

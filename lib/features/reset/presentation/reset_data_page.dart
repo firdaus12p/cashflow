@@ -2,17 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../../../data/database/database_helper.dart';
-import '../../../features/notifications/services/local_notification_service.dart';
+import '../../notifications/services/reminder_scheduler.dart';
 
 /// Full-screen page that explains the scope of a full data reset and lets the
 /// user confirm the irreversible action.
 ///
 /// [resetHandler] and [onResetComplete] are injectable for widget testing.
-/// In production, both are wired by [MainScreen]:
-///   - [resetHandler]    → calls DatabaseHelper.resetAllData() +
-///                         LocalNotificationService.cancelAllPendingReminders()
-///   - [onResetComplete] → calls _loadAllData() on MainScreen then pops
+/// By default, the scheduler coordinates DB reset and notification cleanup.
 class ResetDataPage extends StatefulWidget {
   const ResetDataPage({
     super.key,
@@ -23,7 +19,7 @@ class ResetDataPage extends StatefulWidget {
   /// Override for testing — replaces the real DB + notification reset.
   final Future<void> Function()? resetHandler;
 
-  /// Called after [resetHandler] completes. Typically reloads shell state.
+  /// Called after the DB commits, even if notification cleanup fails.
   final VoidCallback? onResetComplete;
 
   @override
@@ -49,11 +45,8 @@ class _ResetDataPageState extends State<ResetDataPage> {
     if (widget.resetHandler != null) {
       await widget.resetHandler!();
     } else {
-      // Production: wipe DB then cancel pending notifications.
-      await DatabaseHelper().resetAllData();
-      await LocalNotificationService.instance.cancelAllPendingReminders();
+      await ReminderScheduler().resetAllData();
     }
-    widget.onResetComplete?.call();
   }
 
   Future<void> _onCtaTapped() async {
@@ -98,14 +91,17 @@ class _ResetDataPageState extends State<ResetDataPage> {
 
     if (confirmed != true || !mounted) return;
 
+    final messenger = ScaffoldMessenger.of(context);
+    final onResetComplete = widget.onResetComplete;
+    var cleanupFailed = false;
     setState(() => _isResetting = true);
     try {
       await _doReset();
+    } on ReminderCleanupException {
+      cleanupFailed = true;
     } catch (_) {
-      // Reset rolled back atomically by the DB transaction — data is safe.
-      // Show feedback so the user knows to try again.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (messenger.mounted) {
+        messenger.showSnackBar(
           SnackBar(
             content: Text(
               'Reset gagal. Silakan coba lagi.',
@@ -115,9 +111,24 @@ class _ResetDataPageState extends State<ResetDataPage> {
           ),
         );
       }
+      return;
     } finally {
       if (mounted) setState(() => _isResetting = false);
     }
+
+    // Use the captured messenger: the shell callback may pop this route.
+    if (cleanupFailed && messenger.mounted) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Data sudah direset, tetapi pengingat terjadwal gagal dibatalkan.',
+            style: GoogleFonts.poppins(fontSize: 13),
+          ),
+          backgroundColor: AppPalette.danger,
+        ),
+      );
+    }
+    onResetComplete?.call();
   }
 
   @override

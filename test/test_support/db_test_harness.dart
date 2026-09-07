@@ -1,8 +1,9 @@
 // ignore_for_file: depend_on_referenced_packages
 
-import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -22,8 +23,26 @@ const _tableResetOrder = [
   'wallets',
 ];
 
-int _isolatedDatabaseCounter = 0;
 bool _databaseFactoryConfigured = false;
+
+void mockTestFontAssets() {
+  // These are behavioral tests: supply empty font assets and use the test font.
+  final fontAssets = {
+    for (final weight in ['Regular', 'Medium', 'SemiBold', 'Bold'])
+      'Poppins-$weight.ttf': [
+        {'asset': 'Poppins-$weight.ttf'},
+      ],
+  };
+  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .setMockMessageHandler('flutter/assets', (message) async {
+    final key = const StringCodec().decodeMessage(message);
+    if (key == 'AssetManifest.bin') {
+      return const StandardMessageCodec().encodeMessage(fontAssets);
+    }
+    if (fontAssets.containsKey(key)) return ByteData(0);
+    return null;
+  });
+}
 
 void _configureTestDatabaseFactory() {
   if (_databaseFactoryConfigured) return;
@@ -43,10 +62,8 @@ Future<String> initializeIsolatedTestDatabase({
 }) async {
   _configureTestDatabaseFactory();
 
-  final dbPath = p.join(
-    Directory.systemTemp.path,
-    '${prefix}_${_isolatedDatabaseCounter++}.db',
-  );
+  final directory = await Directory.systemTemp.createTemp('${prefix}_');
+  final dbPath = p.join(directory.path, 'test.db');
   DatabaseHelper.overrideDatabasePath(dbPath);
   await DatabaseHelper().database;
   return dbPath;
@@ -69,23 +86,11 @@ Future<void> resetSharedTestDatabase() async {
 }
 
 Future<void> disposeSharedTestDatabase() async {
-  try {
-    await DatabaseHelper.closeDatabase().timeout(
-      const Duration(milliseconds: 250),
-    );
-  } on TimeoutException {
-    DatabaseHelper.overrideDatabasePath(':memory:');
-  }
+  await DatabaseHelper.closeDatabase();
 }
 
 Future<void> disposeIsolatedTestDatabase(String dbPath) async {
-  try {
-    await DatabaseHelper.closeDatabase().timeout(
-      const Duration(milliseconds: 250),
-    );
-  } on TimeoutException {
-    DatabaseHelper.overrideDatabasePath(dbPath);
-  }
+  await DatabaseHelper.closeDatabase();
 
   for (final suffix in ['', '-journal', '-shm', '-wal']) {
     final file = File('$dbPath$suffix');
@@ -93,4 +98,5 @@ Future<void> disposeIsolatedTestDatabase(String dbPath) async {
       await file.delete();
     }
   }
+  await Directory(p.dirname(dbPath)).delete();
 }

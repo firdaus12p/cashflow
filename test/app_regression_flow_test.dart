@@ -27,7 +27,7 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  final _now = DateTime(2026);
+  final now = DateTime(2026);
 
   // ---------------------------------------------------------------------------
   // Regresi 1: Histori transaksi tetap terbaca setelah dompet diarsipkan
@@ -41,8 +41,8 @@ void main() {
 
       final walletId = await db.insertWallet(Wallet(
         name: 'Dompet Regresi',
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       await rawDb.insert('transactions', {
@@ -50,7 +50,7 @@ void main() {
         'amount': 75000.0,
         'category': 'Makanan',
         'description': 'Makan siang',
-        'date': _now.millisecondsSinceEpoch,
+        'date': now.millisecondsSinceEpoch,
         'wallet': 'Dompet Regresi',
         'walletId': walletId,
         'walletNameSnapshot': 'Dompet Regresi',
@@ -85,15 +85,15 @@ void main() {
         name: 'Tabungan',
         allocationPercentage: 60,
         currentBalance: 0,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       final b2 = await db.insertFinancialBucket(FinancialBucket(
         name: 'Harian',
         allocationPercentage: 40,
         currentBalance: 0,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       final bucket1 =
@@ -106,7 +106,7 @@ void main() {
         amount: income,
         category: 'Gaji',
         description: 'Gaji Juli',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: [bucket1, bucket2],
       );
@@ -127,12 +127,22 @@ void main() {
       final bucketId = await db.insertFinancialBucket(FinancialBucket(
         name: 'Dana Darurat',
         allocationPercentage: 100,
-        currentBalance: 500000,
-        createdDate: _now,
-        updatedDate: _now,
+        currentBalance: 0,
+        createdDate: now,
+        updatedDate: now,
       ));
       final bucket =
           (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucketId);
+
+      await db.saveIncomeWithAllocations(
+        amount: 500000,
+        category: 'Gaji',
+        description: 'Dana awal cicilan',
+        date: now,
+        walletName: 'Cash',
+        walletId: bucket.walletId,
+        subsetBuckets: [bucket],
+      );
 
       // Buat hutang dan catat cicilan yang memengaruhi bucket
       final debtId = await db.insertDebt(Debt(
@@ -140,16 +150,16 @@ void main() {
         personName: 'Rekan',
         principalAmount: 200000,
         remainingAmount: 200000,
-        borrowedDate: _now,
+        borrowedDate: now,
         recordingMode: 'balance',
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       await db.recordDebtPayment(
         debtId: debtId,
         amount: 100000,
-        paymentDate: _now,
+        paymentDate: now,
         recordingMode: 'balance',
         affectedBucket: bucket,
       );
@@ -181,17 +191,17 @@ void main() {
         personName: 'Pelanggan',
         principalAmount: 300000,
         remainingAmount: 300000,
-        borrowedDate: _now,
+        borrowedDate: now,
         recordingMode: 'note',
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       // Cicilan 1 — masih active
       await db.recordDebtPayment(
           debtId: debtId,
           amount: 100000,
-          paymentDate: _now,
+          paymentDate: now,
           recordingMode: 'note');
       expect((await db.getDebtById(debtId))!.status, 'active');
       expect((await db.getDebtById(debtId))!.remainingAmount,
@@ -201,7 +211,7 @@ void main() {
       await db.recordDebtPayment(
           debtId: debtId,
           amount: 100000,
-          paymentDate: _now,
+          paymentDate: now,
           recordingMode: 'note');
       expect((await db.getDebtById(debtId))!.status, 'active');
 
@@ -209,7 +219,7 @@ void main() {
       await db.recordDebtPayment(
           debtId: debtId,
           amount: 100000,
-          paymentDate: _now,
+          paymentDate: now,
           recordingMode: 'note');
       final settled = (await db.getDebtById(debtId))!;
       expect(settled.status, 'settled');

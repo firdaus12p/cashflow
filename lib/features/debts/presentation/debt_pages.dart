@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/formatters/currency_formatters.dart';
 import '../../../core/icons/app_icons.dart';
+import '../../../core/widgets/controller_sheet_builder.dart';
 import '../../../data/database/database_helper.dart';
 import '../../buckets/helpers/bucket_helpers.dart';
 import '../../buckets/models/bucket_models.dart';
@@ -377,6 +378,7 @@ class DebtFormSheet extends StatefulWidget {
     this.initialBuckets,
     this.initialBucketSystemEnabled,
     this.onSaved,
+    @visibleForTesting this.insertDebt,
   });
 
   final Debt? initialDebt;
@@ -384,6 +386,7 @@ class DebtFormSheet extends StatefulWidget {
   final List<FinancialBucket>? initialBuckets;
   final bool? initialBucketSystemEnabled;
   final Future<void> Function()? onSaved;
+  final Future<int> Function(Debt)? insertDebt;
 
   @override
   State<DebtFormSheet> createState() => _DebtFormSheetState();
@@ -407,6 +410,8 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   final ScrollController _scrollCtrl = ScrollController();
   Timer? _feedbackTimer;
   double _sheetDragOffset = 0;
+  bool _isSaving = false;
+  bool _didSave = false;
 
   @override
   void initState() {
@@ -523,6 +528,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     String message, {
     Color backgroundColor = AppPalette.danger,
   }) {
+    if (!mounted) return;
     _feedbackTimer?.cancel();
     setState(() {
       _sheetFeedbackMessage = message;
@@ -561,6 +567,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   }
 
   Future<void> _save() async {
+    if (!mounted || _isSaving || _didSave) return;
     _clearValidationMessage();
 
     final person = _personCtrl.text.trim();
@@ -609,11 +616,38 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     final now = DateTime.now();
     final existing = widget.initialDebt;
 
-    if (existing == null) {
-      if (requiresFinancialBinding) {
-        try {
-          await db.createDebtWithBalanceEffect(
-            debt: Debt(
+    setState(() => _isSaving = true);
+    try {
+      if (existing == null) {
+        if (requiresFinancialBinding) {
+          try {
+            await db.createDebtWithBalanceEffect(
+              debt: Debt(
+                type: _selectedType,
+                personName: person,
+                principalAmount: amount,
+                remainingAmount: amount,
+                borrowedDate: _borrowedDate,
+                dueDate: _dueDate,
+                recordingMode: _selectedMode,
+                walletId: _selectedWallet?.id,
+                note: _noteCtrl.text.trim().isEmpty
+                    ? null
+                    : _noteCtrl.text.trim(),
+                createdDate: now,
+                updatedDate: now,
+              ),
+              walletName: _selectedWallet!.name,
+              bucketSystemEnabled: modeUsesBuckets,
+              affectedBucket: modeUsesBuckets ? _selectedBucket : null,
+            );
+          } on InsufficientBalanceException {
+            _showValidationMessage(_insufficientBalanceMessage);
+            return;
+          }
+        } else {
+          await (widget.insertDebt ?? db.insertDebt)(
+            Debt(
               type: _selectedType,
               personName: person,
               principalAmount: amount,
@@ -622,73 +656,61 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
               dueDate: _dueDate,
               recordingMode: _selectedMode,
               walletId: _selectedWallet?.id,
+              bucketId: modeUsesBuckets ? _selectedBucket?.id : null,
               note:
                   _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
               createdDate: now,
               updatedDate: now,
             ),
-            walletName: _selectedWallet!.name,
-            bucketSystemEnabled: modeUsesBuckets,
-            affectedBucket: modeUsesBuckets ? _selectedBucket : null,
           );
-        } on InsufficientBalanceException {
-          _showValidationMessage(_insufficientBalanceMessage);
-          return;
         }
       } else {
-        await db.insertDebt(
+        final existingDebt = existing;
+        final paidAmount =
+            existingDebt.principalAmount - existingDebt.remainingAmount;
+        if (amount + 0.001 < paidAmount) {
+          _showValidationMessage(
+            'Nominal total tidak boleh lebih kecil dari yang sudah dibayar.',
+          );
+          return;
+        }
+        final updatedRemaining =
+            (amount - paidAmount).clamp(0.0, amount).toDouble();
+        await db.updateDebt(
           Debt(
+            id: existingDebt.id,
             type: _selectedType,
             personName: person,
             principalAmount: amount,
-            remainingAmount: amount,
+            remainingAmount: updatedRemaining,
             borrowedDate: _borrowedDate,
             dueDate: _dueDate,
             recordingMode: _selectedMode,
             walletId: _selectedWallet?.id,
             bucketId: modeUsesBuckets ? _selectedBucket?.id : null,
             note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-            createdDate: now,
+            status: updatedRemaining <= 0 ? 'settled' : 'active',
+            createdDate: existingDebt.createdDate,
             updatedDate: now,
           ),
         );
       }
-    } else {
-      final existingDebt = existing;
-      final paidAmount =
-          existingDebt.principalAmount - existingDebt.remainingAmount;
-      if (amount + 0.001 < paidAmount) {
-        _showValidationMessage(
-          'Nominal total tidak boleh lebih kecil dari yang sudah dibayar.',
-        );
-        return;
-      }
-      final updatedRemaining =
-          (amount - paidAmount).clamp(0.0, amount).toDouble();
-      await db.updateDebt(
-        Debt(
-          id: existingDebt.id,
-          type: _selectedType,
-          personName: person,
-          principalAmount: amount,
-          remainingAmount: updatedRemaining,
-          borrowedDate: _borrowedDate,
-          dueDate: _dueDate,
-          recordingMode: _selectedMode,
-          walletId: _selectedWallet?.id,
-          bucketId: modeUsesBuckets ? _selectedBucket?.id : null,
-          note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-          status: updatedRemaining <= 0 ? 'settled' : 'active',
-          createdDate: existingDebt.createdDate,
-          updatedDate: now,
-        ),
-      );
+
+      _didSave = true;
+      await widget.onSaved?.call();
+
+      if (!mounted) return;
+      Navigator.pop(context);
+    } on StateError {
+      _showValidationMessage(
+          'Catatan gagal disimpan. Periksa dompet dan pos yang dipilih.');
+    } on Exception {
+      _showValidationMessage(_didSave
+          ? 'Catatan tersimpan, tetapi penyegaran gagal. Tutup form untuk melanjutkan.'
+          : 'Catatan gagal disimpan. Coba lagi.');
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
-
-    await widget.onSaved?.call();
-
-    if (!mounted) return;
-    Navigator.pop(context);
   }
 
   @override
@@ -1188,7 +1210,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
                               ),
-                              onPressed: _save,
+                              onPressed: _isSaving || _didSave ? null : _save,
                               child: Text(
                                 isEditMode ? 'Simpan Perubahan' : 'Simpan',
                                 style: GoogleFonts.poppins(
@@ -1313,6 +1335,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
   String? _paymentSheetFeedbackMessage;
   Color _paymentSheetFeedbackColor = AppPalette.danger;
   Timer? _paymentSheetFeedbackTimer;
+  bool _isSavingPayment = false;
 
   @override
   void initState() {
@@ -1450,6 +1473,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                   onSaved: _refreshReminderSchedule,
                 ),
               );
+              if (!mounted) return;
               await _refreshReminderSchedule();
               await _refresh();
             },
@@ -1489,7 +1513,7 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
               if (confirm != true || !mounted) return;
               await DatabaseHelper().deleteDebt(_debt.id!);
               await _refreshReminderSchedule();
-              if (!mounted || !context.mounted) return;
+              if (!context.mounted) return;
               Navigator.pop(context);
             },
           ),
@@ -1643,7 +1667,9 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              onPressed: () => _showPaymentSheet(context),
+              onPressed: _isSavingPayment
+                  ? null
+                  : () => _showPaymentSheet(context),
             )
           : null,
     );
@@ -1714,17 +1740,77 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
     setModalState(() => _paymentSheetFeedbackMessage = null);
   }
 
+  Widget _buildPaymentSheetDragHandle({
+    required ValueChanged<DragUpdateDetails> onVerticalDragUpdate,
+    required ValueChanged<DragEndDetails> onVerticalDragEnd,
+    required VoidCallback onVerticalDragCancel,
+  }) {
+    return Center(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragUpdate: onVerticalDragUpdate,
+        onVerticalDragEnd: onVerticalDragEnd,
+        onVerticalDragCancel: onVerticalDragCancel,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Container(
+            key: const Key('sheet_drag_handle'),
+            width: 50,
+            height: 5,
+            decoration: BoxDecoration(
+              color: AppPalette.border,
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentSheetFeedbackBanner({
+    required String message,
+    required Color color,
+  }) {
+    return Container(
+      key: const Key('payment_sheet_feedback'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline_rounded, size: 18, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showPaymentSheet(BuildContext context) async {
-    final amountCtrl = TextEditingController();
+    if (!context.mounted || _isSavingPayment) return;
+    var selectedMode = _debt.recordingMode;
+    var isSaving = false;
+    var didSave = false;
     final selectableBuckets = _activeSelectableBuckets();
-    final bucketModeEnabled =
-        _debt.recordingMode == 'balance' && _bucketSystemEnabled;
-    final paymentWallet = _availableWallets.where((wallet) {
+    Wallet? selectedWallet = _availableWallets.where((wallet) {
       return wallet.id == _debt.walletId;
     }).isNotEmpty
         ? _availableWallets.firstWhere((wallet) => wallet.id == _debt.walletId)
         : null;
-    FinancialBucket? selectedBucket = bucketModeEnabled
+    FinancialBucket? selectedBucket = _bucketSystemEnabled
         ? (selectableBuckets.where((bucket) {
             return bucket.id == _debt.bucketId;
           }).isNotEmpty
@@ -1736,30 +1822,36 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
     _paymentSheetFeedbackTimer?.cancel();
     _paymentSheetFeedbackMessage = null;
 
-    final shouldRefresh = await showModalBottomSheet<bool>(
+    await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) => FractionallySizedBox(
-          heightFactor: 0.88,
-          child: Transform.translate(
-            offset: Offset(0, sheetDragOffset),
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
+      builder: (ctx) => ControllerSheetBuilder(
+        createControllers: () => [TextEditingController()],
+        builder: (ctx, setModalState, controllers) {
+          final amountCtrl = controllers[0];
+          final bucketModeEnabled =
+              selectedMode == 'balance' && _bucketSystemEnabled;
+          final paymentWallet = bucketModeEnabled
+              ? _findWalletById(selectedBucket?.walletId)
+              : selectedWallet;
+          return FractionallySizedBox(
+            heightFactor: 0.88,
+            child: Transform.translate(
+              offset: Offset(0, sheetDragOffset),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildPaymentSheetDragHandle(
                           onVerticalDragUpdate: (details) {
                             final nextOffset = (sheetDragOffset +
                                     (details.primaryDelta ?? details.delta.dy))
@@ -1782,178 +1874,52 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                             if (sheetDragOffset == 0) return;
                             setModalState(() => sheetDragOffset = 0);
                           },
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Container(
-                              key: const Key('sheet_drag_handle'),
-                              width: 50,
-                              height: 5,
-                              decoration: BoxDecoration(
-                                color: AppPalette.border,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                          ),
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      if (_paymentSheetFeedbackMessage != null) ...[
-                        Container(
-                          key: const Key('payment_sheet_feedback'),
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
+                        const SizedBox(height: 8),
+                        if (_paymentSheetFeedbackMessage != null) ...[
+                          _buildPaymentSheetFeedbackBanner(
+                            message: _paymentSheetFeedbackMessage!,
+                            color: _paymentSheetFeedbackColor,
                           ),
-                          decoration: BoxDecoration(
-                            color: _paymentSheetFeedbackColor.withValues(
-                                alpha: 0.1),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: _paymentSheetFeedbackColor.withValues(
-                                alpha: 0.3,
-                              ),
+                          const SizedBox(height: 16),
+                        ],
+                        Expanded(
+                          child: SingleChildScrollView(
+                            padding: EdgeInsets.only(
+                              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
                             ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline_rounded,
-                                size: 18,
-                                color: _paymentSheetFeedbackColor,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  _paymentSheetFeedbackMessage!,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Catat Pembayaran',
                                   style: GoogleFonts.poppins(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: _paymentSheetFeedbackColor,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: EdgeInsets.only(
-                            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Catat Pembayaran',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                key: const Key('payment_mode_indicator'),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: _debt.recordingMode == 'balance'
-                                      ? AppPalette.success
-                                          .withValues(alpha: 0.1)
-                                      : AppPalette.surfaceDisabled,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      _debt.recordingMode == 'balance'
-                                          ? Icons.account_balance_outlined
-                                          : Icons.note_outlined,
-                                      size: 16,
-                                      color: _debt.recordingMode == 'balance'
-                                          ? AppPalette.success
-                                          : AppPalette.textSecondary,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        _debt.recordingMode == 'balance'
-                                            ? (_bucketSystemEnabled
-                                                ? 'Masuk ke saldo — memengaruhi pos keuangan'
-                                                : 'Masuk ke saldo — sementara hanya memengaruhi dompet')
-                                            : 'Catatan saja — tidak mengubah saldo',
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 11,
-                                          color:
-                                              _debt.recordingMode == 'balance'
-                                                  ? AppPalette.success
-                                                  : AppPalette.textSecondary,
-                                        ),
-                                      ),
-                                    ),
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<String>(
+                                  key: const Key('payment_mode_dropdown'),
+                                  initialValue: selectedMode,
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: 'balance',
+                                        child: Text('Masuk ke saldo')),
+                                    DropdownMenuItem(
+                                        value: 'note',
+                                        child: Text('Catatan saja')),
                                   ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              if (paymentWallet != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        resolveWalletIcon(
-                                          paymentWallet.iconKey,
-                                          paymentWallet.name,
-                                        ),
-                                        size: 16,
-                                        color: AppPalette.primary,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'Dompet: ${paymentWallet.name}',
-                                          style: GoogleFonts.poppins(
-                                            fontSize: 11,
-                                            color: AppPalette.textPrimary,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              if (paymentWallet != null)
-                                const SizedBox(height: 16),
-                              if (_debt.recordingMode == 'balance' &&
-                                  _bucketSystemEnabled) ...[
-                                DropdownButtonFormField<FinancialBucket>(
-                                  key: const Key('payment_bucket_dropdown'),
-                                  initialValue: selectedBucket,
-                                  items: selectableBuckets
-                                      .map(
-                                        (bucket) =>
-                                            DropdownMenuItem<FinancialBucket>(
-                                          value: bucket,
-                                          child: Text(bucket.name),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (bucket) => setModalState(() {
-                                    selectedBucket = bucket;
-                                  }),
+                                  onChanged: isSaving || didSave
+                                      ? null
+                                      : (mode) {
+                                          if (mode == null) return;
+                                          setModalState(
+                                              () => selectedMode = mode);
+                                        },
                                   decoration: InputDecoration(
-                                    labelText: 'Pos Keuangan',
+                                    labelText: 'Mode Pembayaran',
                                     filled: true,
                                     fillColor: AppPalette.surfaceMuted,
                                     border: OutlineInputBorder(
@@ -1962,202 +1928,397 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                     ),
                                   ),
                                 ),
-                                const SizedBox(height: 16),
-                              ] else if (_debt.recordingMode == 'balance') ...[
+                                const SizedBox(height: 12),
                                 Container(
-                                  key: const Key(
-                                      'payment_bucket_mode_off_message'),
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: BoxDecoration(
-                                    color: AppPalette.surfaceMuted,
-                                    borderRadius: BorderRadius.circular(12),
+                                  key: const Key('payment_mode_indicator'),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
                                   ),
-                                  child: Text(
-                                    'Sistem pos sedang nonaktif. Pembayaran ini akan mengikuti dompet saja.',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 12,
-                                      color: AppPalette.textSecondary,
+                                  decoration: BoxDecoration(
+                                    color: selectedMode == 'balance'
+                                        ? AppPalette.success
+                                            .withValues(alpha: 0.1)
+                                        : AppPalette.surfaceDisabled,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        selectedMode == 'balance'
+                                            ? Icons.account_balance_outlined
+                                            : Icons.note_outlined,
+                                        size: 16,
+                                        color: selectedMode == 'balance'
+                                            ? AppPalette.success
+                                            : AppPalette.textSecondary,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          selectedMode == 'balance'
+                                              ? (_bucketSystemEnabled
+                                                  ? 'Masuk ke saldo — memengaruhi pos keuangan'
+                                                  : 'Masuk ke saldo — sementara hanya memengaruhi dompet')
+                                              : 'Catatan saja — tidak mengubah saldo',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            color: selectedMode == 'balance'
+                                                ? AppPalette.success
+                                                : AppPalette.textSecondary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                if (selectedMode == 'balance' &&
+                                    paymentWallet != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          resolveWalletIcon(
+                                            paymentWallet.iconKey,
+                                            paymentWallet.name,
+                                          ),
+                                          size: 16,
+                                          color: AppPalette.primary,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Dompet: ${paymentWallet.name}',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 11,
+                                              color: AppPalette.textPrimary,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                              TextField(
-                                key: const Key('payment_amount_field'),
-                                controller: amountCtrl,
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [CurrencyInputFormatter()],
-                                decoration: InputDecoration(
-                                  hintText: 'Nominal cicilan',
-                                  hintStyle: GoogleFonts.poppins(),
-                                  prefixText: 'Rp ',
-                                  prefixStyle: GoogleFonts.poppins(
-                                    color: AppPalette.primary,
-                                    fontWeight: FontWeight.bold,
+                                if (selectedMode == 'balance' &&
+                                    paymentWallet != null)
+                                  const SizedBox(height: 16),
+                                if (bucketModeEnabled) ...[
+                                  DropdownButtonFormField<FinancialBucket>(
+                                    key: const Key('payment_bucket_dropdown'),
+                                    initialValue: selectedBucket,
+                                    items: selectableBuckets
+                                        .map(
+                                          (bucket) =>
+                                              DropdownMenuItem<FinancialBucket>(
+                                            value: bucket,
+                                            child: Text(bucket.name),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: isSaving || didSave
+                                        ? null
+                                        : (bucket) => setModalState(() {
+                                              selectedBucket = bucket;
+                                            }),
+                                    decoration: InputDecoration(
+                                      labelText: 'Pos Keuangan',
+                                      filled: true,
+                                      fillColor: AppPalette.surfaceMuted,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
                                   ),
-                                  filled: true,
-                                  fillColor: AppPalette.surfaceMuted,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                    borderSide: BorderSide.none,
+                                  const SizedBox(height: 16),
+                                ] else if (selectedMode == 'balance') ...[
+                                  DropdownButtonFormField<Wallet>(
+                                    key: const Key('payment_wallet_dropdown'),
+                                    initialValue: selectedWallet,
+                                    items: _availableWallets
+                                        .where((wallet) =>
+                                            !wallet.isArchived ||
+                                            wallet.id == _debt.walletId)
+                                        .map((wallet) => DropdownMenuItem(
+                                            value: wallet,
+                                            child: Text(wallet.name)))
+                                        .toList(),
+                                    onChanged: isSaving || didSave
+                                        ? null
+                                        : (wallet) => setModalState(
+                                            () => selectedWallet = wallet),
+                                    decoration: InputDecoration(
+                                      labelText: 'Dompet',
+                                      filled: true,
+                                      fillColor: AppPalette.surfaceMuted,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 20),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  key: const Key('payment_save_btn'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AppPalette.primary,
-                                    shape: RoundedRectangleBorder(
+                                  const SizedBox(height: 16),
+                                  Container(
+                                    key: const Key(
+                                        'payment_bucket_mode_off_message'),
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: AppPalette.surfaceMuted,
                                       borderRadius: BorderRadius.circular(12),
                                     ),
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 14),
+                                    child: Text(
+                                      'Sistem pos sedang nonaktif. Pembayaran ini akan mengikuti dompet saja.',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: AppPalette.textSecondary,
+                                      ),
+                                    ),
                                   ),
-                                  onPressed: () async {
-                                    _clearPaymentSheetFeedback(setModalState);
-                                    final amount = tryParseCurrencyInput(
-                                            amountCtrl.text.trim()) ??
-                                        0;
-                                    if (amount <= 0) {
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        'Nominal cicilan harus lebih besar dari 0.',
-                                      );
-                                      return;
-                                    }
-                                    if (amount > _debt.remainingAmount) {
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        'Nominal cicilan melebihi sisa yang harus dibayar.',
-                                      );
-                                      return;
-                                    }
-                                    if (bucketModeEnabled &&
-                                        _availableBuckets.isEmpty) {
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        'Buat pos keuangan aktif dulu untuk pembayaran ini.',
-                                      );
-                                      return;
-                                    }
-                                    if (bucketModeEnabled &&
-                                        hasIncompleteBucketConfiguration(
-                                            _availableBuckets)) {
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        _bucketConfigurationIncompleteMessage,
-                                      );
-                                      return;
-                                    }
-                                    if (bucketModeEnabled &&
-                                        selectedBucket == null) {
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        'Pilih pos keuangan untuk pembayaran ini.',
-                                      );
-                                      return;
-                                    }
-                                    try {
-                                      final recorder = widget.recordDebtPayment;
-                                      if (recorder != null) {
-                                        await recorder(
-                                          debtId: _debt.id!,
-                                          amount: amount,
-                                          paymentDate: DateTime.now(),
-                                          recordingMode: _debt.recordingMode,
-                                          walletId: _debt.walletId,
-                                          bucketId: bucketModeEnabled
-                                              ? _debt.bucketId
-                                              : null,
-                                          affectedBucket: selectedBucket,
-                                        );
-                                      } else {
-                                        await DatabaseHelper()
-                                            .recordDebtPayment(
-                                          debtId: _debt.id!,
-                                          amount: amount,
-                                          paymentDate: DateTime.now(),
-                                          recordingMode: _debt.recordingMode,
-                                          walletId: _debt.walletId,
-                                          bucketId: bucketModeEnabled
-                                              ? _debt.bucketId
-                                              : null,
-                                          affectedBucket: selectedBucket,
-                                        );
-                                      }
-                                    } on RangeError {
-                                      if (!ctx.mounted) return;
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        'Nominal cicilan melebihi sisa yang harus dibayar.',
-                                      );
-                                      return;
-                                    } on ArgumentError {
-                                      if (!ctx.mounted) return;
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        'Nominal cicilan tidak valid.',
-                                      );
-                                      return;
-                                    } on InsufficientBalanceException {
-                                      if (!ctx.mounted) return;
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        _insufficientBalanceMessage,
-                                      );
-                                      return;
-                                    } on StateError {
-                                      if (!ctx.mounted) return;
-                                      _showPaymentSheetFeedback(
-                                        ctx,
-                                        setModalState,
-                                        'Catatan ini sudah lunas.',
-                                      );
-                                      return;
-                                    }
-                                    await _refreshReminderSchedule();
-                                    if (!ctx.mounted) return;
-                                    Navigator.pop(ctx, true);
-                                  },
-                                  child: Text(
-                                    'Simpan',
-                                    style: GoogleFonts.poppins(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w600,
+                                  const SizedBox(height: 16),
+                                ],
+                                TextField(
+                                  key: const Key('payment_amount_field'),
+                                  controller: amountCtrl,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [CurrencyInputFormatter()],
+                                  decoration: InputDecoration(
+                                    hintText: 'Nominal cicilan',
+                                    hintStyle: GoogleFonts.poppins(),
+                                    prefixText: 'Rp ',
+                                    prefixStyle: GoogleFonts.poppins(
+                                      color: AppPalette.primary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    filled: true,
+                                    fillColor: AppPalette.surfaceMuted,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 20),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    key: const Key('payment_save_btn'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppPalette.primary,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 14),
+                                    ),
+                                    onPressed: isSaving || didSave
+                                        ? null
+                                        : () async {
+                                            if (!ctx.mounted ||
+                                                !mounted ||
+                                                _isSavingPayment ||
+                                                isSaving ||
+                                                didSave) {
+                                              return;
+                                            }
+                                            _clearPaymentSheetFeedback(
+                                                setModalState);
+                                            final amount =
+                                                tryParseCurrencyInput(amountCtrl
+                                                        .text
+                                                        .trim()) ??
+                                                    0;
+                                            if (amount <= 0) {
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                'Nominal cicilan harus lebih besar dari 0.',
+                                              );
+                                              return;
+                                            }
+                                            if (amount >
+                                                _debt.remainingAmount) {
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                'Nominal cicilan melebihi sisa yang harus dibayar.',
+                                              );
+                                              return;
+                                            }
+                                            if (bucketModeEnabled &&
+                                                _availableBuckets.isEmpty) {
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                'Buat pos keuangan aktif dulu untuk pembayaran ini.',
+                                              );
+                                              return;
+                                            }
+                                            if (bucketModeEnabled &&
+                                                hasIncompleteBucketConfiguration(
+                                                    _availableBuckets)) {
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                _bucketConfigurationIncompleteMessage,
+                                              );
+                                              return;
+                                            }
+                                            if (bucketModeEnabled &&
+                                                selectedBucket == null) {
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                'Pilih pos keuangan untuk pembayaran ini.',
+                                              );
+                                              return;
+                                            }
+                                            if (selectedMode == 'balance' &&
+                                                paymentWallet == null) {
+                                              _showPaymentSheetFeedback(
+                                                  ctx,
+                                                  setModalState,
+                                                  'Pilih dompet untuk mode Masuk ke saldo.');
+                                              return;
+                                            }
+                                            setModalState(
+                                                () => isSaving = true);
+                                            setState(() => _isSavingPayment = true);
+                                            try {
+                                              final recorder =
+                                                  widget.recordDebtPayment;
+                                              if (recorder != null) {
+                                                await recorder(
+                                                  debtId: _debt.id!,
+                                                  amount: amount,
+                                                  paymentDate: DateTime.now(),
+                                                  recordingMode: selectedMode,
+                                                  walletId:
+                                                      selectedMode == 'balance'
+                                                          ? paymentWallet?.id
+                                                          : null,
+                                                  bucketId: bucketModeEnabled
+                                                      ? selectedBucket?.id
+                                                      : null,
+                                                  affectedBucket:
+                                                      bucketModeEnabled
+                                                          ? selectedBucket
+                                                          : null,
+                                                );
+                                              } else {
+                                                await DatabaseHelper()
+                                                    .recordDebtPayment(
+                                                  debtId: _debt.id!,
+                                                  amount: amount,
+                                                  paymentDate: DateTime.now(),
+                                                  recordingMode: selectedMode,
+                                                  walletId:
+                                                      selectedMode == 'balance'
+                                                          ? paymentWallet?.id
+                                                          : null,
+                                                  bucketId: bucketModeEnabled
+                                                      ? selectedBucket?.id
+                                                      : null,
+                                                  affectedBucket:
+                                                      bucketModeEnabled
+                                                          ? selectedBucket
+                                                          : null,
+                                                );
+                                              }
+                                              didSave = true;
+                                              try {
+                                                await _refreshReminderSchedule();
+                                              } finally {
+                                                // The commit outlives the sheet; refresh once before allowing another payment.
+                                                if (mounted) await _refresh();
+                                              }
+                                              if (ctx.mounted &&
+                                                  ModalRoute.of(ctx)?.isCurrent == true) {
+                                                Navigator.pop(ctx, true);
+                                              }
+                                            } on RangeError {
+                                              if (!ctx.mounted) return;
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                'Nominal cicilan melebihi sisa yang harus dibayar.',
+                                              );
+                                              return;
+                                            } on ArgumentError {
+                                              if (!ctx.mounted) return;
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                'Nominal cicilan tidak valid.',
+                                              );
+                                              return;
+                                            } on InsufficientBalanceException {
+                                              if (!ctx.mounted) return;
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                _insufficientBalanceMessage,
+                                              );
+                                              return;
+                                            } on StateError {
+                                              if (!ctx.mounted) return;
+                                              _showPaymentSheetFeedback(
+                                                ctx,
+                                                setModalState,
+                                                'Pembayaran tidak dapat diproses. Periksa status catatan, dompet, dan pos.',
+                                              );
+                                              return;
+                                            } on Exception {
+                                              if (!ctx.mounted) return;
+                                              _showPaymentSheetFeedback(
+                                                  ctx,
+                                                  setModalState,
+                                                  didSave
+                                                      ? 'Pembayaran tersimpan, tetapi penyegaran gagal. Tutup form untuk melanjutkan.'
+                                                      : 'Pembayaran gagal disimpan. Coba lagi.');
+                                            } finally {
+                                              if (ctx.mounted) {
+                                                setModalState(
+                                                    () => isSaving = false);
+                                              }
+                                              if (mounted) {
+                                                setState(() => _isSavingPayment = false);
+                                              }
+                                            }
+                                          },
+                                    child: Text(
+                                      'Simpan',
+                                      style: GoogleFonts.poppins(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     ).whenComplete(() {
       _paymentSheetFeedbackTimer?.cancel();
       _paymentSheetFeedbackTimer = null;
     });
-    if (shouldRefresh == true && mounted) {
-      await _refresh();
-    }
   }
 }

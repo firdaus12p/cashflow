@@ -15,6 +15,7 @@ void main() {
   });
 
   setUp(() async {
+    mockTestFontAssets();
     await resetSharedTestDatabase();
   });
 
@@ -22,7 +23,14 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  Future<void> pumpPage(WidgetTester tester) async {
+  Future<void> pumpPage(
+    WidgetTester tester, {
+    bool withExistingBucket = false,
+  }) async {
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
     await tester.pumpWidget(
       MaterialApp(
         home: PosKeuanganPage(
@@ -36,15 +44,16 @@ void main() {
           ],
           initialBucketSystemEnabled: false,
           initialBuckets: [
-            FinancialBucket(
-              id: 1,
-              name: 'Tabungan',
-              walletId: 1,
-              allocationPercentage: 100,
-              currentBalance: 0,
-              createdDate: now,
-              updatedDate: now,
-            ),
+            if (withExistingBucket)
+              FinancialBucket(
+                id: 1,
+                name: 'Tabungan',
+                walletId: 1,
+                allocationPercentage: 100,
+                currentBalance: 0,
+                createdDate: now,
+                updatedDate: now,
+              ),
           ],
           previewBucketReconciliations: () async => {
             1: (
@@ -87,10 +96,18 @@ void main() {
       '30',
     );
 
-    await tester.tap(find.byKey(const Key('bucket_save_btn')));
+    final saveButton = tester.widget<ElevatedButton>(
+      find.byKey(const Key('bucket_save_btn')),
+    );
+    // Await the full save and reload, not just the tap that starts FFI IO.
+    await tester.runAsync(() async {
+      await (saveButton.onPressed! as Future<void> Function())();
+    });
     await pumpSheetFrames(tester);
 
-    final savedBuckets = await DatabaseHelper().getFinancialBuckets();
+    final savedBuckets = (await tester.runAsync(
+      () => DatabaseHelper().getFinancialBuckets(),
+    ))!;
     expect(savedBuckets, hasLength(1));
     expect(savedBuckets.single.name, 'Tabungan');
     expect(savedBuckets.single.allocationPercentage, 30);
@@ -102,7 +119,7 @@ void main() {
 
   testWidgets('aktivasi pos menampilkan ringkasan preview rekonsiliasi',
       (tester) async {
-    await pumpPage(tester);
+    await pumpPage(tester, withExistingBucket: true);
 
     await tester.tap(find.byKey(const Key('bucket_system_toggle_btn')));
     await tester.pumpAndSettle();

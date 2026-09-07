@@ -113,12 +113,13 @@ void main() {
       expect(rows.first['walletNameSnapshot'], 'Dompet Historis');
     });
 
-    test('fresh install tidak lagi memaksa dompet bawaan aktif', () async {
+    test('fresh install menyediakan empat dompet bawaan aktif', () async {
       final db = DatabaseHelper();
       await db.database;
 
       final actives = await db.getActiveWallets();
-      expect(actives, isEmpty);
+      expect(actives.map((wallet) => wallet.name),
+          unorderedEquals(['Cash', 'E-Wallet', 'Bank', 'Tabungan']));
     });
 
     test('updateWallet menyimpan perubahan nama', () async {

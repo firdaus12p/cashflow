@@ -9,7 +9,7 @@ import 'package:cashflow/main.dart';
 void main() {
   const shortInteractionTimeout = Timeout(Duration(seconds: 5));
 
-  Future<void> _pumpInteractionFrames(
+  Future<void> pumpInteractionFrames(
     WidgetTester tester, {
     int frameCount = 8,
     Duration step = const Duration(milliseconds: 100),
@@ -19,7 +19,7 @@ void main() {
     }
   }
 
-  Future<void> _pumpMainScreen(
+  Future<void> pumpMainScreen(
     WidgetTester tester, {
     List<Transaction>? initialTransactions,
     List<Transaction>? initialAllTransactions,
@@ -75,7 +75,7 @@ void main() {
       ),
     ];
 
-    await _pumpMainScreen(
+    await pumpMainScreen(
       tester,
       initialTransactions: transactions,
       initialAllTransactions: transactions,
@@ -132,7 +132,7 @@ void main() {
       ),
     ];
 
-    await _pumpMainScreen(
+    await pumpMainScreen(
       tester,
       initialTransactions: currentMonthTransactions,
       initialAllTransactions: allTransactions,
@@ -149,7 +149,7 @@ void main() {
 
   testWidgets('cashflow app smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await _pumpMainScreen(tester);
+    await pumpMainScreen(tester);
 
     // Verify that the app starts correctly without depending on emoji copy.
     expect(find.byType(MainScreen), findsOneWidget);
@@ -157,7 +157,7 @@ void main() {
 
   testWidgets('home shell menampilkan tab baru dan navigasi inti tetap hidup',
       (WidgetTester tester) async {
-    await _pumpMainScreen(tester);
+    await pumpMainScreen(tester);
     await tester.pumpAndSettle();
 
     expect(find.text('Riwayat Transaksi'), findsOneWidget);
@@ -205,7 +205,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MediaQuery(
+      const MediaQuery(
         data: mediaQueryData,
         child: MaterialApp(
           home: MainScreen(
@@ -236,7 +236,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MediaQuery(
+      const MediaQuery(
         data: mediaQueryData,
         child: MaterialApp(
           home: MainScreen(
@@ -257,7 +257,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final saveButtonRect = tester.getRect(
-      find.widgetWithText(ElevatedButton, 'Buat Target 🎯'),
+      find.widgetWithText(ElevatedButton, 'Buat Target'),
     );
     expect(
       saveButtonRect.bottom,
@@ -275,7 +275,7 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MediaQuery(
+      const MediaQuery(
         data: mediaQueryData,
         child: MaterialApp(
           home: MainScreen(
@@ -311,7 +311,7 @@ void main() {
     const mediaQueryData = MediaQueryData(size: Size(360, 800));
 
     await tester.pumpWidget(
-      MediaQuery(
+      const MediaQuery(
         data: mediaQueryData,
         child: MaterialApp(
           home: MainScreen(
@@ -357,7 +357,7 @@ void main() {
       wallet: 'Cash',
     );
 
-    await _pumpMainScreen(
+    await pumpMainScreen(
       tester,
       initialTransactions: [tx],
       initialAllTransactions: [tx],
@@ -378,7 +378,7 @@ void main() {
   testWidgets(
       'sheet tambah wishlist menampilkan feedback lokal untuk validasi wajib',
       (WidgetTester tester) async {
-    await _pumpMainScreen(tester);
+    await pumpMainScreen(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('bottom_nav_wishlist_belanja')));
@@ -437,7 +437,7 @@ void main() {
 
   testWidgets('range filter only opens picker from the range action button',
       (WidgetTester tester) async {
-    await _pumpMainScreen(tester);
+    await pumpMainScreen(tester);
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Statistik'));
@@ -463,17 +463,17 @@ void main() {
       wallet: 'Cash',
     );
 
-    await _pumpMainScreen(
+    await pumpMainScreen(
       tester,
       initialTransactions: [transaction],
       initialAllTransactions: [transaction],
     );
-    await _pumpInteractionFrames(tester);
+    await pumpInteractionFrames(tester);
 
     final transactionFinder = find.text('Belanja mingguan');
     await tester.ensureVisible(transactionFinder);
     await tester.tap(transactionFinder);
-    await _pumpInteractionFrames(tester);
+    await pumpInteractionFrames(tester);
 
     expect(find.byKey(const Key('transaction_detail_page')), findsOneWidget);
     expect(
@@ -494,17 +494,17 @@ void main() {
       wallet: 'Cash',
     );
 
-    await _pumpMainScreen(
+    await pumpMainScreen(
       tester,
       initialTransactions: [transaction],
       initialAllTransactions: [transaction],
     );
-    await _pumpInteractionFrames(tester);
+    await pumpInteractionFrames(tester);
 
     final transactionFinder = find.text('Belanja Ifhaa');
     await tester.ensureVisible(transactionFinder);
     await tester.drag(transactionFinder, const Offset(-600, 0));
-    await _pumpInteractionFrames(tester);
+    await pumpInteractionFrames(tester);
 
     expect(find.text('Edit Transaksi'), findsOneWidget);
     expect(find.text('Belanja Ifhaa'), findsWidgets);
@@ -522,17 +522,17 @@ void main() {
       wallet: 'Cash',
     );
 
-    await _pumpMainScreen(
+    await pumpMainScreen(
       tester,
       initialTransactions: [transaction],
       initialAllTransactions: [transaction],
     );
-    await _pumpInteractionFrames(tester);
+    await pumpInteractionFrames(tester);
 
     final transactionFinder = find.text('Belanja cepat');
     await tester.ensureVisible(transactionFinder);
     await tester.drag(transactionFinder, const Offset(600, 0));
-    await _pumpInteractionFrames(tester);
+    await pumpInteractionFrames(tester);
 
     expect(find.text('Hapus Transaksi? 🗑️'), findsOneWidget);
     expect(find.text('Kamu yakin mau hapus transaksi ini?'), findsOneWidget);

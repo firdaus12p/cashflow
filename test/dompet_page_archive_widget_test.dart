@@ -25,6 +25,33 @@ final _fakeWallets = [
 ];
 
 void main() {
+  for (final referenceCount in [0, 2]) {
+    testWidgets(
+        'active owned buckets reject wallet removal with $referenceCount references',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+          home: DompetPage(
+        initialWallets: _fakeWallets,
+        transactionCountForWallet: (_) async => referenceCount,
+        deleteWalletById: (_) async =>
+            throw StateError('private database detail'),
+      )));
+      await tester.tap(find.byKey(const Key('wallet_delete_btn')).first);
+      await tester.pumpAndSettle();
+      if (referenceCount > 0) {
+        await tester.tap(find.byKey(const Key('wallet_remove_btn')));
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Cash'), findsOneWidget);
+      expect(
+          find.text(
+              'Dompet masih memiliki pos aktif. Selesaikan pos tersebut sebelum menghapus dompet.'),
+          findsOneWidget);
+      expect(find.textContaining('private database detail'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(

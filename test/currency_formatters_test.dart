@@ -5,6 +5,29 @@ import 'package:cashflow/core/formatters/currency_formatters.dart';
 
 void main() {
   group('CurrencyInputFormatter', () {
+    test('input terlalu besar mempertahankan nilai dan cursor sebelumnya', () {
+      const previous = TextEditingValue(
+        text: '12.000',
+        selection: TextSelection.collapsed(offset: 2),
+      );
+      for (final text in ['9007199254740992', '9' * 400]) {
+        expect(
+          CurrencyInputFormatter().formatEditUpdate(
+            previous,
+            TextEditingValue(text: text),
+          ),
+          previous,
+        );
+        expect(tryParseCurrencyInput(text), isNull);
+      }
+    });
+
+    test('batas integer tepat dan nol di depan ditangani konsisten', () {
+      expect(tryParseCurrencyInput('9.007.199.254.740.991'), 9007199254740991);
+      expect(tryParseCurrencyInput('${'0' * 30}123'), 123);
+      expect(tryParseCurrencyInput('000'), 0);
+    });
+
     test('format menambahkan pemisah ribuan', () {
       expect(CurrencyInputFormatter.format(0), '0');
       expect(CurrencyInputFormatter.format(12000), '12.000');

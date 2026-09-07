@@ -147,7 +147,7 @@ class _PengingatPageState extends State<PengingatPage> {
                     onChanged: !_isReminderSupported || _isSaving
                         ? null
                         : _toggleReminder,
-                    activeColor: AppPalette.primary,
+                    activeThumbColor: AppPalette.primary,
                     title: Text(
                       'Aktifkan reminder malam',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w600),

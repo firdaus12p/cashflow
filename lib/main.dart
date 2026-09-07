@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'app/app.dart';
+import 'features/notifications/models/notification_payload.dart';
 import 'features/notifications/services/local_notification_service.dart';
 import 'features/home/presentation/main_screen.dart';
 
@@ -24,9 +25,22 @@ export 'features/wallets/models/wallet.dart';
 export 'features/wallets/presentation/dompet_page.dart';
 export 'features/wishlist/models/wishlist_item.dart';
 
-Future<void> main() async {
+Future<void> main() => bootstrapApp();
+
+Future<void> bootstrapApp({
+  Future<NotificationPayload?> Function()? initializeNotifications,
+  void Function(Widget)? appRunner,
+}) async {
   WidgetsFlutterBinding.ensureInitialized();
-  final launchPayload = await LocalNotificationService.instance.initialize();
-  runApp(
+  NotificationPayload? launchPayload;
+  try {
+    launchPayload = await (initializeNotifications ??
+        LocalNotificationService.instance.initialize)();
+  } catch (_) {
+    // Notifications are optional; plugin failure must not prevent app startup.
+    debugPrint(
+        'Notification initialization failed; starting without a payload.');
+  }
+  (appRunner ?? runApp)(
       CashflowApp(home: MainScreen(initialNotificationPayload: launchPayload)));
 }

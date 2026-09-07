@@ -24,7 +24,7 @@ void main() {
   // gap: fungsi belum ada — ditambahkan di Task 5.2
   // ---------------------------------------------------------------------------
 
-  final _now = DateTime(2026);
+  final now = DateTime(2026);
 
   // ---------------------------------------------------------------------------
   // executeBucketTransfer — BR-12: transfer tidak mengubah total saldo
@@ -37,29 +37,37 @@ void main() {
       await db.database;
 
       // Insert dua pos dengan saldo awal
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 150,
+        category: 'Seed',
+        description: 'Funding',
+        date: now,
+        wallet: 'Cash',
+      ));
       final idA = await db.insertFinancialBucket(FinancialBucket(
         name: 'Pos A',
         allocationPercentage: 60,
         currentBalance: 100,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'Pos B',
         allocationPercentage: 40,
         currentBalance: 50,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
-      final totalBefore = 150.0;
+      const totalBefore = 150.0;
 
       // gap: DatabaseHelper.executeBucketTransfer belum ada — Task 5.2
       await db.executeBucketTransfer(
         fromBucketId: idA,
         toBucketId: idB,
         amount: 30,
-        transferDate: _now,
+        transferDate: now,
       );
 
       final buckets = await db.getFinancialBuckets();
@@ -71,27 +79,35 @@ void main() {
     test('saldo pos sumber berkurang dan pos tujuan bertambah', () async {
       final db = DatabaseHelper();
       await db.database;
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 300,
+        category: 'Seed',
+        description: 'Funding',
+        date: now,
+        wallet: 'Cash',
+      ));
 
       final idA = await db.insertFinancialBucket(FinancialBucket(
         name: 'Sumber',
         allocationPercentage: 70,
         currentBalance: 200,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'Tujuan',
         allocationPercentage: 30,
         currentBalance: 100,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       await db.executeBucketTransfer(
         fromBucketId: idA,
         toBucketId: idB,
         amount: 50,
-        transferDate: _now,
+        transferDate: now,
       );
 
       final buckets = await db.getFinancialBuckets();
@@ -105,27 +121,35 @@ void main() {
     test('transfer dicatat di tabel bucket_transfers', () async {
       final db = DatabaseHelper();
       await db.database;
+      await db.insertTransaction(Transaction(
+        type: 'income',
+        amount: 500,
+        category: 'Seed',
+        description: 'Funding',
+        date: now,
+        wallet: 'Cash',
+      ));
 
       final idA = await db.insertFinancialBucket(FinancialBucket(
         name: 'A',
         allocationPercentage: 100,
         currentBalance: 500,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'B',
         allocationPercentage: 0,
         currentBalance: 0,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       await db.executeBucketTransfer(
         fromBucketId: idA,
         toBucketId: idB,
         amount: 100,
-        transferDate: _now,
+        transferDate: now,
       );
 
       final transfers = await db.getBucketTransfers();
@@ -152,9 +176,9 @@ void main() {
         amount: 500000,
         category: 'Gaji',
         description: 'Saldo awal Cash',
-        date: _now,
+        date: now,
         wallet: 'Cash',
-        walletId: 1,
+        walletId: cashWallet.id,
         walletNameSnapshot: 'Cash',
       ));
       await db.insertTransaction(Transaction(
@@ -162,9 +186,9 @@ void main() {
         amount: 100000,
         category: 'Gaji',
         description: 'Saldo awal Bank',
-        date: _now,
+        date: now,
         wallet: 'Bank',
-        walletId: 2,
+        walletId: bankWallet.id,
         walletNameSnapshot: 'Bank',
       ));
 
@@ -173,23 +197,23 @@ void main() {
         walletId: cashWallet.id,
         allocationPercentage: 100,
         currentBalance: 500000,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'Tujuan Bank',
         walletId: bankWallet.id,
         allocationPercentage: 100,
         currentBalance: 100000,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       await db.executeBucketTransfer(
         fromBucketId: idA,
         toBucketId: idB,
         amount: 100000,
-        transferDate: _now,
+        transferDate: now,
       );
 
       final transfers = await db.getBucketTransfers();
@@ -220,24 +244,24 @@ void main() {
             name: 'Kebutuhan',
             walletId: 2,
             allocationPercentage: 10,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
           FinancialBucket(
             id: 2,
             name: 'Jajan',
             walletId: 2,
             allocationPercentage: 20,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
           FinancialBucket(
             id: 3,
             name: 'Tabungan',
             walletId: 2,
             allocationPercentage: 30,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
         ],
         isReactivation: false,
@@ -262,8 +286,8 @@ void main() {
             walletId: 2,
             allocationPercentage: 10,
             currentBalance: 100000,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
           FinancialBucket(
             id: 2,
@@ -271,8 +295,8 @@ void main() {
             walletId: 2,
             allocationPercentage: 20,
             currentBalance: 200000,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
           FinancialBucket(
             id: 3,
@@ -280,8 +304,8 @@ void main() {
             walletId: 2,
             allocationPercentage: 30,
             currentBalance: 300000,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
         ],
         isReactivation: true,
@@ -306,8 +330,8 @@ void main() {
             walletId: 2,
             allocationPercentage: 10,
             currentBalance: 50000,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
           FinancialBucket(
             id: 2,
@@ -315,8 +339,8 @@ void main() {
             walletId: 2,
             allocationPercentage: 20,
             currentBalance: 200000,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
           FinancialBucket(
             id: 3,
@@ -324,8 +348,8 @@ void main() {
             walletId: 2,
             allocationPercentage: 30,
             currentBalance: 350000,
-            createdDate: _now,
-            updatedDate: _now,
+            createdDate: now,
+            updatedDate: now,
           ),
         ],
         isReactivation: true,

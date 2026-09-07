@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz;
@@ -37,8 +36,7 @@ class LocalNotificationService implements ReminderNotificationService {
     if (kIsWeb) return false;
     return defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.macOS ||
-        defaultTargetPlatform == TargetPlatform.windows;
+        defaultTargetPlatform == TargetPlatform.macOS;
   }
 
   Stream<NotificationPayload> get payloadStream => _payloadController.stream;
@@ -46,6 +44,8 @@ class LocalNotificationService implements ReminderNotificationService {
   bool get supportsScheduledNotifications => _supportsScheduledNotifications;
 
   Future<NotificationPayload?> initialize() async {
+    if (!_supportsScheduledNotifications) return null;
+
     if (_isInitialized) {
       return _launchPayloadFromPlugin();
     }

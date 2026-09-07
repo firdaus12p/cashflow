@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cashflow/main.dart';
 
 void main() {
-  Future<void> _pumpInjectedHome(
+  Future<void> pumpInjectedHome(
     WidgetTester tester, {
     List<Wallet>? wallets,
     List<FinancialBucket>? buckets,
@@ -42,7 +42,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
   }
 
-  Future<void> _pumpHeroInteraction(WidgetTester tester) async {
+  Future<void> pumpHeroInteraction(WidgetTester tester) async {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 16));
@@ -50,7 +50,7 @@ void main() {
 
   testWidgets('hero fallback ke Total Saldo bila wallet source hilang',
       (tester) async {
-    await _pumpInjectedHome(
+    await pumpInjectedHome(
       tester,
       sourceType: 'wallet',
       sourceId: 999,
@@ -61,7 +61,7 @@ void main() {
 
   testWidgets('hero fallback ke Total Saldo bila bucket source hilang',
       (tester) async {
-    await _pumpInjectedHome(
+    await pumpInjectedHome(
       tester,
       sourceType: 'bucket',
       sourceId: 999,
@@ -79,7 +79,7 @@ void main() {
       updatedDate: DateTime(2026, 8, 9),
     );
 
-    await _pumpInjectedHome(
+    await pumpInjectedHome(
       tester,
       wallets: [wallet],
       sourceType: 'wallet',
@@ -99,7 +99,7 @@ void main() {
       updatedDate: DateTime(2026, 8, 9),
     );
 
-    await _pumpInjectedHome(
+    await pumpInjectedHome(
       tester,
       buckets: [bucket],
       sourceType: 'bucket',
@@ -131,14 +131,14 @@ void main() {
       ),
     ];
 
-    await _pumpInjectedHome(tester, transactions: transactions);
+    await pumpInjectedHome(tester, transactions: transactions);
 
     expect(find.text('Rp 400.000'), findsOneWidget);
     expect(find.text('Rp 500.000'), findsOneWidget);
     expect(find.text('Rp 100.000'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('home_balance_visibility_toggle')));
-    await _pumpHeroInteraction(tester);
+    await pumpHeroInteraction(tester);
 
     expect(find.text('Rp 400.000'), findsNothing);
     expect(find.text('Rp 500.000'), findsNothing);
@@ -155,13 +155,13 @@ void main() {
       updatedDate: DateTime(2026, 8, 9),
     );
 
-    await _pumpInjectedHome(tester, wallets: [wallet]);
+    await pumpInjectedHome(tester, wallets: [wallet]);
 
     await tester.tap(find.byKey(const Key('home_balance_source_button')));
-    await _pumpHeroInteraction(tester);
+    await pumpHeroInteraction(tester);
     await tester.pump(const Duration(milliseconds: 200));
     await tester.tap(find.text('Dompet: Cash').last);
-    await _pumpHeroInteraction(tester);
+    await pumpHeroInteraction(tester);
 
     expect(find.text('Saldo Cash'), findsOneWidget);
   });

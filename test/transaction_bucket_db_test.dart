@@ -22,9 +22,9 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  final _now = DateTime(2026);
+  final now = DateTime(2026);
 
-  Future<FinancialBucket> _freshBucket(
+  Future<FinancialBucket> freshBucket(
     DatabaseHelper db, {
     required String name,
     required double pct,
@@ -36,8 +36,8 @@ void main() {
       walletId: walletId,
       allocationPercentage: pct,
       currentBalance: 0,
-      createdDate: _now,
-      updatedDate: _now,
+      createdDate: now,
+      updatedDate: now,
     ));
     var bucket = (await db.getFinancialBuckets()).firstWhere((b) => b.id == id);
     if (balance > 0) {
@@ -50,7 +50,7 @@ void main() {
         amount: balance,
         category: 'Seed',
         description: 'Seed $name',
-        date: _now,
+        date: now,
         walletName: wallet.name,
         walletId: wallet.id,
         subsetBuckets: [bucket],
@@ -70,9 +70,9 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final b1 = await _freshBucket(db, name: 'Tabungan', pct: 50);
-      final b2 = await _freshBucket(db, name: 'Belanja', pct: 30);
-      final b3 = await _freshBucket(db, name: 'Sedekah', pct: 20);
+      final b1 = await freshBucket(db, name: 'Tabungan', pct: 50);
+      final b2 = await freshBucket(db, name: 'Belanja', pct: 30);
+      final b3 = await freshBucket(db, name: 'Sedekah', pct: 20);
 
       // Income 1.000.000 dialokasikan hanya ke b1 dan b3 (subset)
       final subset = [b1, b3];
@@ -83,7 +83,7 @@ void main() {
         amount: income,
         category: 'Gaji',
         description: 'Gaji Juli',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: subset,
       );
@@ -112,14 +112,14 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final b1 = await _freshBucket(db, name: 'Pos A', pct: 60);
-      final b2 = await _freshBucket(db, name: 'Pos B', pct: 40);
+      final b1 = await freshBucket(db, name: 'Pos A', pct: 60);
+      final b2 = await freshBucket(db, name: 'Pos B', pct: 40);
 
       final txId = await db.saveIncomeWithAllocations(
         amount: 500000,
         category: 'Freelance',
         description: 'Project X',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: [b1, b2],
       );
@@ -132,13 +132,13 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final b = await _freshBucket(db, name: 'Tabungan', pct: 100, balance: 0);
+      final b = await freshBucket(db, name: 'Tabungan', pct: 100, balance: 0);
 
       await db.saveIncomeWithAllocations(
         amount: 300000,
         category: 'Gaji',
         description: 'Test',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: [b],
       );
@@ -159,13 +159,13 @@ void main() {
       final bankWallet =
           activeWallets.firstWhere((wallet) => wallet.name == 'Bank');
 
-      final cashBucket = await _freshBucket(
+      final cashBucket = await freshBucket(
         db,
         name: 'Tabungan Cash',
         pct: 60,
         walletId: cashWallet.id,
       );
-      final bankBucket = await _freshBucket(
+      final bankBucket = await freshBucket(
         db,
         name: 'Tabungan Bank',
         pct: 40,
@@ -176,7 +176,7 @@ void main() {
         amount: 500000,
         category: 'Gaji',
         description: 'Lintas dompet',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         walletId: cashWallet.id,
         subsetBuckets: [cashBucket, bankBucket],
@@ -206,7 +206,7 @@ void main() {
         amount: 200000,
         category: 'Belanja',
         description: 'Belanja bank pas',
-        date: _now.add(const Duration(hours: 1)),
+        date: now.add(const Duration(hours: 1)),
         walletName: bankWallet.name,
         walletId: bankWallet.id,
         sourceBucket: bankBucket,
@@ -217,7 +217,7 @@ void main() {
           amount: 1,
           category: 'Belanja',
           description: 'Lewat saldo bank',
-          date: _now.add(const Duration(hours: 2)),
+          date: now.add(const Duration(hours: 2)),
           walletName: bankWallet.name,
           walletId: bankWallet.id,
           sourceBucket: bankBucket,
@@ -237,7 +237,7 @@ void main() {
       final bankWallet =
           activeWallets.firstWhere((wallet) => wallet.name == 'Bank');
 
-      final bankBucket = await _freshBucket(
+      final bankBucket = await freshBucket(
         db,
         name: 'Tabungan Bank',
         pct: 100,
@@ -248,7 +248,7 @@ void main() {
         amount: 250000,
         category: 'Gaji',
         description: 'Harus ikut Bank',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         walletId: cashWallet.id,
         subsetBuckets: [bankBucket],
@@ -272,13 +272,13 @@ void main() {
       await db.database;
 
       final b =
-          await _freshBucket(db, name: 'Belanja', pct: 100, balance: 500000);
+          await freshBucket(db, name: 'Belanja', pct: 100, balance: 500000);
 
       final txId = await db.saveExpenseWithSource(
         amount: 100000,
         category: 'Makanan',
         description: 'Makan siang',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         sourceBucket: b,
       );
@@ -296,13 +296,13 @@ void main() {
       await db.database;
 
       final b =
-          await _freshBucket(db, name: 'Harian', pct: 100, balance: 200000);
+          await freshBucket(db, name: 'Harian', pct: 100, balance: 200000);
 
       await db.saveExpenseWithSource(
         amount: 50000,
         category: 'Transport',
         description: 'Ojek',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         sourceBucket: b,
       );
@@ -317,14 +317,14 @@ void main() {
       await db.database;
 
       final b =
-          await _freshBucket(db, name: 'Cadangan', pct: 100, balance: 100000);
+          await freshBucket(db, name: 'Cadangan', pct: 100, balance: 100000);
 
       // Pengeluaran catatan saja (affectsBalance = false) tidak perlu pos sumber
       await db.saveExpenseNoteOnly(
         amount: 75000,
         category: 'Lainnya',
         description: 'Catatan pengeluaran',
-        date: _now,
+        date: now,
         walletName: 'Cash',
       );
 
@@ -338,7 +338,7 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final bucket = await _freshBucket(db,
+      final bucket = await freshBucket(db,
           name: 'Belanja Tipis', pct: 100, balance: 50000);
 
       await expectLater(
@@ -346,7 +346,7 @@ void main() {
           amount: 60000,
           category: 'Belanja',
           description: 'Melebihi saldo',
-          date: _now,
+          date: now,
           walletName: 'Cash',
           walletId: 1,
           sourceBucket: bucket,
@@ -371,7 +371,7 @@ void main() {
             amount: 10000,
             category: 'Lainnya',
             description: 'Tanpa saldo awal',
-            date: _now,
+            date: now,
             wallet: 'Cash',
             walletId: 1,
             walletNameSnapshot: 'Cash',
@@ -394,14 +394,14 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final b1 = await _freshBucket(db, name: 'A', pct: 70, balance: 0);
-      final b2 = await _freshBucket(db, name: 'B', pct: 30, balance: 0);
+      final b1 = await freshBucket(db, name: 'A', pct: 70, balance: 0);
+      final b2 = await freshBucket(db, name: 'B', pct: 30, balance: 0);
 
       await db.saveIncomeWithAllocations(
         amount: 1000000,
         category: 'Gaji',
         description: 'Gaji bulanan',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: [b1, b2],
       );
@@ -423,14 +423,14 @@ void main() {
 
       const initialBalance = 500000.0;
       const expenseAmount = 120000.0;
-      final b = await _freshBucket(db,
+      final b = await freshBucket(db,
           name: 'Pengeluaran', pct: 100, balance: initialBalance);
 
       await db.saveExpenseWithSource(
         amount: expenseAmount,
         category: 'Belanja',
         description: 'Belanja mingguan',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         sourceBucket: b,
       );
@@ -450,13 +450,13 @@ void main() {
       await db.database;
 
       final bucket =
-          await _freshBucket(db, name: 'Belanja', pct: 100, balance: 200000);
+          await freshBucket(db, name: 'Belanja', pct: 100, balance: 200000);
 
       final txId = await db.saveExpenseWithSource(
         amount: 50000,
         category: 'Belanja',
         description: 'Belanja wishlist',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         sourceBucket: bucket,
       );
@@ -479,14 +479,14 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final b1 = await _freshBucket(db, name: 'A', pct: 70, balance: 0);
-      final b2 = await _freshBucket(db, name: 'B', pct: 30, balance: 0);
+      final b1 = await freshBucket(db, name: 'A', pct: 70, balance: 0);
+      final b2 = await freshBucket(db, name: 'B', pct: 30, balance: 0);
 
       final txId = await db.saveIncomeWithAllocations(
         amount: 1000000,
         category: 'Gaji',
         description: 'Gaji bulanan',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: [b1, b2],
       );
@@ -510,15 +510,15 @@ void main() {
       await db.database;
 
       final belanja =
-          await _freshBucket(db, name: 'Belanja', pct: 100, balance: 250000);
+          await freshBucket(db, name: 'Belanja', pct: 100, balance: 250000);
       final transport =
-          await _freshBucket(db, name: 'Transport', pct: 100, balance: 200000);
+          await freshBucket(db, name: 'Transport', pct: 100, balance: 200000);
 
       final txId = await db.saveExpenseWithSource(
         amount: 50000,
         category: 'Belanja',
         description: 'Belanja mingguan',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         sourceBucket: belanja,
       );
@@ -529,7 +529,7 @@ void main() {
         amount: 80000,
         category: 'Transport',
         description: 'Naik taksi',
-        date: _now.add(const Duration(hours: 2)),
+        date: now.add(const Duration(hours: 2)),
         walletName: 'Cash',
         sourceBucket: transport,
       );
@@ -558,17 +558,17 @@ void main() {
       await db.database;
 
       final tabungan =
-          await _freshBucket(db, name: 'Tabungan', pct: 100, balance: 0);
+          await freshBucket(db, name: 'Tabungan', pct: 100, balance: 0);
       final belanja =
-          await _freshBucket(db, name: 'Belanja', pct: 75, balance: 0);
+          await freshBucket(db, name: 'Belanja', pct: 75, balance: 0);
       final sedekah =
-          await _freshBucket(db, name: 'Sedekah', pct: 25, balance: 0);
+          await freshBucket(db, name: 'Sedekah', pct: 25, balance: 0);
 
       final txId = await db.saveIncomeWithAllocations(
         amount: 100000,
         category: 'Gaji',
         description: 'Gaji awal',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: [tabungan],
       );
@@ -579,7 +579,7 @@ void main() {
         amount: 500000,
         category: 'Bonus',
         description: 'Bonus tahunan',
-        date: _now.add(const Duration(days: 1)),
+        date: now.add(const Duration(days: 1)),
         walletName: 'Cash',
         subsetBuckets: [belanja, sedekah],
       );
@@ -612,12 +612,12 @@ void main() {
       final wallet =
           (await db.getActiveWallets()).firstWhere((w) => w.name == 'Cash');
       final bucket =
-          await _freshBucket(db, name: 'Belanja', pct: 100, balance: 300000);
+          await freshBucket(db, name: 'Belanja', pct: 100, balance: 300000);
       final itemId = await db.insertWishlistItem(WishlistItem(
         name: 'Sepatu Baru',
         price: 120000,
         priority: 'high',
-        createdDate: _now,
+        createdDate: now,
       ));
       final item =
           (await db.getWishlistItems()).firstWhere((i) => i.id == itemId);
@@ -654,10 +654,10 @@ void main() {
           activeWallets.firstWhere((wallet) => wallet.name == 'Cash');
       final bankWallet = await db.insertWallet(Wallet(
         name: 'Bank Custom',
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
-      final bankBucket = await _freshBucket(
+      final bankBucket = await freshBucket(
         db,
         name: 'Belanja Bank',
         pct: 100,
@@ -668,7 +668,7 @@ void main() {
         name: 'Tas Baru',
         price: 100000,
         priority: 'high',
-        createdDate: _now,
+        createdDate: now,
       ));
       final item =
           (await db.getWishlistItems()).firstWhere((i) => i.id == itemId);
@@ -693,13 +693,13 @@ void main() {
 
       final wallet =
           (await db.getActiveWallets()).firstWhere((w) => w.name == 'Cash');
-      final bucket = await _freshBucket(db,
+      final bucket = await freshBucket(db,
           name: 'Wishlist Tipis', pct: 100, balance: 40000);
       final itemId = await db.insertWishlistItem(WishlistItem(
         name: 'Headset Baru',
         price: 70000,
         priority: 'high',
-        createdDate: _now,
+        createdDate: now,
       ));
       final item = (await db.getWishlistItems())
           .firstWhere((wishlist) => wishlist.id == itemId);
@@ -726,12 +726,12 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final bucket = await _freshBucket(db, name: 'Dana', pct: 100, balance: 0);
+      final bucket = await freshBucket(db, name: 'Dana', pct: 100, balance: 0);
       final txId = await db.saveIncomeWithAllocations(
         amount: 250000,
         category: 'Hutang',
         description: 'Hutang dari Budi',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         subsetBuckets: [bucket],
       );
@@ -753,14 +753,14 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final bucketA = await _freshBucket(db, name: 'Belanja', pct: 60);
-      await _freshBucket(db, name: 'Sedekah', pct: 40);
+      final bucketA = await freshBucket(db, name: 'Belanja', pct: 60);
+      await freshBucket(db, name: 'Sedekah', pct: 40);
 
       await db.saveIncomeWithAllocations(
         amount: 500000,
         category: 'Gaji',
         description: 'Saldo awal',
-        date: _now,
+        date: now,
         walletName: 'Cash',
         walletId: 1,
         subsetBuckets: [bucketA],
@@ -783,14 +783,14 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final bucketA = await _freshBucket(db, name: 'Belanja', pct: 60);
-      final bucketB = await _freshBucket(db, name: 'Sedekah', pct: 40);
+      final bucketA = await freshBucket(db, name: 'Belanja', pct: 60);
+      final bucketB = await freshBucket(db, name: 'Sedekah', pct: 40);
 
       await db.executeBucketTransfer(
         fromBucketId: bucketA.id!,
         toBucketId: bucketB.id!,
         amount: bucketA.currentBalance,
-        transferDate: _now,
+        transferDate: now,
       );
 
       await db.removeFinancialBucketFromActive(bucketA.id!);
@@ -813,8 +813,8 @@ void main() {
           name: 'Satu-satunya Pos',
           walletId: 1,
           allocationPercentage: 100,
-          createdDate: _now,
-          updatedDate: _now,
+          createdDate: now,
+          updatedDate: now,
         ),
       );
 
@@ -844,7 +844,7 @@ void main() {
         amount: 600000,
         category: 'Gaji',
         description: 'Saldo awal Cash',
-        date: _now,
+        date: now,
         wallet: cashWallet.name,
         walletId: cashWallet.id,
         walletNameSnapshot: cashWallet.name,
@@ -854,31 +854,31 @@ void main() {
         amount: 400000,
         category: 'Gaji',
         description: 'Saldo awal Bank',
-        date: _now,
+        date: now,
         wallet: bankWallet.name,
         walletId: bankWallet.id,
         walletNameSnapshot: bankWallet.name,
       ));
 
-      final cashA = await _freshBucket(
+      final cashA = await freshBucket(
         db,
         name: 'Kebutuhan Cash',
         pct: 10,
         walletId: cashWallet.id,
       );
-      final cashB = await _freshBucket(
+      final cashB = await freshBucket(
         db,
         name: 'Jajan Cash',
         pct: 20,
         walletId: cashWallet.id,
       );
-      final cashC = await _freshBucket(
+      final cashC = await freshBucket(
         db,
         name: 'Tabungan Cash',
         pct: 30,
         walletId: cashWallet.id,
       );
-      final bankBucket = await _freshBucket(
+      final bankBucket = await freshBucket(
         db,
         name: 'Dana Bank',
         pct: 40,
@@ -942,7 +942,7 @@ void main() {
           amount: 100000,
           category: 'Koreksi',
           description: 'Simulasi saldo negatif',
-          date: _now,
+          date: now,
           wallet: cashWallet.name,
           walletId: cashWallet.id,
           walletNameSnapshot: cashWallet.name,
@@ -954,24 +954,24 @@ void main() {
         walletId: cashWallet.id,
         allocationPercentage: 10,
         currentBalance: 50000,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       await db.insertFinancialBucket(FinancialBucket(
         name: 'Jajan Cash',
         walletId: cashWallet.id,
         allocationPercentage: 20,
         currentBalance: 200000,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
       await db.insertFinancialBucket(FinancialBucket(
         name: 'Tabungan Cash',
         walletId: cashWallet.id,
         allocationPercentage: 30,
         currentBalance: 350000,
-        createdDate: _now,
-        updatedDate: _now,
+        createdDate: now,
+        updatedDate: now,
       ));
 
       final previews = await db.previewBucketReconciliations();

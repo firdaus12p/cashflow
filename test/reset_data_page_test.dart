@@ -41,15 +41,16 @@ void main() {
       expect(find.byKey(const Key('page_reset_data')), findsOneWidget);
     });
 
-    testWidgets('halaman menampilkan teks peringatan tentang penghapusan permanen',
+    testWidgets(
+        'halaman menampilkan teks peringatan tentang penghapusan permanen',
         (tester) async {
       await pumpResetPage(tester);
 
       // Setidaknya ada satu teks yang menyebutkan penghapusan atau permanen
       final hasWarning =
           find.textContaining('permanen').evaluate().isNotEmpty ||
-          find.textContaining('dihapus').evaluate().isNotEmpty ||
-          find.textContaining('hilang').evaluate().isNotEmpty;
+              find.textContaining('dihapus').evaluate().isNotEmpty ||
+              find.textContaining('hilang').evaluate().isNotEmpty;
       expect(hasWarning, isTrue);
     });
 

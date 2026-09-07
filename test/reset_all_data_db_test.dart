@@ -27,14 +27,14 @@ void main() {
   // Helpers
   // ---------------------------------------------------------------------------
 
-  Future<int> _rowCount(DatabaseHelper db, String table) async {
+  Future<int> rowCount(DatabaseHelper db, String table) async {
     final result = await (await db.database).rawQuery(
       'SELECT COUNT(*) AS c FROM $table',
     );
     return (result.first['c'] as int?) ?? 0;
   }
 
-  Future<void> _populateAllDomains(DatabaseHelper db) async {
+  Future<void> populateAllDomains(DatabaseHelper db) async {
     final now = DateTime.now();
 
     // wallet
@@ -146,41 +146,41 @@ void main() {
     test('setelah populasi semua domain lalu reset, tabel user data kosong',
         () async {
       final db = DatabaseHelper();
-      await _populateAllDomains(db);
+      await populateAllDomains(db);
 
       // Pre-condition: setidaknya ada satu baris di tabel utama
-      expect(await _rowCount(db, 'transactions'), greaterThan(0));
-      expect(await _rowCount(db, 'saving_goals'), greaterThan(0));
-      expect(await _rowCount(db, 'wishlist'), greaterThan(0));
-      expect(await _rowCount(db, 'badges'), greaterThan(0));
-      expect(await _rowCount(db, 'debts'), greaterThan(0));
-      expect(await _rowCount(db, 'debt_payments'), greaterThan(0));
-      expect(await _rowCount(db, 'financial_buckets'), greaterThan(0));
+      expect(await rowCount(db, 'transactions'), greaterThan(0));
+      expect(await rowCount(db, 'saving_goals'), greaterThan(0));
+      expect(await rowCount(db, 'wishlist'), greaterThan(0));
+      expect(await rowCount(db, 'badges'), greaterThan(0));
+      expect(await rowCount(db, 'debts'), greaterThan(0));
+      expect(await rowCount(db, 'debt_payments'), greaterThan(0));
+      expect(await rowCount(db, 'financial_buckets'), greaterThan(0));
       expect(
-        await _rowCount(db, 'transaction_bucket_allocations'),
+        await rowCount(db, 'transaction_bucket_allocations'),
         greaterThan(0),
       );
-      expect(await _rowCount(db, 'bucket_transfers'), greaterThan(0));
-      expect(await _rowCount(db, 'app_preferences'), greaterThan(0));
+      expect(await rowCount(db, 'bucket_transfers'), greaterThan(0));
+      expect(await rowCount(db, 'app_preferences'), greaterThan(0));
 
       await db.resetAllData();
 
       // Semua data user harus terhapus
-      expect(await _rowCount(db, 'transactions'), 0);
-      expect(await _rowCount(db, 'saving_goals'), 0);
-      expect(await _rowCount(db, 'wishlist'), 0);
-      expect(await _rowCount(db, 'badges'), 0);
-      expect(await _rowCount(db, 'debts'), 0);
-      expect(await _rowCount(db, 'debt_payments'), 0);
-      expect(await _rowCount(db, 'financial_buckets'), 0);
-      expect(await _rowCount(db, 'transaction_bucket_allocations'), 0);
-      expect(await _rowCount(db, 'bucket_transfers'), 0);
-      expect(await _rowCount(db, 'app_preferences'), 0);
+      expect(await rowCount(db, 'transactions'), 0);
+      expect(await rowCount(db, 'saving_goals'), 0);
+      expect(await rowCount(db, 'wishlist'), 0);
+      expect(await rowCount(db, 'badges'), 0);
+      expect(await rowCount(db, 'debts'), 0);
+      expect(await rowCount(db, 'debt_payments'), 0);
+      expect(await rowCount(db, 'financial_buckets'), 0);
+      expect(await rowCount(db, 'transaction_bucket_allocations'), 0);
+      expect(await rowCount(db, 'bucket_transfers'), 0);
+      expect(await rowCount(db, 'app_preferences'), 0);
     });
 
     test('setelah reset, empat dompet default tersedia kembali', () async {
       final db = DatabaseHelper();
-      await _populateAllDomains(db);
+      await populateAllDomains(db);
 
       await db.resetAllData();
 

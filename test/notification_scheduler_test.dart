@@ -59,7 +59,7 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  Debt _buildDebt({
+  Debt buildDebt({
     required DateTime dueDate,
     String type = 'debt',
     String status = 'active',
@@ -93,7 +93,7 @@ void main() {
 
       await db.setReminderEnabled(true);
       await db.insertDebt(
-        _buildDebt(dueDate: DateTime(2026, 8, 10)),
+        buildDebt(dueDate: DateTime(2026, 8, 10)),
       );
 
       await scheduler.rescheduleForTonight(now: now);

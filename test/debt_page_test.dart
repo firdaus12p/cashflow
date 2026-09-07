@@ -66,6 +66,7 @@ final _fakeBuckets = [
   FinancialBucket(
     id: 1,
     name: 'Dana Darurat',
+    walletId: 1,
     iconKey: 'emergency',
     allocationPercentage: 100,
     currentBalance: 500000,
