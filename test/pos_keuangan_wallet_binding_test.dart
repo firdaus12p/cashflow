@@ -227,7 +227,7 @@ void main() {
     expect(addButtonRect.left, greaterThanOrEqualTo(0));
     expect(toggleRect.right, lessThanOrEqualTo(360));
     expect(addButtonRect.right, lessThanOrEqualTo(360));
-    expect(addButtonRect.top, greaterThanOrEqualTo(toggleRect.top));
+    expect(toggleRect.overlaps(addButtonRect), isFalse);
   });
 
   testWidgets('aktivasi pos membuka preview rekonsiliasi per dompet',

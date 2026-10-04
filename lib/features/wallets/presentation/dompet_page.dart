@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/icons/app_icons.dart';
@@ -337,6 +338,8 @@ class _DompetPageState extends State<DompetPage> {
 
   void _showAddWalletSheet(BuildContext context, {Wallet? wallet}) {
     String selectedIconKey = wallet?.iconKey ?? 'wallet';
+    String? nameError;
+    bool isSaving = false;
 
     showModalBottomSheet<void>(
       context: context,
@@ -391,6 +394,8 @@ class _DompetPageState extends State<DompetPage> {
                       autofocus: wallet == null,
                       decoration: InputDecoration(
                         hintText: 'Nama dompet',
+                        errorText: nameError,
+                        errorMaxLines: 3,
                         hintStyle: GoogleFonts.poppins(),
                         filled: true,
                         fillColor: AppPalette.surfaceMuted,
@@ -458,36 +463,80 @@ class _DompetPageState extends State<DompetPage> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        onPressed: () async {
-                          final name = nameCtrl.text.trim();
-                          if (name.isEmpty) return;
-                          final now = DateTime.now();
-                          if (wallet == null) {
-                            await DatabaseHelper().insertWallet(
-                              Wallet(
-                                name: name,
-                                iconKey: selectedIconKey,
-                                createdDate: now,
-                                updatedDate: now,
-                              ),
-                            );
-                          } else {
-                            await DatabaseHelper().updateWallet(
-                              Wallet(
-                                id: wallet.id,
-                                name: name,
-                                iconKey: selectedIconKey,
-                                color: wallet.color,
-                                isArchived: wallet.isArchived,
-                                createdDate: wallet.createdDate,
-                                updatedDate: now,
-                              ),
-                            );
-                          }
-                          if (ctx.mounted) Navigator.pop(ctx);
-                          if (!mounted) return;
-                          _loadWallets();
-                        },
+                        onPressed: isSaving
+                            ? null
+                            : () async {
+                                if (isSaving) return;
+                                final name = nameCtrl.text.trim();
+                                if (name.isEmpty) {
+                                  setModal(() =>
+                                      nameError = 'Nama dompet wajib diisi.');
+                                  return;
+                                }
+                                setModal(() {
+                                  isSaving = true;
+                                  nameError = null;
+                                });
+                                final now = DateTime.now();
+                                try {
+                                  if (wallet == null) {
+                                    await DatabaseHelper().insertWallet(
+                                      Wallet(
+                                        name: name,
+                                        iconKey: selectedIconKey,
+                                        createdDate: now,
+                                        updatedDate: now,
+                                      ),
+                                    );
+                                  } else {
+                                    await DatabaseHelper().updateWallet(
+                                      Wallet(
+                                        id: wallet.id,
+                                        name: name,
+                                        iconKey: selectedIconKey,
+                                        color: wallet.color,
+                                        isArchived: wallet.isArchived,
+                                        createdDate: wallet.createdDate,
+                                        updatedDate: now,
+                                      ),
+                                    );
+                                  }
+                                } on DatabaseException catch (error) {
+                                  if (ctx.mounted) {
+                                    setModal(() {
+                                      isSaving = false;
+                                      nameError = error
+                                              .isUniqueConstraintError()
+                                          ? 'Nama dompet sudah dipakai, termasuk dompet yang diarsipkan. Gunakan nama lain.'
+                                          : 'Dompet gagal disimpan. Coba lagi.';
+                                    });
+                                  }
+                                  return;
+                                } catch (_) {
+                                  if (ctx.mounted) {
+                                    setModal(() {
+                                      isSaving = false;
+                                      nameError =
+                                          'Dompet gagal disimpan. Coba lagi.';
+                                    });
+                                  }
+                                  return;
+                                }
+                                if (ctx.mounted) Navigator.pop(ctx);
+                                if (!mounted) return;
+                                try {
+                                  await _loadWallets();
+                                } catch (_) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(this.context)
+                                      .showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                      'Dompet tersimpan, tetapi daftar gagal dimuat ulang. Buka kembali halaman Dompet.',
+                                    )),
+                                  );
+                                }
+                              },
                         child: Text(
                           'Simpan',
                           style: GoogleFonts.poppins(

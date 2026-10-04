@@ -1,10 +1,5 @@
 // ignore_for_file: depend_on_referenced_packages
 
-// Suite regresi lintas-fitur Phase 2–6.
-// Setiap test di sini membuktikan integrasi antara minimal dua domain fitur.
-// Test per-domain sudah ada di test files masing-masing; file ini hanya
-// mencakup skenario yang bisa patah ketika fitur baru bertemu flow lama.
-
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cashflow/data/database/database_helper.dart';
@@ -28,11 +23,6 @@ void main() {
   });
 
   final now = DateTime(2026);
-
-  // ---------------------------------------------------------------------------
-  // Regresi 1: Histori transaksi tetap terbaca setelah dompet diarsipkan
-  // Phase 4 (wallet) × Phase 2 (walletNameSnapshot)
-  // ---------------------------------------------------------------------------
 
   group('R1 — histori transaksi terbaca setelah wallet diarsipkan', () {
     test('walletNameSnapshot tidak hilang setelah wallet diarsipkan', () async {
@@ -69,11 +59,6 @@ void main() {
           reason: 'Dompet yang diarsipkan tidak muncul di daftar aktif');
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Regresi 2: Saldo bucket konsisten setelah operasi berurutan
-  // Phase 5 (bucket) × Phase 6 (debt payment)
-  // ---------------------------------------------------------------------------
 
   group('R2 — saldo bucket konsisten setelah income allocation + debt payment',
       () {
@@ -123,7 +108,6 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      // Setup: satu bucket dengan saldo awal dari income
       final bucketId = await db.insertFinancialBucket(FinancialBucket(
         name: 'Dana Darurat',
         allocationPercentage: 100,
@@ -144,7 +128,6 @@ void main() {
         subsetBuckets: [bucket],
       );
 
-      // Buat hutang dan catat cicilan yang memengaruhi bucket
       final debtId = await db.insertDebt(Debt(
         type: 'debt',
         personName: 'Rekan',
@@ -164,21 +147,15 @@ void main() {
         affectedBucket: bucket,
       );
 
-      // Bucket harus berkurang 100.000 (membayar hutang = uang keluar dari pos)
       final updated =
           (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucketId);
       expect(updated.currentBalance, closeTo(400000, 0.01));
 
-      // Hutang juga harus berkurang
       final updatedDebt = (await db.getDebtById(debtId))!;
       expect(updatedDebt.remainingAmount, closeTo(100000, 0.01));
       expect(updatedDebt.status, 'active');
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Regresi 3: Debt complete lifecycle — Phase 6 end-to-end
-  // ---------------------------------------------------------------------------
 
   group('R3 — debt lifecycle end-to-end', () {
     test('beberapa cicilan berurutan menetapkan status settled dengan benar',
@@ -197,7 +174,6 @@ void main() {
         updatedDate: now,
       ));
 
-      // Cicilan 1 — masih active
       await db.recordDebtPayment(
           debtId: debtId,
           amount: 100000,
@@ -207,7 +183,6 @@ void main() {
       expect((await db.getDebtById(debtId))!.remainingAmount,
           closeTo(200000, 0.01));
 
-      // Cicilan 2 — masih active
       await db.recordDebtPayment(
           debtId: debtId,
           amount: 100000,
@@ -215,7 +190,6 @@ void main() {
           recordingMode: 'note');
       expect((await db.getDebtById(debtId))!.status, 'active');
 
-      // Cicilan 3 — lunas
       await db.recordDebtPayment(
           debtId: debtId,
           amount: 100000,
@@ -229,10 +203,4 @@ void main() {
       expect(payments.length, 3);
     });
   });
-
-  // Catatan: regression widget-level yang berat dipindah ke file domain sempit
-  // (`wallet_management_test`, `debt_page_test`, `home_quick_menu_test`,
-  // `widget_test`, `pos_keuangan_wallet_binding_test`, dan
-  // `transaction_bucket_wallet_message_test`) agar suite ini tetap cepat dan
-  // fokus pada integrasi DB-level lintas fitur.
 }

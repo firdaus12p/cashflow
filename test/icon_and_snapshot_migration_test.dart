@@ -14,11 +14,6 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  // ---------------------------------------------------------------------------
-  // walletNameSnapshot: transaksi menyimpan snapshot nama dompet agar histori
-  // tetap terbaca setelah dompet diarsipkan atau dihapus.
-  // ---------------------------------------------------------------------------
-
   group('walletNameSnapshot persistence', () {
     late Directory tempDir;
 
@@ -35,7 +30,6 @@ void main() {
       final dbHelper = DatabaseHelper();
       final db = await dbHelper.database;
 
-      // Insert wallet dan transaksi dengan snapshot
       final walletId = await dbHelper.insertWallet(Wallet(
         name: 'Dompet Spesial',
         createdDate: DateTime(2026, 1, 1),
@@ -54,10 +48,8 @@ void main() {
         'affectsBalance': 1,
       });
 
-      // Arsipkan wallet — nama aktif berubah
       await dbHelper.archiveWallet(walletId);
 
-      // Snapshot pada transaksi harus tetap terbaca
       final rows = await db.query(
         'transactions',
         where: 'id = ?',
@@ -73,7 +65,6 @@ void main() {
           p.join(tempDir.path, 'snap_legacy.db'));
       final db = await DatabaseHelper().database;
 
-      // Masukkan transaksi lama tanpa snapshot (default '')
       await db.insert('transactions', {
         'type': 'income',
         'amount': 3000000.0,

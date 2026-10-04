@@ -50,11 +50,28 @@ double? tryParseCurrencyInput(String input) {
   return amount.toDouble();
 }
 
+int rupiahUnits(num amount) {
+  if (!amount.isFinite) return 0;
+  return amount.round();
+}
+
+double normalizeRupiahAmount(num amount) {
+  return rupiahUnits(amount).toDouble();
+}
+
+int compareRupiahAmount(num left, num right) {
+  return rupiahUnits(left).compareTo(rupiahUnits(right));
+}
+
+bool hasSufficientRupiahBalance(num balance, num amount) {
+  return compareRupiahAmount(balance, amount) >= 0;
+}
+
 final NumberFormat _rupiahNumberFormatter =
     NumberFormat.decimalPattern('id_ID');
 
 String formatRupiahValue(num amount) {
-  return _rupiahNumberFormatter.format(amount.round());
+  return _rupiahNumberFormatter.format(rupiahUnits(amount));
 }
 
 String formatRupiah(num amount) {

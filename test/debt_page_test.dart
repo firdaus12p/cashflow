@@ -5,8 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cashflow/main.dart';
 
-// Pure Dart Debt objects — tidak ada DB call di dalam testWidgets
-// (sqflite_ffi pakai real isolate, tidak bisa di-await di fake-async zone)
 final _now = DateTime(2026);
 final _pastDate = DateTime(2025, 1, 1);
 
@@ -128,11 +126,6 @@ Future<void> _openPaymentSheet(WidgetTester tester) async {
 }
 
 void main() {
-  // ---------------------------------------------------------------------------
-  // HutangPiutangPage — tampilan daftar
-  // gap: initialDebts parameter dan widget keys belum ada — Task 6.2
-  // ---------------------------------------------------------------------------
-
   group('HutangPiutangPage — tampilan daftar', () {
     testWidgets('menampilkan debt_list ketika ada data', (tester) async {
       await _pumpDebtPage(tester, debts: _fakeDebts);
@@ -193,10 +186,6 @@ void main() {
       expect(find.text('Lunas'), findsOneWidget);
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // HutangPiutangPage — form tambah
-  // ---------------------------------------------------------------------------
 
   group('HutangPiutangPage — form tambah', () {
     testWidgets('form muncul setelah tap FAB', (tester) async {
@@ -314,7 +303,7 @@ void main() {
         (tester) async {
       await _pumpDebtPage(tester);
       await _openDebtForm(tester);
-      await tester.pumpAndSettle(); // selesaikan animasi bottom sheet
+      await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(
         find.byKey(const Key('debt_save_btn')),
@@ -325,7 +314,7 @@ void main() {
         find.byKey(const Key('debt_save_btn')),
         warnIfMissed: false,
       );
-      await tester.pumpAndSettle(); // beri waktu setState untuk rebuild
+      await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('debt_sheet_feedback')), findsOneWidget);
       expect(find.text('Nama pihak tidak boleh kosong'), findsOneWidget);
@@ -399,11 +388,6 @@ void main() {
       expect(find.byKey(const Key('debt_person_field')), findsNothing);
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // HutangDetailPage — navigasi dan konten
-  // gap: HutangDetailPage belum ada — Task 6.2
-  // ---------------------------------------------------------------------------
 
   group('HutangDetailPage — konten', () {
     testWidgets('detail menampilkan progress pembayaran', (tester) async {

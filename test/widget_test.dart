@@ -148,10 +148,8 @@ void main() {
   });
 
   testWidgets('cashflow app smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
     await pumpMainScreen(tester);
 
-    // Verify that the app starts correctly without depending on emoji copy.
     expect(find.byType(MainScreen), findsOneWidget);
   });
 

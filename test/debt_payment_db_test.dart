@@ -6,9 +6,6 @@ import 'package:cashflow/main.dart';
 
 import 'test_support/db_test_harness.dart';
 
-// Semua test di sini pakai test() bukan testWidgets() — DB-level tests.
-// sqflite_ffi pakai real isolate, tidak bisa di-await di fake-async zone.
-
 void main() {
   setUpAll(() async {
     await initializeSharedTestDatabase();
@@ -77,10 +74,6 @@ void main() {
     return bucket;
   }
 
-  // ---------------------------------------------------------------------------
-  // BR-05: efek mode pada cicilan
-  // ---------------------------------------------------------------------------
-
   group('BR-05 — mode pencatatan cicilan', () {
     test(
         'cicilan mode note mengurangi remainingAmount tanpa mengubah saldo pos',
@@ -103,7 +96,6 @@ void main() {
           (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucket.id);
 
       expect(updated.remainingAmount, closeTo(400000, 0.01));
-      // Saldo pos tidak berubah untuk mode note
       expect(updatedBucket.currentBalance, closeTo(300000, 0.01));
     });
 
@@ -115,8 +107,6 @@ void main() {
       final bucket = await insertBucket(db, name: 'Harian', balance: 500000);
       final debtId = await insertDebt(db, type: 'debt', mode: 'balance');
 
-      // gap: recordDebtPayment dengan affectedBucket belum menerapkan side effect
-      // — Task 6.4 mengimplementasikan ini
       await db.recordDebtPayment(
         debtId: debtId,
         amount: 150000,
@@ -128,8 +118,6 @@ void main() {
       final updated = (await db.getDebtById(debtId))!;
       expect(updated.remainingAmount, closeTo(350000, 0.01));
 
-      // Setelah Task 6.4, saldo pos juga berubah:
-      // debt payment mode balance = expense (uang keluar dari pos)
       final updatedBucket =
           (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucket.id);
       expect(updatedBucket.currentBalance, closeTo(350000, 0.01));
@@ -154,16 +142,11 @@ void main() {
       final updated = (await db.getDebtById(receivableId))!;
       expect(updated.remainingAmount, closeTo(420000, 0.01));
 
-      // receivable payment mode balance = income (uang masuk ke pos)
       final updatedBucket =
           (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucket.id);
       expect(updatedBucket.currentBalance, closeTo(180000, 0.01));
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Status dan progres setelah cicilan
-  // ---------------------------------------------------------------------------
 
   group('Status dan progres setelah cicilan', () {
     test('status berubah settled bila remainingAmount menjadi 0', () async {
@@ -182,6 +165,25 @@ void main() {
       final updated = (await db.getDebtById(id))!;
       expect(updated.status, 'settled');
       expect(updated.remainingAmount, closeTo(0, 0.01));
+    });
+
+    test('cicilan menerima sisa pecahan yang setara unit rupiah lalu settle',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final id = await insertDebt(db, principal: 2537214, remaining: 2537213.6);
+
+      await db.recordDebtPayment(
+        debtId: id,
+        amount: 2537214,
+        paymentDate: now,
+        recordingMode: 'note',
+      );
+
+      final updated = (await db.getDebtById(id))!;
+      expect(updated.status, 'settled');
+      expect(rupiahUnits(updated.remainingAmount), 0);
     });
 
     test('status tetap active bila masih ada sisa', () async {
@@ -231,17 +233,25 @@ void main() {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // BR-13: konsistensi saldo saat cicilan memengaruhi pos
-  // ---------------------------------------------------------------------------
-
   group('BR-13 — saldo pos konsisten setelah cicilan', () {
     test('total saldo pos tetap sama setelah cicilan note', () async {
       final db = DatabaseHelper();
       await db.database;
 
-      await insertBucket(db, name: 'A', pct: 60, balance: 600000);
-      await insertBucket(db, name: 'B', pct: 40, balance: 400000);
+      final a = await insertBucket(db, name: 'A', pct: 60, balance: 0);
+      final b = await insertBucket(db, name: 'B', pct: 40, balance: 0);
+      final cash = (await db.getActiveWallets()).firstWhere(
+        (wallet) => wallet.id == a.walletId,
+      );
+      await db.saveIncomeWithAllocations(
+        amount: 1000000,
+        category: 'Seed',
+        description: 'Seed A+B',
+        date: now,
+        walletName: cash.name,
+        walletId: cash.id,
+        subsetBuckets: [a, b],
+      );
       final debtId = await insertDebt(db, mode: 'note');
 
       final bucketsBefore = await db.getFinancialBuckets();
@@ -252,7 +262,7 @@ void main() {
         debtId: debtId,
         amount: 200000,
         paymentDate: now,
-        recordingMode: 'note', // catatan saja → tidak mengubah pos
+        recordingMode: 'note',
       );
 
       final buckets = await db.getFinancialBuckets();

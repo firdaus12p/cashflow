@@ -256,6 +256,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
     final normalizedType = debt.type.trim().toLowerCase();
     final isDebt = normalizedType == 'debt' || normalizedType == 'hutang';
     final typeColor = isDebt ? _debtTone : _receivableTone;
+    final typeTextColor = isDebt ? AppPalette.textDanger : AppPalette.textSuccess;
     final statusLabel = debt.status == 'settled'
         ? 'Lunas'
         : debt.isOverdue
@@ -266,6 +267,11 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
         : debt.isOverdue
             ? AppPalette.danger
             : AppPalette.warning;
+    final statusTextColor = debt.status == 'settled'
+        ? AppPalette.textSuccess
+        : debt.isOverdue
+            ? AppPalette.textDanger
+            : AppPalette.textWarning;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -280,7 +286,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
           ),
           child: Icon(
             isDebt ? Icons.arrow_upward : Icons.arrow_downward,
-            color: typeColor,
+            color: typeTextColor,
           ),
         ),
         title: Row(
@@ -300,7 +306,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
                 isDebt ? 'Hutang' : 'Piutang',
                 style: GoogleFonts.poppins(
                   fontSize: 10,
-                  color: typeColor,
+                  color: typeTextColor,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -319,7 +325,7 @@ class _HutangPiutangPageState extends State<HutangPiutangPage> {
                 statusLabel,
                 style: GoogleFonts.poppins(
                   fontSize: 10,
-                  color: statusColor,
+                  color: statusTextColor,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -668,14 +674,15 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         final existingDebt = existing;
         final paidAmount =
             existingDebt.principalAmount - existingDebt.remainingAmount;
-        if (amount + 0.001 < paidAmount) {
+        if (compareRupiahAmount(amount, paidAmount) < 0) {
           _showValidationMessage(
             'Nominal total tidak boleh lebih kecil dari yang sudah dibayar.',
           );
           return;
         }
-        final updatedRemaining =
-            (amount - paidAmount).clamp(0.0, amount).toDouble();
+        final updatedRemaining = normalizeRupiahAmount(
+          (amount - paidAmount).clamp(0.0, amount).toDouble(),
+        );
         await db.updateDebt(
           Debt(
             id: existingDebt.id,
@@ -689,7 +696,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
             walletId: _selectedWallet?.id,
             bucketId: modeUsesBuckets ? _selectedBucket?.id : null,
             note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
-            status: updatedRemaining <= 0 ? 'settled' : 'active',
+            status: compareRupiahAmount(updatedRemaining, 0) <= 0
+                ? 'settled'
+                : 'active',
             createdDate: existingDebt.createdDate,
             updatedDate: now,
           ),
@@ -1192,7 +1201,7 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
                                 value: 'note',
                                 label: 'Catatan saja',
                                 helper:
-                                    'Hanya mencatat — tidak mengubah saldo dompet',
+                                    'Hanya mencatat, tidak mengubah saldo dompet',
                                 enabled: !isEditMode,
                               ),
                             ],
@@ -1667,9 +1676,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              onPressed: _isSavingPayment
-                  ? null
-                  : () => _showPaymentSheet(context),
+              onPressed:
+                  _isSavingPayment ? null : () => _showPaymentSheet(context),
             )
           : null,
     );
@@ -1958,9 +1966,9 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                         child: Text(
                                           selectedMode == 'balance'
                                               ? (_bucketSystemEnabled
-                                                  ? 'Masuk ke saldo — memengaruhi pos keuangan'
-                                                  : 'Masuk ke saldo — sementara hanya memengaruhi dompet')
-                                              : 'Catatan saja — tidak mengubah saldo',
+                                                  ? 'Masuk ke saldo, memengaruhi pos keuangan'
+                                                  : 'Masuk ke saldo, sementara hanya memengaruhi dompet')
+                                              : 'Catatan saja, tidak mengubah saldo',
                                           style: GoogleFonts.poppins(
                                             fontSize: 11,
                                             color: selectedMode == 'balance'
@@ -2144,8 +2152,11 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                               );
                                               return;
                                             }
-                                            if (amount >
-                                                _debt.remainingAmount) {
+                                            if (compareRupiahAmount(
+                                                  amount,
+                                                  _debt.remainingAmount,
+                                                ) >
+                                                0) {
                                               _showPaymentSheetFeedback(
                                                 ctx,
                                                 setModalState,
@@ -2191,7 +2202,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                             }
                                             setModalState(
                                                 () => isSaving = true);
-                                            setState(() => _isSavingPayment = true);
+                                            setState(
+                                                () => _isSavingPayment = true);
                                             try {
                                               final recorder =
                                                   widget.recordDebtPayment;
@@ -2241,7 +2253,9 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                                 if (mounted) await _refresh();
                                               }
                                               if (ctx.mounted &&
-                                                  ModalRoute.of(ctx)?.isCurrent == true) {
+                                                  ModalRoute.of(ctx)
+                                                          ?.isCurrent ==
+                                                      true) {
                                                 Navigator.pop(ctx, true);
                                               }
                                             } on RangeError {
@@ -2290,7 +2304,8 @@ class _HutangDetailPageState extends State<HutangDetailPage> {
                                                     () => isSaving = false);
                                               }
                                               if (mounted) {
-                                                setState(() => _isSavingPayment = false);
+                                                setState(() =>
+                                                    _isSavingPayment = false);
                                               }
                                             }
                                           },

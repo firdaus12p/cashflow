@@ -10,11 +10,7 @@ import 'package:cashflow/data/database/database_helper.dart';
 import 'package:cashflow/features/transactions/models/transaction.dart'
     as model;
 
-// DB-level migration tests: memverifikasi kontrak skema lintas versi.
-// Tabel bawaan yang harus tetap ada setelah migrasi.
 const _legacyTables = ['transactions', 'saving_goals', 'wishlist', 'badges'];
-
-// Tabel baru yang ditambahkan di versi 3.
 const _newTables = [
   'wallets',
   'debts',
@@ -31,7 +27,6 @@ const _preferenceKeys = [
   'homeBalanceVisibilityHidden',
 ];
 
-// Helper: ambil daftar nama tabel dari sqlite_master.
 Future<List<String>> _tableNames(Database db) async {
   final rows = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -39,13 +34,11 @@ Future<List<String>> _tableNames(Database db) async {
   return rows.map((r) => r['name'] as String).toList();
 }
 
-// Helper: ambil nama kolom dari tabel tertentu.
 Future<List<String>> _columnNames(Database db, String table) async {
   final rows = await db.rawQuery('PRAGMA table_info($table)');
   return rows.map((r) => r['name'] as String).toList();
 }
 
-// Helper: buat database skema v2 di path yang diberikan.
 Future<void> _createV2Database(String path) async {
   final db = await databaseFactoryFfi.openDatabase(
     path,
@@ -100,7 +93,6 @@ Future<void> _createV2Database(String path) async {
   await db.close();
 }
 
-// Helper: buat database skema v1 (sebelum kolom wallet ada) di path yang diberikan.
 Future<void> _createV1Database(String path) async {
   final db = await databaseFactoryFfi.openDatabase(
     path,
@@ -123,7 +115,6 @@ Future<void> _createV1Database(String path) async {
   await db.close();
 }
 
-// Helper: buat database skema v3 (sebelum app_preferences ada) di path yang diberikan.
 Future<void> _createV3Database(String path, {bool seedWallets = true}) async {
   final db = await databaseFactoryFfi.openDatabase(
     path,
@@ -396,7 +387,6 @@ void main() {
 
   group('Fresh install (onCreate v3)', () {
     setUp(() {
-      // gap: DatabaseHelper.overrideDatabasePath belum ada — ditambahkan di Task 2.2
       DatabaseHelper.overrideDatabasePath(':memory:');
     });
 
@@ -468,7 +458,6 @@ void main() {
       final dbPath = p.join(tempDir.path, 'upgrade_v2.db');
       await _createV2Database(dbPath);
 
-      // Arahkan singleton ke file v2 sehingga openDatabase memicu _onUpgrade
       DatabaseHelper.overrideDatabasePath(dbPath);
       final db = await DatabaseHelper().database;
       final tables = await _tableNames(db);
@@ -509,7 +498,6 @@ void main() {
 
     test('data transactions lama tetap bisa dimuat setelah upgrade', () async {
       final dbPath = p.join(tempDir.path, 'upgrade_data.db');
-      // Buat skema v2 lengkap, lalu insert data lama ke dalamnya
       await _createV2Database(dbPath);
       final v2db = await databaseFactoryFfi.openDatabase(
         dbPath,
@@ -568,12 +556,10 @@ void main() {
       final db = await DatabaseHelper().database;
       final tables = await _tableNames(db);
 
-      // Harus ada semua tabel legacy (walletnya masih kosong tapi tabel ada)
       for (final t in _legacyTables) {
         expect(tables, contains(t),
             reason: 'tabel $t harus ada dari chain upgrade');
       }
-      // Harus ada semua tabel baru
       for (final t in _newTables) {
         expect(tables, contains(t),
             reason: 'tabel $t harus ada dari chain upgrade');
@@ -589,9 +575,7 @@ void main() {
       final db = await DatabaseHelper().database;
       final cols = await _columnNames(db, 'transactions');
 
-      // Kolom dari v1→v2
       expect(cols, contains('wallet'));
-      // Kolom dari v2→v3
       expect(cols, contains('walletId'));
       expect(cols, contains('walletNameSnapshot'));
       expect(cols, contains('affectsBalance'));

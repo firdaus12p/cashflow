@@ -121,6 +121,30 @@ void main() {
       expect(overdueCount, 1);
     });
 
+    test('getActiveOverdueDebtCount mengikuti unit rupiah untuk sisa pecahan',
+        () async {
+      final db = DatabaseHelper();
+
+      await db.insertDebt(
+        buildDebt(
+          dueDate: DateTime(2026, 8, 10),
+          remainingAmount: 0.4,
+        ),
+      );
+      await db.insertDebt(
+        buildDebt(
+          dueDate: DateTime(2026, 8, 10),
+          remainingAmount: 0.6,
+        ),
+      );
+
+      final overdueCount = await db.getActiveOverdueDebtCount(
+        referenceTime: now,
+      );
+
+      expect(overdueCount, 1);
+    });
+
     test('recordDebtPayment yang melunasi hutang menghentikan status overdue',
         () async {
       final db = DatabaseHelper();

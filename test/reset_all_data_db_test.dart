@@ -1,7 +1,3 @@
-// DB-level tests for DatabaseHelper.resetAllData().
-// Verifies that every user-data table is cleared and the four default wallets
-// are re-seeded so the app is usable from scratch after a full reset.
-
 // ignore_for_file: depend_on_referenced_packages
 
 import 'package:flutter_test/flutter_test.dart';
@@ -23,10 +19,6 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
   Future<int> rowCount(DatabaseHelper db, String table) async {
     final result = await (await db.database).rawQuery(
       'SELECT COUNT(*) AS c FROM $table',
@@ -37,24 +29,20 @@ void main() {
   Future<void> populateAllDomains(DatabaseHelper db) async {
     final now = DateTime.now();
 
-    // wallet
     final walletId = await db.insertWallet(
       Wallet(name: 'Test Wallet', createdDate: now, updatedDate: now),
     );
 
-    // bucket
     final bucketId = await db.insertFinancialBucket(
       FinancialBucket(
         name: 'Test Pos',
         allocationPercentage: 100,
-        currentBalance: 500,
         walletId: walletId,
         createdDate: now,
         updatedDate: now,
       ),
     );
 
-    // transaction (income, note-only so it does not need bucket config)
     final txId = await db.insertTransaction(
       Transaction(
         type: 'income',
@@ -67,7 +55,6 @@ void main() {
       ),
     );
 
-    // transaction_bucket_allocations
     await (await db.database).insert('transaction_bucket_allocations', {
       'transactionId': txId,
       'bucketId': bucketId,
@@ -77,7 +64,6 @@ void main() {
       'createdDate': now.millisecondsSinceEpoch,
     });
 
-    // bucket_transfers
     await (await db.database).insert('bucket_transfers', {
       'fromBucketId': bucketId,
       'toBucketId': bucketId,
@@ -87,17 +73,14 @@ void main() {
       'createdDate': now.millisecondsSinceEpoch,
     });
 
-    // saving_goals
     await db.insertSavingGoal(
       SavingGoal(name: 'Goal', targetAmount: 100, createdDate: now),
     );
 
-    // wishlist
     await db.insertWishlistItem(
       WishlistItem(name: 'Item', price: 50, createdDate: now),
     );
 
-    // badges
     await db.insertBadge(
       UserBadge(
         name: 'First',
@@ -108,7 +91,6 @@ void main() {
       ),
     );
 
-    // debt
     final debtId = await db.insertDebt(
       Debt(
         type: 'debt',
@@ -123,7 +105,6 @@ void main() {
       ),
     );
 
-    // debt_payments
     await (await db.database).insert('debt_payments', {
       'debtId': debtId,
       'amount': 50,
@@ -133,14 +114,9 @@ void main() {
       'createdDate': now.millisecondsSinceEpoch,
     });
 
-    // app_preferences
     await db.setAppPreference('homeBalanceSourceType', 'total');
     await db.setAppPreference('bucketSystemEnabled', 'true');
   }
-
-  // ---------------------------------------------------------------------------
-  // Tests
-  // ---------------------------------------------------------------------------
 
   group('resetAllData — domain cleared', () {
     test('setelah populasi semua domain lalu reset, tabel user data kosong',
@@ -148,7 +124,6 @@ void main() {
       final db = DatabaseHelper();
       await populateAllDomains(db);
 
-      // Pre-condition: setidaknya ada satu baris di tabel utama
       expect(await rowCount(db, 'transactions'), greaterThan(0));
       expect(await rowCount(db, 'saving_goals'), greaterThan(0));
       expect(await rowCount(db, 'wishlist'), greaterThan(0));
@@ -165,7 +140,6 @@ void main() {
 
       await db.resetAllData();
 
-      // Semua data user harus terhapus
       expect(await rowCount(db, 'transactions'), 0);
       expect(await rowCount(db, 'saving_goals'), 0);
       expect(await rowCount(db, 'wishlist'), 0);
@@ -192,7 +166,7 @@ void main() {
     test('setelah reset, dompet default tidak terduplikasi', () async {
       final db = DatabaseHelper();
       await db.resetAllData();
-      await db.resetAllData(); // dua kali untuk membuktikan idempoten
+      await db.resetAllData();
 
       final wallets = await db.getActiveWallets();
       final cashCount = wallets.where((w) => w.name == 'Cash').length;
@@ -201,7 +175,6 @@ void main() {
 
     test('reset pada DB kosong tidak melempar exception', () async {
       final db = DatabaseHelper();
-      // setUp sudah memanggil resetSharedTestDatabase — DB sudah bersih
       expect(() async => db.resetAllData(), returnsNormally);
     });
 

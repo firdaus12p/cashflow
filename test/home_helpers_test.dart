@@ -188,6 +188,53 @@ void main() {
       expect(isProjectedWalletScopeTransaction(projected.single), isTrue);
     });
 
+    test(
+        'projectTransactionsForWalletScope membulatkan nominal alokasi ke unit rupiah',
+        () {
+      final now = DateTime(2026, 8, 15);
+      final transaction = Transaction(
+        id: 100,
+        type: 'income',
+        amount: 1000,
+        category: 'Bonus',
+        description: 'Alokasi pecahan',
+        date: now,
+        wallet: 'Multi Dompet',
+        walletNameSnapshot: 'Multi Dompet',
+      );
+
+      final projected = projectTransactionsForWalletScope(
+        [transaction],
+        walletName: 'Cash',
+        walletId: 1,
+        allocationsByTransactionId: {
+          100: [
+            TransactionBucketAllocation(
+              transactionId: 100,
+              bucketId: 10,
+              normalizedPercentage: 60,
+              allocatedAmount: 600.6,
+              role: 'target',
+              createdDate: now,
+            ),
+            TransactionBucketAllocation(
+              transactionId: 100,
+              bucketId: 20,
+              normalizedPercentage: 40,
+              allocatedAmount: 399.4,
+              role: 'target',
+              createdDate: now,
+            ),
+          ],
+        },
+        bucketWalletById: const {10: 1, 20: 2},
+      );
+
+      expect(projected, hasLength(1));
+      expect(projected.single.amount, 601);
+      expect(isProjectedWalletScopeTransaction(projected.single), isTrue);
+    });
+
     test('projectTransactionsForWalletScope mempertahankan transaksi biasa',
         () {
       final transaction = Transaction(

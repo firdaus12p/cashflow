@@ -19,6 +19,10 @@ class AppPalette {
   static const Color textPrimary = Color(0xFF2D4B66);
   static const Color textSecondary = Color(0xFF5F758A);
   static const Color textMuted = Color(0xFFA7BBCB);
+  static const Color textSuccess = Color(0xFF156D3D);
+  static const Color textDanger = Color(0xFFC0392B);
+  static const Color textWarning = Color(0xFF8A5800);
+  static const Color textInfo = Color(0xFF13638D);
 
   static const Color success = Color(0xFF2FBB6C);
   static const Color successLight = Color(0xFF8CDEAF);

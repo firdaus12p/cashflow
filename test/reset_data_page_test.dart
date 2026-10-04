@@ -1,7 +1,3 @@
-// Widget tests for ResetDataPage and its quick menu entry.
-// Tests verify: halaman penuh render dengan scope reset, dialog konfirmasi,
-// dan callback seam yang dipakai shell untuk reload post-reset.
-
 // ignore_for_file: depend_on_referenced_packages
 
 import 'package:flutter/material.dart';
@@ -10,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cashflow/features/reset/presentation/reset_data_page.dart';
 
 void main() {
-  // Helper: pump ResetDataPage dengan seam injectable.
   Future<void> pumpResetPage(
     WidgetTester tester, {
     List<String> resetLog = const [],
@@ -30,10 +25,6 @@ void main() {
     await tester.pump();
   }
 
-  // ---------------------------------------------------------------------------
-  // Render & struktur halaman
-  // ---------------------------------------------------------------------------
-
   group('ResetDataPage — render dan struktur', () {
     testWidgets('halaman render dengan key page_reset_data', (tester) async {
       await pumpResetPage(tester);
@@ -46,7 +37,6 @@ void main() {
         (tester) async {
       await pumpResetPage(tester);
 
-      // Setidaknya ada satu teks yang menyebutkan penghapusan atau permanen
       final hasWarning =
           find.textContaining('permanen').evaluate().isNotEmpty ||
               find.textContaining('dihapus').evaluate().isNotEmpty ||
@@ -69,10 +59,6 @@ void main() {
       expect(find.text('Reset Data'), findsWidgets);
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Dialog konfirmasi (BR-28)
-  // ---------------------------------------------------------------------------
 
   group('ResetDataPage — dialog konfirmasi', () {
     testWidgets('tap CTA memunculkan dialog konfirmasi', (tester) async {
@@ -115,9 +101,7 @@ void main() {
       await tester.tap(find.byKey(const Key('reset_dialog_cancel')));
       await tester.pumpAndSettle();
 
-      // Dialog tutup
       expect(find.byKey(const Key('reset_confirm_dialog')), findsNothing);
-      // resetHandler tidak dipanggil
       expect(resetLog, isEmpty);
     });
 

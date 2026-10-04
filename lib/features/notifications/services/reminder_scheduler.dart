@@ -1,3 +1,4 @@
+import '../../../core/formatters/currency_formatters.dart';
 import '../../../data/database/database_helper.dart';
 import '../../debts/models/debt_models.dart';
 import '../helpers/reminder_logic.dart';
@@ -127,7 +128,7 @@ class ReminderScheduler {
     return debts.where((debt) {
       final normalizedType = debt.type.trim().toLowerCase();
       return debt.status == 'active' &&
-          debt.remainingAmount > 0 &&
+          compareRupiahAmount(debt.remainingAmount, 0) > 0 &&
           debt.dueDate != null &&
           isDebtOverdueAt(debt.dueDate, scheduledTime) &&
           (normalizedType == 'debt' || normalizedType == 'hutang');

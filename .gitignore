@@ -46,6 +46,7 @@ app.*.map.json
 
 # For Ai Agent
 .agents/
+.opencode/
 project-context/
 .codebase-memory/
 skills-lock.json

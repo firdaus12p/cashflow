@@ -69,7 +69,6 @@ const List<({String key, IconData icon})> _wishlistIconOptions = [
   (key: 'car', icon: Icons.directions_car_outlined),
 ];
 
-// Main Screen with Enhanced Navigation
 class MainScreen extends StatefulWidget {
   const MainScreen({
     super.key,
@@ -87,6 +86,7 @@ class MainScreen extends StatefulWidget {
     this.initialNotificationPayload,
     @visibleForTesting this.persistHomeHeroPreferences = true,
     @visibleForTesting this.insertTransaction,
+    @visibleForTesting this.rescheduleReminders,
   });
 
   @visibleForTesting
@@ -128,6 +128,7 @@ class MainScreen extends StatefulWidget {
   final bool persistHomeHeroPreferences;
 
   final Future<int> Function(Transaction)? insertTransaction;
+  final Future<void> Function()? rescheduleReminders;
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -182,11 +183,30 @@ class _MainScreenState extends State<MainScreen>
         _activeBuckets,
       );
 
-  Future<void> _syncReminderSchedule() {
-    if (widget.skipInitialLoad) {
-      return Future.value();
+  Future<void> _syncReminderSchedule() async {
+    if (!mounted) return;
+    if (widget.skipInitialLoad && widget.rescheduleReminders == null) return;
+    try {
+      await (widget.rescheduleReminders ??
+          _reminderScheduler.rescheduleForTonight)();
+    } catch (_) {
+      _showSnackBarMessage('Pengingat gagal diperbarui. Coba lagi.',
+          backgroundColor: AppPalette.danger, deferToNextFrame: true);
     }
-    return _reminderScheduler.rescheduleForTonight();
+  }
+
+  Future<void> _resumeReminders() async {
+    if (!mounted) return;
+    try {
+      await _markEveningAppOpenIfNeeded();
+    } on Exception {
+      _showSnackBarMessage('Aktivitas pengingat gagal disimpan.',
+          backgroundColor: AppPalette.danger, deferToNextFrame: true);
+    } on StateError {
+      _showSnackBarMessage('Aktivitas pengingat gagal disimpan.',
+          backgroundColor: AppPalette.danger, deferToNextFrame: true);
+    }
+    if (mounted) await _syncReminderSchedule();
   }
 
   Future<void> _markEveningAppOpenIfNeeded() async {
@@ -215,7 +235,9 @@ class _MainScreenState extends State<MainScreen>
                   widget.skipInitialLoad ? _bucketSystemEnabled : null,
             ),
           ),
-        ).then((_) => _syncReminderSchedule());
+        ).then((_) async {
+          if (mounted) await _loadAllData();
+        });
         break;
     }
   }
@@ -381,6 +403,8 @@ class _MainScreenState extends State<MainScreen>
         _loadBucketHeroSummaries();
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (widget.rescheduleReminders != null) _syncReminderSchedule();
         _handleInitialNotificationPayload();
       });
       return;
@@ -403,6 +427,7 @@ class _MainScreenState extends State<MainScreen>
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _syncReminderSchedule();
       _handleInitialNotificationPayload();
     });
@@ -417,7 +442,7 @@ class _MainScreenState extends State<MainScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _markEveningAppOpenIfNeeded().then((_) => _syncReminderSchedule());
+      _resumeReminders();
     }
   }
 
@@ -470,8 +495,7 @@ class _MainScreenState extends State<MainScreen>
       await _loadSavingGoals();
       await _loadWishlistItems();
       await _checkAndAwardBadges();
-      await _markEveningAppOpenIfNeeded();
-      await _syncReminderSchedule();
+      await _resumeReminders();
     } on StateError catch (_, stack) {
       FlutterError.reportError(FlutterErrorDetails(
         exception: StateError('Application data load failed.'),
@@ -500,7 +524,6 @@ class _MainScreenState extends State<MainScreen>
   Future<void> _loadWallets() async {
     final wallets = await _dbHelper.getActiveWallets();
     if (!mounted) return;
-    // Reset selected wallet jika sudah tidak ada di daftar aktif
     final names = wallets.map((w) => w.name).toSet();
     setState(() {
       _activeWallets = wallets;
@@ -567,6 +590,10 @@ class _MainScreenState extends State<MainScreen>
 
   bool _canMutateTransaction(Transaction transaction) {
     return transaction.id != null &&
+        transaction.category != _internalTransferCategory &&
+        !(transaction.affectsBalance &&
+            (transaction.category == 'Hutang' ||
+                transaction.category == 'Piutang')) &&
         !isProjectedWalletScopeTransaction(transaction);
   }
 
@@ -833,12 +860,6 @@ class _MainScreenState extends State<MainScreen>
         userVisibleBalanceTransactions(_allTransactions).toList();
     final badges = await _dbHelper.getBadges();
     if (!mounted) return;
-    if (allTransactions.isEmpty) {
-      setState(() => _badges = badges);
-      return;
-    }
-
-    // First transaction badge
     if (allTransactions.length == 1 && !badges.any((b) => b.type == 'first')) {
       final badge = UserBadge(
         name: 'Langkah Pertama',
@@ -852,7 +873,6 @@ class _MainScreenState extends State<MainScreen>
       badges.insert(0, badge);
     }
 
-    // Hemat Banget badge
     final now = DateTime.now();
     final startMonth = DateTime(now.year, now.month, 1);
     final endMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
@@ -883,7 +903,6 @@ class _MainScreenState extends State<MainScreen>
       badges.insert(0, badge);
     }
 
-    // Goal Achievement badge
     for (var goal in _savingGoals) {
       if (goal.progress >= 1.0 &&
           !badges.any((b) => b.type == 'goal_${goal.id}')) {
@@ -980,7 +999,7 @@ class _MainScreenState extends State<MainScreen>
                 Text(
                   'Halo Kak!',
                   style: GoogleFonts.poppins(
-                    fontSize: 22, // Kecilkan sedikit
+                    fontSize: 22,
                     fontWeight: FontWeight.bold,
                     color: AppPalette.primaryDark,
                   ),
@@ -989,7 +1008,7 @@ class _MainScreenState extends State<MainScreen>
                 Text(
                   'Yuk kelola uang kamu hari ini',
                   style: GoogleFonts.poppins(
-                    fontSize: 13, // Kecilkan sedikit
+                    fontSize: 13,
                     color: AppPalette.textSecondary,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -997,7 +1016,6 @@ class _MainScreenState extends State<MainScreen>
               ],
             ),
           ),
-          // Badge count indicator dengan constraint
           if (_badges.isNotEmpty)
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 60),
@@ -1011,13 +1029,13 @@ class _MainScreenState extends State<MainScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const Icon(Icons.emoji_events,
-                        color: Colors.white, size: 14),
+                        color: AppPalette.textPrimary, size: 14),
                     const SizedBox(width: 4),
                     Flexible(
                       child: Text(
                         '${_badges.length}',
                         style: GoogleFonts.poppins(
-                          color: Colors.white,
+                          color: AppPalette.textPrimary,
                           fontWeight: FontWeight.bold,
                           fontSize: 11,
                         ),
@@ -1165,8 +1183,6 @@ class _MainScreenState extends State<MainScreen>
         children: [
           _buildHomeFilterSection(),
           const SizedBox(height: 16),
-
-          // Filter wallet mengikuti filter periode agar kontrol Home terbaca berurutan.
           SizedBox(
             key: const Key('wallet_filter_row'),
             height: 45,
@@ -1187,25 +1203,16 @@ class _MainScreenState extends State<MainScreen>
             ),
           ),
           const SizedBox(height: 25),
-
-          // Balance card
           _buildBalanceCard(balance, totalIncome, totalExpense),
           const SizedBox(height: 18),
-
-          // Quick menu — entry point fitur baru yang tidak ada di bottom nav
           _buildHomeQuickMenu(),
           const SizedBox(height: 25),
-
-          // Analytics insight
           _buildAnalyticsInsight(),
           const SizedBox(height: 25),
-
-          // Active goals preview
           if (_savingGoals.isNotEmpty) ...[
             _buildActiveGoalsPreview(),
             const SizedBox(height: 25),
           ],
-
           _buildTransactionHistorySection(),
           const SizedBox(height: 30),
         ],
@@ -1481,8 +1488,7 @@ class _MainScreenState extends State<MainScreen>
                   ),
                 ),
               ).then((_) async {
-                await _loadAllTransactions();
-                await _loadTransactions();
+                if (mounted) await _loadAllData();
               }),
             ),
             const SizedBox(width: 12),
@@ -1637,40 +1643,44 @@ class _MainScreenState extends State<MainScreen>
 
     String insightText = '';
     IconData insightIcon = Icons.insights_outlined;
-    Color insightColor = AppPalette.success;
+    Color insightThemeColor = AppPalette.success;
+    Color insightTextColor = AppPalette.textSuccess;
 
     if (thisMonthExpense < 500000) {
       insightText = 'Kamu hemat banget bulan ini! Keep it up!';
       insightIcon = Icons.auto_awesome_outlined;
-      insightColor = AppPalette.success;
+      insightThemeColor = AppPalette.success;
+      insightTextColor = AppPalette.textSuccess;
     } else if (thisMonthExpense > 1000000) {
       insightText = 'Pengeluaran lumayan besar nih, coba lebih hemat ya!';
       insightIcon = Icons.warning_amber_rounded;
-      insightColor = AppPalette.warning;
+      insightThemeColor = AppPalette.warning;
+      insightTextColor = AppPalette.textWarning;
     } else {
       insightText = 'Pengeluaran kamu masih wajar, good job!';
       insightIcon = Icons.thumb_up_off_alt_rounded;
-      insightColor = AppPalette.info;
+      insightThemeColor = AppPalette.info;
+      insightTextColor = AppPalette.textInfo;
     }
 
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [insightColor.withValues(alpha: 0.1), Colors.white],
+          colors: [insightThemeColor.withValues(alpha: 0.1), Colors.white],
         ),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: insightColor.withValues(alpha: 0.3)),
+        border: Border.all(color: insightThemeColor.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: insightColor.withValues(alpha: 0.2),
+              color: insightThemeColor.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(15),
             ),
-            child: Icon(insightIcon, size: 24, color: insightColor),
+            child: Icon(insightIcon, size: 24, color: insightTextColor),
           ),
           const SizedBox(width: 15),
           Expanded(
@@ -1682,7 +1692,7 @@ class _MainScreenState extends State<MainScreen>
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: insightColor,
+                    color: insightTextColor,
                   ),
                 ),
                 Text(
@@ -2472,10 +2482,12 @@ class _MainScreenState extends State<MainScreen>
 
   Widget _buildTransactionActionBackground({
     required Color color,
+    Color? foregroundColor,
     required IconData icon,
     required String label,
     required Alignment alignment,
   }) {
+    final effectiveForeground = foregroundColor ?? color;
     final isStartAligned = alignment == Alignment.centerLeft;
     return Container(
       alignment: alignment,
@@ -2489,12 +2501,12 @@ class _MainScreenState extends State<MainScreen>
         crossAxisAlignment:
             isStartAligned ? CrossAxisAlignment.start : CrossAxisAlignment.end,
         children: [
-          Icon(icon, color: color, size: 28),
+          Icon(icon, color: effectiveForeground, size: 28),
           const SizedBox(height: 6),
           Text(
             label,
             style: GoogleFonts.poppins(
-              color: color,
+              color: effectiveForeground,
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),
@@ -2720,8 +2732,11 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Widget _buildTransactionItem(Transaction transaction) {
+    final isIncome = transaction.type == 'income';
     final accentColor =
-        transaction.type == 'income' ? AppPalette.success : AppPalette.danger;
+        isIncome ? AppPalette.success : AppPalette.danger;
+    final textAmountColor =
+        isIncome ? AppPalette.textSuccess : AppPalette.textDanger;
     final card = Material(
       color: Colors.transparent,
       child: InkWell(
@@ -2751,10 +2766,10 @@ class _MainScreenState extends State<MainScreen>
                   borderRadius: BorderRadius.circular(15),
                 ),
                 child: Icon(
-                  transaction.type == 'income'
+                  isIncome
                       ? Icons.arrow_downward
                       : Icons.arrow_upward,
-                  color: accentColor,
+                  color: textAmountColor,
                   size: 24,
                 ),
               ),
@@ -2807,7 +2822,7 @@ class _MainScreenState extends State<MainScreen>
                 style: GoogleFonts.poppins(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color: accentColor,
+                  color: textAmountColor,
                 ),
               ),
             ],
@@ -2839,12 +2854,14 @@ class _MainScreenState extends State<MainScreen>
         },
         background: _buildTransactionActionBackground(
           color: AppPalette.danger,
+          foregroundColor: AppPalette.textDanger,
           icon: Icons.delete_outline,
           label: 'Delete',
           alignment: Alignment.centerLeft,
         ),
         secondaryBackground: _buildTransactionActionBackground(
-          color: AppPalette.info,
+          color: AppPalette.primary,
+          foregroundColor: AppPalette.primaryDark,
           icon: Icons.edit_outlined,
           label: 'Edit',
           alignment: Alignment.centerRight,
@@ -3013,7 +3030,6 @@ class _MainScreenState extends State<MainScreen>
   }
 
   Widget _buildWishlistItems() {
-    // Sort by priority: high -> medium -> low
     List<WishlistItem> sortedItems = List.from(_wishlistItems);
     sortedItems.sort((a, b) {
       const priorityOrder = {'high': 0, 'medium': 1, 'low': 2};
@@ -3362,9 +3378,9 @@ class _MainScreenState extends State<MainScreen>
 
   Widget _buildBadgesList() {
     return SizedBox(
-      height: 230, // ⬅️ Batasi tinggi agar tidak overflow
+      height: 230,
       child: GridView.builder(
-        scrollDirection: Axis.horizontal, // ⬅️ Ubah jadi horizontal scroll
+        scrollDirection: Axis.horizontal,
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 1,
           childAspectRatio: 1.1,
@@ -3497,22 +3513,17 @@ class _MainScreenState extends State<MainScreen>
       );
     }
 
-    // Tentukan interval Y-axis yang lebih smart
     double yInterval;
     if (maxExpense > 10000000) {
-      // > 10 juta
-      yInterval = 2000000; // interval 2 juta
+      yInterval = 2000000;
     } else if (maxExpense > 5000000) {
-      // > 5 juta
-      yInterval = 1000000; // interval 1 juta
+      yInterval = 1000000;
     } else if (maxExpense > 1000000) {
-      // > 1 juta
-      yInterval = 500000; // interval 500rb
+      yInterval = 500000;
     } else if (maxExpense > 500000) {
-      // > 500rb
-      yInterval = 200000; // interval 200rb
+      yInterval = 200000;
     } else {
-      yInterval = 100000; // interval 100rb
+      yInterval = 100000;
     }
 
     return Container(
@@ -3530,7 +3541,6 @@ class _MainScreenState extends State<MainScreen>
       ),
       child: Column(
         children: [
-          // Header info
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -3574,7 +3584,6 @@ class _MainScreenState extends State<MainScreen>
           ),
           const SizedBox(height: 20),
 
-          // Chart
           Expanded(
             child: LineChart(
               LineChartData(
@@ -3654,8 +3663,7 @@ class _MainScreenState extends State<MainScreen>
                 minX: 0,
                 maxX: (spots.length - 1).toDouble(),
                 minY: 0,
-                maxY: (maxExpense * 1.2)
-                    .ceilToDouble(), // Tambah 20% ruang di atas
+                maxY: (maxExpense * 1.2).ceilToDouble(),
                 lineTouchData: LineTouchData(
                   enabled: true,
                   touchTooltipData: LineTouchTooltipData(
@@ -3728,7 +3736,6 @@ class _MainScreenState extends State<MainScreen>
             ),
           ),
 
-          // Legend dan info tambahan
           const SizedBox(height: 15),
           Container(
             padding: const EdgeInsets.all(12),
@@ -4106,8 +4113,6 @@ class _MainScreenState extends State<MainScreen>
             ],
           ),
           const SizedBox(height: 20),
-
-          // Progress bar
           Container(
             height: 12,
             decoration: BoxDecoration(
@@ -4208,7 +4213,6 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  // Dialog Methods
   void _showAddTransactionDialog() {
     _showTransactionDialog();
   }
@@ -4296,6 +4300,21 @@ class _MainScreenState extends State<MainScreen>
     FinancialBucket? selectedExpenseBucket =
         transactionBuckets.isNotEmpty ? transactionBuckets.first : null;
     final Set<int> selectedIncomeBucketIds = <int>{};
+    var bucketSelectionTouched = false;
+    var originalBucketsInactive = false;
+    Map<int, int>? bucketReplacements;
+    var allowNegativeBalance = false;
+
+    if (isEditing &&
+        initialTransaction.id != null &&
+        affectsBalance &&
+        !widget.skipInitialLoad) {
+      final original = await _dbHelper
+          .getTransactionBucketAllocations(initialTransaction.id!);
+      final activeIds = _activeBuckets.map((bucket) => bucket.id).toSet();
+      originalBucketsInactive = original
+          .any((allocation) => !activeIds.contains(allocation.bucketId));
+    }
 
     if (isEditing &&
         initialTransaction.id != null &&
@@ -4457,6 +4476,7 @@ class _MainScreenState extends State<MainScreen>
             }
 
             setState(() => isSaving = true);
+            var retryWithReplacements = false;
             try {
               final amount = parseCurrencyInput(amountController.text);
               if (!amount.isFinite || amount <= 0) {
@@ -4474,7 +4494,23 @@ class _MainScreenState extends State<MainScreen>
                     orElse: () => null,
                   );
 
-              if (!affectsBalance) {
+              final detailsOnly = isEditing &&
+                  affectsBalance &&
+                  originalBucketsInactive &&
+                  !bucketSelectionTouched &&
+                  selectedType == initialTransaction.type &&
+                  compareRupiahAmount(amount, initialTransaction.amount) == 0 &&
+                  (_bucketSystemEnabled ||
+                      selectedWallet == initialTransaction.wallet);
+
+              if (detailsOnly) {
+                await _dbHelper.updateTransactionDetails(
+                  transactionId: initialTransaction.id!,
+                  category: selectedCategory,
+                  description: description,
+                  date: transactionDate,
+                );
+              } else if (!affectsBalance) {
                 if (initialTransaction?.id == null) {
                   showSheetFeedback(
                     'Transaksi catatan tidak bisa dibuat dari form ini.',
@@ -4485,6 +4521,8 @@ class _MainScreenState extends State<MainScreen>
 
                 await _dbHelper.updateTransaction(
                   transactionId: initialTransaction!.id!,
+                  bucketReplacements: bucketReplacements,
+                  allowNegativeBalance: allowNegativeBalance,
                   type: selectedType,
                   amount: amount,
                   category: selectedCategory,
@@ -4507,6 +4545,8 @@ class _MainScreenState extends State<MainScreen>
                   if (isEditing) {
                     await _dbHelper.updateTransaction(
                       transactionId: initialTransaction.id!,
+                      bucketReplacements: bucketReplacements,
+                      allowNegativeBalance: allowNegativeBalance,
                       type: selectedType,
                       amount: amount,
                       category: selectedCategory,
@@ -4550,6 +4590,8 @@ class _MainScreenState extends State<MainScreen>
                   if (isEditing) {
                     await _dbHelper.updateTransaction(
                       transactionId: initialTransaction.id!,
+                      bucketReplacements: bucketReplacements,
+                      allowNegativeBalance: allowNegativeBalance,
                       type: selectedType,
                       amount: amount,
                       category: selectedCategory,
@@ -4585,6 +4627,8 @@ class _MainScreenState extends State<MainScreen>
                   if (isEditing) {
                     await _dbHelper.updateTransaction(
                       transactionId: initialTransaction.id!,
+                      bucketReplacements: bucketReplacements,
+                      allowNegativeBalance: allowNegativeBalance,
                       type: selectedType,
                       amount: amount,
                       category: selectedCategory,
@@ -4623,6 +4667,8 @@ class _MainScreenState extends State<MainScreen>
                   if (isEditing) {
                     await _dbHelper.updateTransaction(
                       transactionId: initialTransaction.id!,
+                      bucketReplacements: bucketReplacements,
+                      allowNegativeBalance: allowNegativeBalance,
                       type: selectedType,
                       amount: amount,
                       category: selectedCategory,
@@ -4657,8 +4703,20 @@ class _MainScreenState extends State<MainScreen>
                     ? 'Transaksi berhasil diperbarui!'
                     : 'Transaksi berhasil ditambahkan!',
               );
+            } on ArchivedBucketReplacementRequired catch (required) {
+              final chosen = await _askBucketReplacements(required.buckets);
+              if (chosen != null) {
+                bucketReplacements = chosen;
+                retryWithReplacements = true;
+              }
+            } on NegativeBalanceConfirmationRequired catch (required) {
+              if (await _confirmNegativeBalance(required.impacts)) {
+                allowNegativeBalance = true;
+                retryWithReplacements = true;
+              }
             } on ArgumentError {
-              showSheetFeedback('Nominal transaksi tidak valid. Periksa jumlah yang diisi.');
+              showSheetFeedback(
+                  'Nominal transaksi tidak valid. Periksa jumlah yang diisi.');
             } on InsufficientBalanceException {
               showSheetFeedback(
                 _insufficientBalanceMessage,
@@ -4666,7 +4724,8 @@ class _MainScreenState extends State<MainScreen>
               );
             } on StateError catch (error) {
               final rawMessage = error.message.toString();
-              final userMessage = rawMessage.contains('debt records')
+              final userMessage = rawMessage.contains('debt records') ||
+                      rawMessage.contains('Linked financial')
                   ? 'Transaksi dari hutang/piutang harus dikelola dari halaman hutang/piutang.'
                   : 'Transaksi gagal diproses. Cek dompet dan pos yang dipilih.';
               showSheetFeedback(
@@ -4680,6 +4739,9 @@ class _MainScreenState extends State<MainScreen>
               );
             } finally {
               if (sheetContext.mounted) setState(() => isSaving = false);
+            }
+            if (retryWithReplacements && sheetContext.mounted) {
+              await handleSaveTransaction();
             }
           }
 
@@ -5248,6 +5310,8 @@ class _MainScreenState extends State<MainScreen>
                                                         selected: isSelected,
                                                         onSelected: (selected) {
                                                           setState(() {
+                                                            bucketSelectionTouched =
+                                                                true;
                                                             if (selected) {
                                                               selectedIncomeBucketIds
                                                                   .add(
@@ -5304,6 +5368,7 @@ class _MainScreenState extends State<MainScreen>
                                             )
                                             .toList(),
                                         onChanged: (bucket) => setState(() {
+                                          bucketSelectionTouched = true;
                                           selectedExpenseBucket = bucket;
                                           syncWalletToBucketSelection();
                                         }),
@@ -5405,6 +5470,8 @@ class _MainScreenState extends State<MainScreen>
   void _showAddGoalDialog() {
     String selectedIconKey = 'savings';
     DateTime? selectedDate;
+    var isSaving = false;
+    var didCommit = false;
 
     showModalBottomSheet(
       context: context,
@@ -5464,7 +5531,6 @@ class _MainScreenState extends State<MainScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Name input
                             Text(
                               'Nama Target',
                               style: GoogleFonts.poppins(
@@ -5495,7 +5561,6 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Target amount
                             Text(
                               'Target Jumlah',
                               style: GoogleFonts.poppins(
@@ -5532,7 +5597,6 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Icon selection
                             Text(
                               'Pilih Ikon',
                               style: GoogleFonts.poppins(
@@ -5582,7 +5646,6 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Target date (optional)
                             Text(
                               'Target Tanggal (Opsional)',
                               style: GoogleFonts.poppins(
@@ -5642,25 +5705,27 @@ class _MainScreenState extends State<MainScreen>
                       ),
                     ),
 
-                    // Save button
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () async {
-                          if (nameController.text.isEmpty ||
-                              targetController.text.isEmpty) {
+                        onPressed: isSaving || didCommit ? null : () async {
+                          if (!mounted || !context.mounted || isSaving || didCommit) return;
+                          final name = nameController.text.trim();
+                          final amount = tryParseCurrencyInput(targetController.text);
+                          if (name.isEmpty || amount == null ||
+                              !amount.isFinite || amount <= 0 || amount > 9007199254740991) {
                             _showSnackBarMessage(
-                              'Nama target dan jumlah wajib diisi.',
+                              'Nama target dan nominal positif yang valid wajib diisi.',
                               backgroundColor: Colors.red,
                             );
                             return;
                           }
 
+                          setState(() => isSaving = true);
                           try {
                             final goal = SavingGoal(
-                              name: nameController.text,
-                              targetAmount:
-                                  parseCurrencyInput(targetController.text),
+                              name: name,
+                              targetAmount: amount,
                               emoji: '💰',
                               iconKey: selectedIconKey,
                               createdDate: DateTime.now(),
@@ -5668,17 +5733,24 @@ class _MainScreenState extends State<MainScreen>
                             );
 
                             await _dbHelper.insertSavingGoal(goal);
+                            didCommit = true;
                             await _loadAllData();
 
                             if (!context.mounted) return;
                             Navigator.pop(context);
                             _showSnackBarMessage(
                                 'Target tabungan berhasil dibuat!');
+                          } on ArgumentError {
+                            _showSnackBarMessage('Nominal target tidak valid.', backgroundColor: Colors.red);
+                          } on StateError {
+                            _showSnackBarMessage('Target tidak dapat disimpan. Muat ulang data.', backgroundColor: Colors.red);
                           } on Exception catch (_) {
                             _showSnackBarMessage(
                               'Target tabungan gagal disimpan. Coba lagi.',
                               backgroundColor: Colors.red,
                             );
+                          } finally {
+                            if (mounted && context.mounted) setState(() => isSaving = false);
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -5708,10 +5780,11 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  // Perbaikan untuk method _showAddWishlistDialog()
   void _showAddWishlistDialog() {
     String selectedIconKey = 'shopping';
     String selectedPriority = 'medium';
+    var isSaving = false;
+    var didCommit = false;
     String? sheetFeedbackMessage;
     Color sheetFeedbackColor = Colors.red;
 
@@ -5756,8 +5829,7 @@ class _MainScreenState extends State<MainScreen>
           }
 
           return Container(
-            height: MediaQuery.of(context).size.height *
-                0.85, // Tinggi diperbesar jadi 85%
+            height: MediaQuery.of(context).size.height * 0.85,
             decoration: const BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.only(
@@ -5837,13 +5909,11 @@ class _MainScreenState extends State<MainScreen>
                     ),
                     const SizedBox(height: 25),
 
-                    // BAGIAN FORM DALAM SCROLLABLE
                     Expanded(
                       child: SingleChildScrollView(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Name input
                             Text(
                               'Nama Barang',
                               style: GoogleFonts.poppins(
@@ -5874,7 +5944,6 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Price input
                             Text(
                               'Harga',
                               style: GoogleFonts.poppins(
@@ -5911,7 +5980,6 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Icon selection
                             Text(
                               'Pilih Ikon',
                               style: GoogleFonts.poppins(
@@ -5961,7 +6029,6 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Priority selection
                             Text(
                               'Prioritas',
                               style: GoogleFonts.poppins(
@@ -6022,14 +6089,12 @@ class _MainScreenState extends State<MainScreen>
                                 );
                               }).toList(),
                             ),
-                            const SizedBox(
-                                height: 30), // Extra space sebelum tombol
+                            const SizedBox(height: 30),
                           ],
                         ),
                       ),
                     ),
 
-                    // TOMBOL SELALU TERLIHAT DI BAWAH (TIDAK IKUT SCROLL)
                     Container(
                       padding: const EdgeInsets.only(top: 20),
                       decoration: BoxDecoration(
@@ -6045,40 +6110,39 @@ class _MainScreenState extends State<MainScreen>
                       child: SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: () async {
+                          onPressed: isSaving || didCommit ? null : () async {
+                            if (!mounted || !context.mounted || isSaving || didCommit) return;
                             clearSheetFeedback();
-                            // Validasi input
-                            if (nameController.text.isEmpty) {
+                            if (nameController.text.trim().isEmpty) {
                               showSheetFeedback(
                                 'Nama barang tidak boleh kosong!',
                               );
                               return;
                             }
 
-                            if (priceController.text.isEmpty) {
+                            final price = tryParseCurrencyInput(priceController.text);
+                            if (price == null || !price.isFinite || price <= 0 || price > 9007199254740991) {
                               showSheetFeedback(
-                                'Harga tidak boleh kosong!',
+                                'Harga harus lebih besar dari 0 dan valid.',
                               );
                               return;
                             }
 
+                            setState(() => isSaving = true);
                             try {
                               final item = WishlistItem(
                                 name: nameController.text.trim(),
-                                price: parseCurrencyInput(priceController.text),
+                                price: price,
                                 emoji: '🛍️',
                                 iconKey: selectedIconKey,
                                 priority: selectedPriority,
                                 createdDate: DateTime.now(),
                               );
 
-                              // Simpan ke database
                               await _dbHelper.insertWishlistItem(item);
-
-                              // Refresh data
+                              didCommit = true;
                               await _loadAllData();
 
-                              // Tutup dialog jika context masih valid
                               if (context.mounted) {
                                 Navigator.pop(context);
                               }
@@ -6086,6 +6150,10 @@ class _MainScreenState extends State<MainScreen>
                               _showSnackBarMessage(
                                 '${item.name} berhasil ditambahkan ke wishlist!',
                               );
+                            } on ArgumentError {
+                              _showSnackBarMessage('Harga wishlist tidak valid.', backgroundColor: AppPalette.danger);
+                            } on StateError {
+                              _showSnackBarMessage('Wishlist tidak dapat disimpan. Muat ulang data.', backgroundColor: AppPalette.danger);
                             } on FormatException {
                               _showSnackBarMessage(
                                 'Format harga tidak valid! Masukkan angka saja.',
@@ -6096,6 +6164,8 @@ class _MainScreenState extends State<MainScreen>
                                 'Wishlist gagal disimpan. Coba lagi.',
                                 backgroundColor: AppPalette.danger,
                               );
+                            } finally {
+                              if (mounted && context.mounted) setState(() => isSaving = false);
                             }
                           },
                           style: ElevatedButton.styleFrom(
@@ -6144,6 +6214,8 @@ class _MainScreenState extends State<MainScreen>
   }
 
   void _showAddMoneyToGoalDialog(SavingGoal goal) {
+    var isSaving = false;
+    var didCommit = false;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -6184,7 +6256,6 @@ class _MainScreenState extends State<MainScreen>
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // Handle bar
                             Center(
                               child: Container(
                                 key: const Key('sheet_drag_handle'),
@@ -6198,7 +6269,6 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 20),
 
-                            // Goal info
                             Container(
                               padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
@@ -6329,22 +6399,24 @@ class _MainScreenState extends State<MainScreen>
                             ),
                             const SizedBox(height: 30),
 
-                            // Save button
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
-                                onPressed: () async {
-                                  if (amountController.text.isEmpty) {
+                                onPressed: isSaving || didCommit ? null : () async {
+                                  if (!mounted || !context.mounted || isSaving || didCommit) return;
+                                  final amount = tryParseCurrencyInput(amountController.text);
+                                  if (amount == null || !amount.isFinite || amount <= 0 ||
+                                      !goal.currentAmount.isFinite || goal.currentAmount < 0 ||
+                                      amount > 9007199254740991 - goal.currentAmount) {
                                     _showSnackBarMessage(
-                                      'Jumlah top up wajib diisi.',
+                                      'Jumlah top up harus positif dan totalnya tidak melebihi batas rupiah.',
                                       backgroundColor: AppPalette.danger,
                                     );
                                     return;
                                   }
 
+                                  setState(() => isSaving = true);
                                   try {
-                                    final amount = parseCurrencyInput(
-                                        amountController.text);
                                     final updatedGoal = SavingGoal(
                                       id: goal.id,
                                       name: goal.name,
@@ -6359,6 +6431,7 @@ class _MainScreenState extends State<MainScreen>
 
                                     await _dbHelper
                                         .updateSavingGoal(updatedGoal);
+                                    didCommit = true;
                                     await _loadAllData();
 
                                     if (!context.mounted) return;
@@ -6367,11 +6440,17 @@ class _MainScreenState extends State<MainScreen>
                                     _showSnackBarMessage(
                                       'Berhasil menambah ${formatRupiah(amount)} ke ${goal.name}!',
                                     );
+                                  } on ArgumentError {
+                                    _showSnackBarMessage('Nominal top up tidak valid.', backgroundColor: AppPalette.danger);
+                                  } on StateError {
+                                    _showSnackBarMessage('Target tidak dapat diperbarui. Muat ulang data.', backgroundColor: AppPalette.danger);
                                   } on Exception catch (_) {
                                     _showSnackBarMessage(
                                       'Top up goal gagal disimpan. Coba lagi.',
                                       backgroundColor: AppPalette.danger,
                                     );
+                                  } finally {
+                                    if (mounted && context.mounted) setState(() => isSaving = false);
                                   }
                                 },
                                 style: ElevatedButton.styleFrom(
@@ -6436,7 +6515,6 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 
-  // Delete methods
   void _deleteTransaction(int id) {
     showDialog(
       context: context,
@@ -6460,35 +6538,8 @@ class _MainScreenState extends State<MainScreen>
           ),
           TextButton(
             onPressed: () async {
-              try {
-                await _dbHelper.deleteTransaction(id);
-                await _loadAllData();
-
-                if (!context.mounted) return;
-
-                Navigator.pop(context);
-                _showSnackBarMessage(
-                  'Transaksi berhasil dihapus! 🗑️',
-                  backgroundColor: Colors.red,
-                );
-              } on StateError {
-                if (!context.mounted) return;
-
-                Navigator.pop(context);
-                _showSnackBarMessage(
-                  'Transaksi dari hutang/piutang harus dikelola dari halaman hutang/piutang.',
-                  backgroundColor: Colors.red,
-                );
-              } on Exception catch (e) {
-                FlutterError.reportError(FlutterErrorDetails(
-                  exception: e,
-                  library: 'deleteTransaction',
-                ));
-                _showSnackBarMessage(
-                  'Transaksi gagal dihapus. Coba lagi.',
-                  backgroundColor: Colors.red,
-                );
-              }
+              Navigator.pop(context);
+              await _runDeleteTransaction(id);
             },
             child: Text(
               'Hapus',
@@ -6499,6 +6550,243 @@ class _MainScreenState extends State<MainScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Deletes a transaction, asking the user whenever the database needs a
+  /// decision: a replacement for a removed bucket, or confirmation of a
+  /// negative balance.
+  Future<void> _runDeleteTransaction(int id) async {
+    Map<int, int>? replacements;
+    var allowNegativeBalance = false;
+    while (mounted) {
+      try {
+        await _dbHelper.deleteTransaction(
+          id,
+          bucketReplacements: replacements,
+          allowNegativeBalance: allowNegativeBalance,
+        );
+        await _loadAllData();
+        if (!mounted) return;
+        _showSnackBarMessage(
+          'Transaksi berhasil dihapus! 🗑️',
+          backgroundColor: Colors.red,
+        );
+        return;
+      } on ArchivedBucketReplacementRequired catch (required) {
+        if (replacements != null) {
+          _showSnackBarMessage(
+            'Transaksi gagal dihapus. Muat ulang data, lalu coba lagi.',
+            backgroundColor: Colors.red,
+          );
+          return;
+        }
+        replacements = await _askBucketReplacements(required.buckets);
+        if (replacements == null) return;
+      } on NegativeBalanceConfirmationRequired catch (required) {
+        if (allowNegativeBalance ||
+            !await _confirmNegativeBalance(required.impacts)) {
+          return;
+        }
+        allowNegativeBalance = true;
+      } on StateError catch (error) {
+        final message = error.message.toString();
+        _showSnackBarMessage(
+          message.contains('Linked financial') ||
+                  message.contains('debt records')
+              ? 'Transaksi dari hutang/piutang harus dikelola dari halaman hutang/piutang.'
+              : 'Transaksi gagal dihapus. Muat ulang data, lalu coba lagi.',
+          backgroundColor: Colors.red,
+        );
+        return;
+      } on Exception catch (e) {
+        FlutterError.reportError(FlutterErrorDetails(
+          exception: e,
+          library: 'deleteTransaction',
+        ));
+        _showSnackBarMessage(
+          'Transaksi gagal dihapus. Coba lagi.',
+          backgroundColor: Colors.red,
+        );
+        return;
+      }
+    }
+  }
+
+  /// Shows which balances a correction would push below zero. Returns true
+  /// only when the user chooses to go ahead.
+  Future<bool> _confirmNegativeBalance(
+    List<NegativeBalanceImpact> impacts,
+  ) async {
+    if (!mounted) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const Key('negative_balance_dialog'),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Saldo akan menjadi minus',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final impact in impacts)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text.rich(
+                    TextSpan(
+                      style: GoogleFonts.poppins(fontSize: 14),
+                      children: [
+                        TextSpan(
+                          text:
+                              '${impact.isBucket ? 'Pos' : 'Dompet'} ${impact.name}: ${formatRupiah(impact.before)} menjadi ',
+                        ),
+                        TextSpan(
+                          text: formatRupiah(impact.after),
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: AppPalette.textDanger,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 4),
+              Text(
+                'Saldo minus biasanya berarti ada pemasukan yang belum dicatat. Lanjutkan perubahan ini?',
+                style: GoogleFonts.poppins(fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const Key('negative_balance_cancel_btn'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(
+              'Batal',
+              style: GoogleFonts.poppins(color: AppPalette.textSecondary),
+            ),
+          ),
+          TextButton(
+            key: const Key('negative_balance_confirm_btn'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(
+              'Tetap Lanjutkan',
+              style: GoogleFonts.poppins(
+                color: AppPalette.textDanger,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  /// Asks which active bucket of the same wallet takes over the balance
+  /// effect of each removed bucket. Returns null when the user backs out.
+  Future<Map<int, int>?> _askBucketReplacements(
+    List<FinancialBucket> archivedBuckets,
+  ) {
+    final options = <int, List<FinancialBucket>>{
+      for (final archived in archivedBuckets)
+        archived.id!: _activeBuckets
+            .where((bucket) => bucket.walletId == archived.walletId)
+            .toList(),
+    };
+    final chosen = <int, int>{
+      for (final entry in options.entries)
+        if (entry.value.isNotEmpty) entry.key: entry.value.first.id!,
+    };
+    final canContinue = options.values.every((list) => list.isNotEmpty);
+
+    String walletName(FinancialBucket bucket) {
+      final match = _activeWallets.where((w) => w.id == bucket.walletId);
+      return match.isEmpty ? 'dompetnya' : 'dompet ${match.first.name}';
+    }
+
+    return showDialog<Map<int, int>>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          key: const Key('bucket_replacement_dialog'),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Pilih pos pengganti',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final archived in archivedBuckets) ...[
+                  if (options[archived.id!]!.isEmpty)
+                    Text(
+                      'Pos "${archived.name}" sudah dihapus dan ${walletName(archived)} tidak punya pos aktif lain. Buat pos di dompet itu dulu, lalu coba lagi.',
+                      style: GoogleFonts.poppins(fontSize: 14),
+                    )
+                  else ...[
+                    Text(
+                      'Pos "${archived.name}" sudah dihapus. Pilih pos di ${walletName(archived)} untuk menampung perubahan saldo transaksi ini.',
+                      style: GoogleFonts.poppins(fontSize: 14),
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButton<int>(
+                      key: Key('bucket_replacement_dropdown_${archived.id}'),
+                      isExpanded: true,
+                      value: chosen[archived.id!],
+                      items: [
+                        for (final bucket in options[archived.id!]!)
+                          DropdownMenuItem<int>(
+                            value: bucket.id,
+                            child: Text(bucket.name),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() => chosen[archived.id!] = value);
+                      },
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              key: const Key('bucket_replacement_cancel_btn'),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(
+                canContinue ? 'Batal' : 'Mengerti',
+                style: GoogleFonts.poppins(color: Colors.grey),
+              ),
+            ),
+            if (canContinue)
+              TextButton(
+                key: const Key('bucket_replacement_confirm_btn'),
+                onPressed: () =>
+                    Navigator.pop(dialogContext, Map<int, int>.of(chosen)),
+                child: Text(
+                  'Lanjutkan',
+                  style: GoogleFonts.poppins(
+                    color: AppPalette.primary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -6612,6 +6900,15 @@ class _MainScreenState extends State<MainScreen>
   }
 
   void _buyWishlistItem(WishlistItem item) {
+    if (!mounted) return;
+    if (item.name.trim().isEmpty || !item.price.isFinite ||
+        item.price <= 0 || item.price > 9007199254740991) {
+      _showSnackBarMessage('Nama dan harga wishlist tidak valid.',
+          backgroundColor: AppPalette.danger);
+      return;
+    }
+    var isSaving = false;
+    var didCommit = false;
     if (_activeWallets.isEmpty) {
       _showSnackBarMessage(
         'Aktifkan minimal satu dompet dulu sebelum membeli item wishlist.',
@@ -6620,16 +6917,43 @@ class _MainScreenState extends State<MainScreen>
       return;
     }
 
+    final wishlistWallets = List<Wallet>.of(_activeWallets);
     Wallet selectedWallet =
-        _activeWallets.where((wallet) => wallet.name == 'Cash').isNotEmpty
-            ? _activeWallets.firstWhere((wallet) => wallet.name == 'Cash')
-            : _activeWallets.first;
+        wishlistWallets.where((wallet) => wallet.name == 'Cash').isNotEmpty
+            ? wishlistWallets.firstWhere((wallet) => wallet.name == 'Cash')
+            : wishlistWallets.first;
     final wishlistBuckets =
         _bucketSystemEnabled ? _activeBuckets : const <FinancialBucket>[];
+    FinancialBucket? pickDefaultWishlistBucket(List<FinancialBucket> buckets) {
+      FinancialBucket? firstBucket;
+      FinancialBucket? belanjaBucket;
+      FinancialBucket? affordableBucket;
+      FinancialBucket? affordableBelanjaBucket;
+
+      for (final bucket in buckets) {
+        firstBucket ??= bucket;
+        final isBelanjaBucket = bucket.name == 'Belanja';
+        if (belanjaBucket == null && isBelanjaBucket) {
+          belanjaBucket = bucket;
+        }
+
+        if (hasSufficientRupiahBalance(bucket.currentBalance, item.price)) {
+          affordableBucket ??= bucket;
+          if (isBelanjaBucket) {
+            affordableBelanjaBucket = bucket;
+            break;
+          }
+        }
+      }
+
+      return affordableBelanjaBucket ??
+          affordableBucket ??
+          belanjaBucket ??
+          firstBucket;
+    }
+
     FinancialBucket? selectedBucket =
-        wishlistBuckets.where((bucket) => bucket.name == 'Belanja').isNotEmpty
-            ? wishlistBuckets.firstWhere((bucket) => bucket.name == 'Belanja')
-            : (wishlistBuckets.isNotEmpty ? wishlistBuckets.first : null);
+        pickDefaultWishlistBucket(wishlistBuckets);
     String? dialogFeedbackMessage;
     Color dialogFeedbackColor = Colors.red;
 
@@ -6653,6 +6977,7 @@ class _MainScreenState extends State<MainScreen>
             String message, {
             Color backgroundColor = Colors.red,
           }) {
+            if (!mounted || !dialogContext.mounted) return;
             _transactionSheetFeedbackTimer?.cancel();
             setDialogState(() {
               dialogFeedbackMessage = message;
@@ -6756,7 +7081,7 @@ class _MainScreenState extends State<MainScreen>
                     const SizedBox(height: 8),
                     DropdownButtonFormField<Wallet>(
                       initialValue: selectedWallet,
-                      items: _activeWallets
+                      items: wishlistWallets
                           .map(
                             (wallet) => DropdownMenuItem<Wallet>(
                               value: wallet,
@@ -6832,7 +7157,8 @@ class _MainScreenState extends State<MainScreen>
                 ),
               ),
               TextButton(
-                onPressed: () async {
+                onPressed: isSaving || didCommit ? null : () async {
+                  if (!mounted || !dialogContext.mounted || isSaving || didCommit) return;
                   clearDialogFeedback();
                   if (wishlistBuckets.isNotEmpty &&
                       bucketConfigurationIncomplete) {
@@ -6841,6 +7167,7 @@ class _MainScreenState extends State<MainScreen>
                     );
                     return;
                   }
+                  setDialogState(() => isSaving = true);
                   try {
                     await _dbHelper.purchaseWishlistItem(
                       item,
@@ -6848,6 +7175,7 @@ class _MainScreenState extends State<MainScreen>
                       walletId: selectedWallet.id,
                       sourceBucket: selectedBucket,
                     );
+                    didCommit = true;
                     await _loadAllData();
 
                     if (!mounted || !dialogContext.mounted) return;
@@ -6861,10 +7189,16 @@ class _MainScreenState extends State<MainScreen>
                     showDialogFeedback(
                       _insufficientBalanceMessage,
                     );
+                  } on ArgumentError {
+                    showDialogFeedback('Nominal pembelian tidak valid.');
+                  } on StateError {
+                    showDialogFeedback('Wishlist atau pos sudah berubah. Muat ulang data.');
                   } on Exception catch (_) {
                     showDialogFeedback(
                       'Pembelian wishlist gagal diproses. Coba lagi.',
                     );
+                  } finally {
+                    if (mounted && dialogContext.mounted) setDialogState(() => isSaving = false);
                   }
                 },
                 child: Text(

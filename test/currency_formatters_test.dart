@@ -89,5 +89,12 @@ void main() {
       expect(formatRupiah(200000), 'Rp 200.000');
       expect(formatRupiah(1250000), 'Rp 1.250.000');
     });
+
+    test('validasi saldo konsisten dengan unit rupiah yang ditampilkan', () {
+      expect(hasSufficientRupiahBalance(2537213.6, 2537214), isTrue);
+      expect(hasSufficientRupiahBalance(2537213.4, 2537214), isFalse);
+      expect(compareRupiahAmount(100.49, 100.4), 0);
+      expect(normalizeRupiahAmount(999.6), 1000.0);
+    });
   });
 }

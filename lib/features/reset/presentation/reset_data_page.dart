@@ -16,7 +16,7 @@ class ResetDataPage extends StatefulWidget {
     this.onResetComplete,
   });
 
-  /// Override for testing — replaces the real DB + notification reset.
+  /// Override for testing: replaces the real DB + notification reset.
   final Future<void> Function()? resetHandler;
 
   /// Called after the DB commits, even if notification cleanup fails.

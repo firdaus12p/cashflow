@@ -19,10 +19,6 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  // ---------------------------------------------------------------------------
-  // CRUD Dompet (database level) — pakai test() bukan testWidgets()
-  // ---------------------------------------------------------------------------
-
   group('CRUD dompet — database level', () {
     test('insertWallet lalu getActiveWallets mengembalikan dompet baru',
         () async {

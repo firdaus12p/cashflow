@@ -15,7 +15,6 @@ import '../../../core/widgets/controller_sheet_builder.dart';
 const Map<String, IconData> _availableBucketIcons = availableBucketIcons;
 const String _insufficientBalanceMessage = insufficientBalanceMessage;
 const Duration _sheetFeedbackAutoHideDuration = Duration(seconds: 3);
-// Threshold untuk gesture drag-to-dismiss sheet (dipakai di kedua sheet)
 const double _sheetDragDismissOffset = 120.0;
 const double _sheetDragDismissVelocity = 700.0;
 
@@ -591,7 +590,7 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                                   style: GoogleFonts.poppins(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
-                                    color: AppPalette.info,
+                                    color: AppPalette.primary,
                                   ),
                                   textAlign: TextAlign.right,
                                   maxLines: 1,
@@ -614,7 +613,11 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
                             style: GoogleFonts.poppins(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: AppPalette.textPrimary,
+                              color: compareRupiahAmount(
+                                          bucket.currentBalance, 0) <
+                                      0
+                                  ? AppPalette.textDanger
+                                  : AppPalette.textPrimary,
                             ),
                             maxLines: 1,
                             softWrap: false,
@@ -677,6 +680,13 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
   Future<void> _handleDelete(FinancialBucket bucket) async {
     if (!mounted) return;
 
+    final remainingPercentage = _buckets
+        .where((other) => other.id != bucket.id && !other.isArchived)
+        .fold<double>(0, (sum, other) => sum + other.allocationPercentage);
+    final leavesIncompleteTotal = _bucketSystemEnabled &&
+        remainingPercentage > 0 &&
+        (remainingPercentage - 100).abs() > bucketPercentageTolerance;
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -686,9 +696,26 @@ class _PosKeuanganPageState extends State<PosKeuanganPage> {
           'Hapus Pos?',
           style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
         ),
-        content: Text(
-          'Pos ini hanya bisa dihapus jika saldonya sudah 0. Pindahkan dulu semua isi pos ke pos lain sebelum menghapusnya.',
-          style: GoogleFonts.poppins(fontSize: 14),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pos ini hanya bisa dihapus jika saldonya sudah 0. Pindahkan dulu semua isi pos ke pos lain sebelum menghapusnya.',
+              style: GoogleFonts.poppins(fontSize: 14),
+            ),
+            if (leavesIncompleteTotal) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Setelah dihapus, total persentase pos lain tinggal ${remainingPercentage.toStringAsFixed(remainingPercentage % 1 == 0 ? 0 : 1)}%. Atur ulang sampai 100%, kalau tidak pemasukan dan pengeluaran lewat pos tidak bisa dicatat.',
+                key: const Key('bucket_delete_percentage_note'),
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  color: AppPalette.textDanger,
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(

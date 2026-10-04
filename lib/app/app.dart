@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../core/constants/app_constants.dart';
@@ -7,9 +9,18 @@ class CashflowApp extends StatelessWidget {
   const CashflowApp({super.key, required this.home});
 
   final Widget home;
+  static bool _fontLicenseRegistered = false;
 
   @override
   Widget build(BuildContext context) {
+    GoogleFonts.config.allowRuntimeFetching = false;
+    if (!_fontLicenseRegistered) {
+      LicenseRegistry.addLicense(() async* {
+        final license = await rootBundle.loadString('assets/fonts/OFL.txt');
+        yield LicenseEntryWithLineBreaks(['Poppins'], license);
+      });
+      _fontLicenseRegistered = true;
+    }
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppPalette.primary,
       brightness: Brightness.light,
@@ -80,7 +91,7 @@ class CashflowApp extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppPalette.border),
+            borderSide: const BorderSide(color: AppPalette.primary, width: 2),
           ),
         ),
         chipTheme: ChipThemeData(

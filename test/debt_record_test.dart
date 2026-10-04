@@ -45,10 +45,6 @@ void main() {
         updatedDate: now,
       );
 
-  // ---------------------------------------------------------------------------
-  // CRUD Debt — DB level, akan GREEN karena CRUD sudah ada dari Phase 2
-  // ---------------------------------------------------------------------------
-
   group('CRUD Debt — database level', () {
     test('insertDebt lalu getDebts mengembalikan record baru', () async {
       final db = DatabaseHelper();
@@ -169,9 +165,7 @@ void main() {
 
       await db.deleteDebt(id);
 
-      // debt record removed
       expect(await db.getDebtById(id), isNull);
-      // transactions untouched — riwayat & saldo tetap
       final transactionsAfter = await db.getTransactions();
       expect(transactionsAfter.length, transactionsBefore.length);
     });
@@ -297,11 +291,6 @@ void main() {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // recordDebtPayment — atomic helper
-  // gap: belum ada — ditambahkan di Task 6.4
-  // ---------------------------------------------------------------------------
-
   group('recordDebtPayment — atomic', () {
     test('mengurangi remainingAmount sesuai jumlah cicilan', () async {
       final db = DatabaseHelper();
@@ -310,7 +299,6 @@ void main() {
       final id =
           await db.insertDebt(debt0(principal: 500000, remaining: 500000));
 
-      // gap: method belum ada
       await db.recordDebtPayment(
         debtId: id,
         amount: 150000,

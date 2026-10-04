@@ -1,3 +1,4 @@
+import '../../../core/formatters/currency_formatters.dart';
 import '../../notifications/helpers/reminder_logic.dart';
 
 class Debt {
@@ -72,7 +73,7 @@ class Debt {
   bool get isOverdue =>
       dueDate != null &&
       isDebtOverdueAt(dueDate, DateTime.now()) &&
-      remainingAmount > 0 &&
+      compareRupiahAmount(remainingAmount, 0) > 0 &&
       status == 'active';
 
   double get progressFraction => principalAmount > 0

@@ -1,6 +1,6 @@
-# 💰 Cashflow - Flutter Catatan Keuangan
+# Cashflow - Catatan Keuangan Flutter
 
-Aplikasi **Cashflow** adalah aplikasi pencatat pemasukan dan pengeluaran harian yang sederhana namun fungsional. Cocok digunakan untuk mengelola keuangan pribadi secara efisien dan modern langsung dari perangkat mobile.
+Aplikasi **Cashflow** adalah aplikasi pencatat pemasukan dan pengeluaran harian. Digunakan untuk mengelola catatan keuangan pribadi langsung dari perangkat mobile.
 
 ![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)
 ![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-green)
@@ -8,19 +8,19 @@ Aplikasi **Cashflow** adalah aplikasi pencatat pemasukan dan pengeluaran harian 
 
 ---
 
-## ✨ Fitur Utama
+## Fitur Utama
 
-- 📥 Tambah pemasukan
-- 📤 Tambah pengeluaran
-- 📊 Rekap ringkas bulanan
-- 📅 Filter transaksi berdasarkan tanggal
-- 🔎 Pencarian transaksi
-- 🎨 UI sederhana dan mudah digunakan
-- 📱 Support Android (dan iOS jika dikonfigurasi)
+- Tambah pemasukan
+- Tambah pengeluaran
+- Rekap ringkas bulanan
+- Filter transaksi berdasarkan tanggal
+- Pencarian transaksi
+- Tampilan antarmuka yang bersih dan mudah digunakan
+- Dukungan Android (dan iOS jika dikonfigurasi)
 
 ---
 
-## 📸 Screenshot
+## Screenshot
 
 | Home                                 | Tambah Transaksi                         | Grafik Bulanan                         | Histori Transaksi                      | Wishlist Barang                         | Target Tabungan                       | Statistik Keuangan                       | Pie Chart Pengeluaran                 |
 | ------------------------------------ | ---------------------------------------- | -------------------------------------- | -------------------------------------- | --------------------------------------- | ------------------------------------- | ---------------------------------------- | ------------------------------------- |
@@ -28,7 +28,7 @@ Aplikasi **Cashflow** adalah aplikasi pencatat pemasukan dan pengeluaran harian 
 
 ---
 
-## 🚀 Instalasi & Menjalankan Aplikasi
+## Instalasi dan Menjalankan Aplikasi
 
 1. **Clone repositori ini**
 
@@ -50,16 +50,16 @@ Aplikasi **Cashflow** adalah aplikasi pencatat pemasukan dan pengeluaran harian 
 
 ---
 
-## 🛠️ Stack & Teknologi
+## Stack dan Teknologi
 
-- **Flutter** – UI toolkit dari Google
-- **Dart** – Bahasa pemrograman utama
-- **SQLite** – Untuk penyimpanan data lokal
-- **charts_flutter** – Untuk grafik keuangan
+- **Flutter**: UI toolkit dari Google
+- **Dart**: Bahasa pemrograman utama
+- **SQLite**: Penyimpanan data lokal
+- **charts_flutter**: Komponen grafik keuangan
 
 ---
 
-## 📦 Build APK
+## Build APK
 
 Build release wajib memakai signing production dari `android/key.properties`; tidak ada fallback ke signing debug. File lokal tersebut harus berisi `keyAlias`, `keyPassword`, `storeFile`, dan `storePassword` yang tidak kosong, dengan `storeFile` menunjuk ke file keystore yang tersedia. Gunakan path absolut untuk menghindari ambiguitas; path relatif pada konfigurasi ini dihitung dari `android/app`.
 
@@ -73,9 +73,9 @@ flutter build apk --release
 
 ---
 
-## 🤝 Kontribusi
+## Kontribusi
 
-Kontribusi sangat terbuka! Jika kamu ingin membantu mengembangkan fitur atau memperbaiki bug:
+Kontribusi terbuka untuk pengembangan fitur maupun perbaikan bug:
 
 1. Fork repo ini di [github.com/firdaus12p/cashflow](https://github.com/firdaus12p/cashflow)
 2. Buat branch fitur (`git checkout -b fitur-baru`)
@@ -85,6 +85,6 @@ Kontribusi sangat terbuka! Jika kamu ingin membantu mengembangkan fitur atau mem
 
 ---
 
-## 📄 Lisensi
+## Lisensi
 
-Project ini menggunakan lisensi [MIT](LICENSE).
+Proyek ini menggunakan lisensi [MIT](LICENSE).

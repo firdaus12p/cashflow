@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/formatters/currency_formatters.dart';
 import '../../badges/models/user_badge.dart';
 import '../../buckets/models/bucket_models.dart';
 import '../../transactions/models/transaction.dart';
@@ -131,10 +132,11 @@ Transaction? projectTransactionForWalletScope(
     bucketWalletById,
     walletId: walletId,
   );
-  if (allocatedAmount > 0.001) {
+  final normalizedAllocatedAmount = normalizeRupiahAmount(allocatedAmount);
+  if (compareRupiahAmount(normalizedAllocatedAmount, 0) > 0) {
     final keepsOriginalWallet = transaction.wallet == walletName &&
         transaction.walletId == walletId &&
-        (transaction.amount - allocatedAmount).abs() <= 0.001;
+        compareRupiahAmount(transaction.amount, normalizedAllocatedAmount) == 0;
     if (keepsOriginalWallet) {
       return transaction;
     }
@@ -145,7 +147,7 @@ Transaction? projectTransactionForWalletScope(
     return Transaction(
       id: transaction.id,
       type: transaction.type,
-      amount: allocatedAmount,
+      amount: normalizedAllocatedAmount,
       category: transaction.category,
       description: transaction.description,
       date: transaction.date,

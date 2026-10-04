@@ -1,8 +1,5 @@
 // ignore_for_file: depend_on_referenced_packages
 
-// Semua test di sini pakai test() bukan testWidgets() — DB-level tests.
-// Harness database bersama dipakai agar biaya setup SQLite tetap rendah.
-
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cashflow/main.dart';
@@ -60,10 +57,26 @@ void main() {
     return bucket;
   }
 
-  // ---------------------------------------------------------------------------
-  // BR-09: alokasi pemasukan ke subset pos → normalisasi + simpan snapshot
-  // gap: DatabaseHelper.saveIncomeWithAllocations belum ada — Task 5.4
-  // ---------------------------------------------------------------------------
+  // Seeds after every bucket exists, because income needs a 100% configuration.
+  Future<FinancialBucket> seedBucket(
+    DatabaseHelper db,
+    FinancialBucket bucket,
+    double amount,
+  ) async {
+    final wallet = (await db.getActiveWallets())
+        .firstWhere((candidate) => candidate.id == bucket.walletId);
+    await db.saveIncomeWithAllocations(
+      amount: amount,
+      category: 'Seed',
+      description: 'Seed ${bucket.name}',
+      date: now,
+      walletName: wallet.name,
+      walletId: wallet.id,
+      subsetBuckets: [bucket],
+    );
+    return (await db.getFinancialBuckets())
+        .firstWhere((candidate) => candidate.id == bucket.id);
+  }
 
   group('Alokasi pemasukan ke subset pos — BR-09', () {
     test('menyimpan allocation snapshot dengan nominal yang benar', () async {
@@ -74,11 +87,9 @@ void main() {
       final b2 = await freshBucket(db, name: 'Belanja', pct: 30);
       final b3 = await freshBucket(db, name: 'Sedekah', pct: 20);
 
-      // Income 1.000.000 dialokasikan hanya ke b1 dan b3 (subset)
       final subset = [b1, b3];
       const income = 1000000.0;
 
-      // gap: saveIncomeWithAllocations belum ada — ditambahkan di Task 5.4
       final txId = await db.saveIncomeWithAllocations(
         amount: income,
         category: 'Gaji',
@@ -96,14 +107,11 @@ void main() {
           allocations.fold(0.0, (s, a) => s + a.allocatedAmount);
       expect(totalAllocated, closeTo(income, 0.01));
 
-      // Nominal per pos sesuai normalisasi: b1=71.43%, b3=28.57%
-      // Nominal per pos sesuai normalisasi: b1=71.43%, b3=28.57%
       final a1 = allocations.firstWhere((a) => a.bucketId == b1.id);
       final a3 = allocations.firstWhere((a) => a.bucketId == b3.id);
       expect(a1.allocatedAmount, closeTo(714285.71, 1.0));
       expect(a3.allocatedAmount, closeTo(285714.29, 1.0));
 
-      // b2 sengaja tidak dimasukkan ke subset — validasi bahwa b2 tidak dapat alokasi
       expect(allocations.any((a) => a.bucketId == b2.id), isFalse,
           reason: 'Pos di luar subset tidak boleh mendapat alokasi');
     });
@@ -261,11 +269,6 @@ void main() {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // BR-10: pengeluaran memengaruhi saldo → wajib satu pos sumber
-  // gap: DatabaseHelper.saveExpenseWithSource belum ada — Task 5.4
-  // ---------------------------------------------------------------------------
-
   group('Pengeluaran dengan pos sumber — BR-10', () {
     test('pengeluaran dengan satu pos sumber disimpan sukses', () async {
       final db = DatabaseHelper();
@@ -319,7 +322,6 @@ void main() {
       final b =
           await freshBucket(db, name: 'Cadangan', pct: 100, balance: 100000);
 
-      // Pengeluaran catatan saja (affectsBalance = false) tidak perlu pos sumber
       await db.saveExpenseNoteOnly(
         amount: 75000,
         category: 'Lainnya',
@@ -382,10 +384,6 @@ void main() {
       );
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // BR-13: saldo wallet dan pos selalu selaras setelah transaksi
-  // ---------------------------------------------------------------------------
 
   group('Sinkronisasi saldo wallet-pos — BR-13', () {
     test(
@@ -509,10 +507,10 @@ void main() {
       final db = DatabaseHelper();
       await db.database;
 
-      final belanja =
-          await freshBucket(db, name: 'Belanja', pct: 100, balance: 250000);
-      final transport =
-          await freshBucket(db, name: 'Transport', pct: 100, balance: 200000);
+      var belanja = await freshBucket(db, name: 'Belanja', pct: 50);
+      var transport = await freshBucket(db, name: 'Transport', pct: 50);
+      belanja = await seedBucket(db, belanja, 250000);
+      transport = await seedBucket(db, transport, 200000);
 
       final txId = await db.saveExpenseWithSource(
         amount: 50000,
@@ -558,11 +556,11 @@ void main() {
       await db.database;
 
       final tabungan =
-          await freshBucket(db, name: 'Tabungan', pct: 100, balance: 0);
+          await freshBucket(db, name: 'Tabungan', pct: 50, balance: 0);
       final belanja =
-          await freshBucket(db, name: 'Belanja', pct: 75, balance: 0);
+          await freshBucket(db, name: 'Belanja', pct: 37.5, balance: 0);
       final sedekah =
-          await freshBucket(db, name: 'Sedekah', pct: 25, balance: 0);
+          await freshBucket(db, name: 'Sedekah', pct: 12.5, balance: 0);
 
       final txId = await db.saveIncomeWithAllocations(
         amount: 100000,
@@ -686,6 +684,48 @@ void main() {
       expect(tx.wallet, 'Bank Custom');
     });
 
+    test(
+        'purchaseWishlistItem menerima saldo pecahan yang setara setelah pembulatan rupiah',
+        () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final wallet =
+          (await db.getActiveWallets()).firstWhere((w) => w.name == 'Cash');
+      final bucket = await freshBucket(
+        db,
+        name: 'Mama',
+        pct: 100,
+        balance: 2537213.6,
+      );
+      final itemId = await db.insertWishlistItem(WishlistItem(
+        name: 'Kulkas Mama',
+        price: 2537214,
+        priority: 'high',
+        createdDate: now,
+      ));
+      final item = (await db.getWishlistItems())
+          .firstWhere((wishlist) => wishlist.id == itemId);
+
+      await db.purchaseWishlistItem(
+        item,
+        walletName: wallet.name,
+        walletId: wallet.id,
+        sourceBucket: bucket,
+      );
+
+      final updatedBucket =
+          (await db.getFinancialBuckets()).firstWhere((b) => b.id == bucket.id);
+      final wishlistItems = await db.getWishlistItems();
+      final tx = (await db.getTransactions()).firstWhere(
+          (transaction) => transaction.description == 'Kulkas Mama');
+
+      expect(rupiahUnits(updatedBucket.currentBalance), 0);
+      expect(wishlistItems.any((wishlist) => wishlist.id == itemId), isFalse);
+      expect(tx.walletId, wallet.id);
+      expect(tx.amount, 2537214);
+    });
+
     test('purchaseWishlistItem ditolak bila saldo pos atau dompet kurang',
         () async {
       final db = DatabaseHelper();
@@ -778,13 +818,41 @@ void main() {
       expect(updatedBucket.currentBalance, greaterThan(0));
     });
 
+    test('hapus pos bersaldo negatif non-zero tetap ditolak', () async {
+      final db = DatabaseHelper();
+      await db.database;
+
+      final bucketA = await freshBucket(db, name: 'Belanja', pct: 60);
+      await freshBucket(db, name: 'Sedekah', pct: 40);
+
+      // The public API cannot create a negative bucket; simulate legacy data.
+      await (await db.database).update(
+        'financial_buckets',
+        {'currentBalance': -100},
+        where: 'id = ?',
+        whereArgs: [bucketA.id],
+      );
+
+      await expectLater(
+        db.removeFinancialBucketFromActive(bucketA.id!),
+        throwsA(isA<StateError>()),
+      );
+
+      final buckets = await db.getFinancialBuckets();
+      final updatedBucket =
+          buckets.firstWhere((bucket) => bucket.id == bucketA.id);
+      expect(updatedBucket.isArchived, isFalse);
+      expect(rupiahUnits(updatedBucket.currentBalance), lessThan(0));
+    });
+
     test('hapus pos dengan saldo 0 mengeluarkan pos dari daftar aktif',
         () async {
       final db = DatabaseHelper();
       await db.database;
 
-      final bucketA = await freshBucket(db, name: 'Belanja', pct: 60);
+      var bucketA = await freshBucket(db, name: 'Belanja', pct: 60);
       final bucketB = await freshBucket(db, name: 'Sedekah', pct: 40);
+      bucketA = await seedBucket(db, bucketA, 120000);
 
       await db.executeBucketTransfer(
         fromBucketId: bucketA.id!,
@@ -949,30 +1017,27 @@ void main() {
         ).toMap(),
       );
 
-      await db.insertFinancialBucket(FinancialBucket(
-        name: 'Kebutuhan Cash',
-        walletId: cashWallet.id,
-        allocationPercentage: 10,
-        currentBalance: 50000,
-        createdDate: now,
-        updatedDate: now,
-      ));
-      await db.insertFinancialBucket(FinancialBucket(
-        name: 'Jajan Cash',
-        walletId: cashWallet.id,
-        allocationPercentage: 20,
-        currentBalance: 200000,
-        createdDate: now,
-        updatedDate: now,
-      ));
-      await db.insertFinancialBucket(FinancialBucket(
-        name: 'Tabungan Cash',
-        walletId: cashWallet.id,
-        allocationPercentage: 30,
-        currentBalance: 350000,
-        createdDate: now,
-        updatedDate: now,
-      ));
+      final legacyBalances = {
+        'Kebutuhan Cash': (10.0, 50000.0),
+        'Jajan Cash': (20.0, 200000.0),
+        'Tabungan Cash': (70.0, 350000.0),
+      };
+      for (final entry in legacyBalances.entries) {
+        final id = await db.insertFinancialBucket(FinancialBucket(
+          name: entry.key,
+          walletId: cashWallet.id,
+          allocationPercentage: entry.value.$1,
+          createdDate: now,
+          updatedDate: now,
+        ));
+        // New buckets start empty; simulate balances left by older versions.
+        await rawDb.update(
+          'financial_buckets',
+          {'currentBalance': entry.value.$2},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
 
       final previews = await db.previewBucketReconciliations();
       final cashPreview = previews[cashWallet.id];

@@ -62,7 +62,8 @@ Future<void> _pumpUi(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('late payment commit refreshes dismissed sheet parent once and blocks reopening',
+  testWidgets(
+      'late payment commit refreshes dismissed sheet parent once and blocks reopening',
       (tester) async {
     final pending = Completer<void>();
     final refreshPending = Completer<void>();
@@ -71,19 +72,30 @@ void main() {
     var inserts = 0;
     var debtLoads = 0;
     var paymentLoads = 0;
-    await tester.pumpWidget(MaterialApp(home: HutangDetailPage(
+    await tester.pumpWidget(MaterialApp(
+        home: HutangDetailPage(
       debt: debt,
       initialPayments: const [],
       initialWallets: _wallets,
       initialBuckets: const [],
-      recordDebtPayment: ({required int debtId, required double amount,
-        required DateTime paymentDate, required String recordingMode,
-        int? walletId, int? bucketId, FinancialBucket? affectedBucket}) async {
+      recordDebtPayment: (
+          {required int debtId,
+          required double amount,
+          required DateTime paymentDate,
+          required String recordingMode,
+          int? walletId,
+          int? bucketId,
+          FinancialBucket? affectedBucket}) async {
         inserts++;
         await pending.future;
         debt = _makeDebt(remaining: 200000);
-        payments.add(DebtPayment(id: 1, debtId: debtId, amount: amount,
-            paymentDate: paymentDate, recordingMode: recordingMode, createdDate: paymentDate));
+        payments.add(DebtPayment(
+            id: 1,
+            debtId: debtId,
+            amount: amount,
+            paymentDate: paymentDate,
+            recordingMode: recordingMode,
+            createdDate: paymentDate));
       },
       loadDebtById: (_) async {
         debtLoads++;
@@ -100,11 +112,15 @@ void main() {
     final open = tester.widget<FloatingActionButton>(pay).onPressed!;
     open();
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('payment_amount_field')), '100000');
-    final save = tester.widget<ElevatedButton>(find.byKey(const Key('payment_save_btn'))).onPressed!;
+    await tester.enterText(
+        find.byKey(const Key('payment_amount_field')), '100000');
+    final save = tester
+        .widget<ElevatedButton>(find.byKey(const Key('payment_save_btn')))
+        .onPressed!;
     save();
     save();
-    Navigator.of(tester.element(find.byKey(const Key('payment_amount_field')))).pop();
+    Navigator.of(tester.element(find.byKey(const Key('payment_amount_field'))))
+        .pop();
     await tester.pumpAndSettle();
     expect(tester.widget<FloatingActionButton>(pay).onPressed, isNull);
     open(); // Even a callback captured before the disabled rebuild is guarded.
@@ -129,16 +145,74 @@ void main() {
 
     await tester.tap(pay);
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('payment_amount_field')), '250000');
-    tester.widget<ElevatedButton>(find.byKey(const Key('payment_save_btn'))).onPressed!();
+    await tester.enterText(
+        find.byKey(const Key('payment_amount_field')), '250000');
+    tester
+        .widget<ElevatedButton>(find.byKey(const Key('payment_save_btn')))
+        .onPressed!();
     save(); // A callback from the dismissed sheet cannot insert again.
     await tester.pump();
-    expect(find.text('Nominal cicilan melebihi sisa yang harus dibayar.'), findsOneWidget);
+    expect(find.text('Nominal cicilan melebihi sisa yang harus dibayar.'),
+        findsOneWidget);
     expect(inserts, 1);
     expect(debtLoads, 1);
     expect(paymentLoads, 1);
-    Navigator.of(tester.element(find.byKey(const Key('payment_amount_field')))).pop();
+    Navigator.of(tester.element(find.byKey(const Key('payment_amount_field'))))
+        .pop();
     await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('payment sheet menerima nominal setara setelah pembulatan rupiah',
+      (tester) async {
+    final debt = _makeDebt(principal: 2537214, remaining: 2537213.6);
+    final calls = <Map<String, Object?>>[];
+
+    await tester.pumpWidget(MaterialApp(
+      home: HutangDetailPage(
+        debt: debt,
+        initialPayments: const [],
+        initialWallets: _wallets,
+        initialBuckets: const [],
+        recordDebtPayment: ({
+          required int debtId,
+          required double amount,
+          required DateTime paymentDate,
+          required String recordingMode,
+          int? walletId,
+          int? bucketId,
+          FinancialBucket? affectedBucket,
+        }) async {
+          calls.add({
+            'debtId': debtId,
+            'amount': amount,
+            'mode': recordingMode,
+          });
+        },
+        loadDebtById: (_) async => debt,
+        loadPaymentsByDebt: (_) async => const <DebtPayment>[],
+        refreshReminderSchedule: () async {},
+      ),
+    ));
+
+    await tester.tap(find.byKey(const Key('debt_pay_btn')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('payment_amount_field')),
+      '2537214',
+    );
+    tester
+        .widget<ElevatedButton>(find.byKey(const Key('payment_save_btn')))
+        .onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(calls, hasLength(1));
+    expect(
+      find.text('Nominal cicilan melebihi sisa yang harus dibayar.'),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('payment_amount_field')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

@@ -35,15 +35,23 @@ void main() {
         walletId: walletId,
       );
 
-  Future<FinancialBucket> bucket({double balance = 0, int? walletId}) async {
+  // Percentages across active buckets may not exceed 100, so tests that need
+  // two buckets pass 50 for each.
+  Future<FinancialBucket> bucket(
+      {double balance = 0, int? walletId, double percentage = 100}) async {
     final id = await helper.insertFinancialBucket(FinancialBucket(
       name: 'Bucket',
       walletId: walletId ?? cash.id,
-      allocationPercentage: 100,
-      currentBalance: balance,
+      allocationPercentage: percentage,
       createdDate: now,
       updatedDate: now,
     ));
+    if (balance != 0) {
+      // New buckets start empty; this simulates a balance from an older version.
+      await (await helper.database).update('financial_buckets',
+          {'currentBalance': balance},
+          where: 'id = ?', whereArgs: [id]);
+    }
     return (await helper.getFinancialBuckets()).firstWhere((b) => b.id == id);
   }
 
@@ -235,8 +243,8 @@ void main() {
 
   test('expense edit to another wallet uses the new bucket owner exactly once',
       () async {
-    final source = await bucket();
-    final target = await bucket(walletId: bank.id);
+    final source = await bucket(percentage: 50);
+    final target = await bucket(walletId: bank.id, percentage: 50);
     for (final b in [source, target]) {
       await helper.saveIncomeWithAllocations(
         amount: 100000,
@@ -285,7 +293,9 @@ void main() {
   ]) {
     test('bucket owner change rejects $history and permits same-owner metadata',
         () async {
-      final source = await bucket(balance: history == 'balance' ? 10 : 0);
+      final source = await bucket(
+          balance: history == 'balance' ? 10 : 0,
+          percentage: history.startsWith('transfer') ? 50 : 100);
       final db = await helper.database;
       if (history == 'allocation') {
         final txId = await helper.insertTransaction(transaction('income', 100));
@@ -298,7 +308,7 @@ void main() {
           'createdDate': 1,
         });
       } else if (history.startsWith('transfer')) {
-        final other = await bucket();
+        final other = await bucket(percentage: 50);
         await db.insert('bucket_transfers', {
           'fromBucketId': history == 'transferFrom' ? source.id : other.id,
           'toBucketId': history == 'transferTo' ? source.id : other.id,
@@ -310,13 +320,16 @@ void main() {
         await debt(bucketId: source.id);
       } else if (history == 'payment') {
         final debtId = await debt();
-        await helper.recordDebtPayment(
-          debtId: debtId,
-          amount: 100,
-          paymentDate: now,
-          recordingMode: 'note',
-          bucketId: source.id,
-        );
+        // Note-mode payments do not store a bucket, so insert the row an older
+        // balance-mode payment would have left behind.
+        await db.insert('debt_payments', {
+          'debtId': debtId,
+          'amount': 100,
+          'paymentDate': 1,
+          'recordingMode': 'balance',
+          'bucketId': source.id,
+          'createdDate': 1,
+        });
       }
       final before = await db
           .query('financial_buckets', where: 'id = ?', whereArgs: [source.id]);
@@ -369,8 +382,8 @@ void main() {
 
   test('archived buckets retain their wallet instead of allowing hard deletion',
       () async {
-    final source = await bucket();
-    await bucket(walletId: bank.id);
+    final source = await bucket(percentage: 50);
+    await bucket(walletId: bank.id, percentage: 50);
     await helper.archiveFinancialBucket(source.id!);
     expect(await helper.getWalletReferenceCount(cash), 1);
     await helper.deleteWallet(cash.id!);
@@ -410,8 +423,8 @@ void main() {
   test(
       'historical bucket metadata remains editable with unchanged archived owner',
       () async {
-    final source = await bucket();
-    await bucket(walletId: bank.id);
+    final source = await bucket(percentage: 50);
+    await bucket(walletId: bank.id, percentage: 50);
     await helper.archiveFinancialBucket(source.id!);
     await helper.archiveWallet(cash.id!);
     final archived = (await helper.getFinancialBuckets())
@@ -425,9 +438,10 @@ void main() {
   });
 
   test('archived owner cannot gain a new or reassigned bucket', () async {
-    final source = await bucket();
+    final source = await bucket(percentage: 50);
     await helper.archiveWallet(bank.id!);
-    await expectLater(bucket(walletId: bank.id), throwsStateError);
+    await expectLater(
+        bucket(walletId: bank.id, percentage: 50), throwsStateError);
     await expectLater(
         helper.updateFinancialBucket(editBucket(source, walletId: bank.id)),
         throwsStateError);
@@ -527,8 +541,8 @@ void main() {
     test('$operation rolls back on metadata failure and retry commits once',
         () async {
       final db = await helper.database;
-      final source = await bucket();
-      final target = await bucket(walletId: bank.id);
+      final source = await bucket(percentage: 50);
+      final target = await bucket(walletId: bank.id, percentage: 50);
       await helper.saveIncomeWithAllocations(
         amount: 200000,
         category: 'Seed',
@@ -545,8 +559,8 @@ void main() {
         principalAmount: 100000,
         remainingAmount: 100000,
         borrowedDate: now,
-        recordingMode: 'balance',
-        walletId: cash.id,
+        recordingMode: operation == 'update debt' ? 'note' : 'balance',
+        walletId: operation == 'update debt' ? null : cash.id,
         createdDate: now,
         updatedDate: now,
       );

@@ -19,24 +19,13 @@ void main() {
     await disposeSharedTestDatabase();
   });
 
-  // ---------------------------------------------------------------------------
-  // validateBucketPercentages — BR-08
-  // gap: fungsi belum ada — ditambahkan di Task 5.2
-  // ---------------------------------------------------------------------------
-
   final now = DateTime(2026);
-
-  // ---------------------------------------------------------------------------
-  // executeBucketTransfer — BR-12: transfer tidak mengubah total saldo
-  // Pakai test() bukan testWidgets() karena ini DB-level, bukan UI.
-  // ---------------------------------------------------------------------------
 
   group('executeBucketTransfer — BR-12', () {
     test('transfer tidak mengubah total saldo keseluruhan', () async {
       final db = DatabaseHelper();
       await db.database;
 
-      // Insert dua pos dengan saldo awal
       await db.insertTransaction(Transaction(
         type: 'income',
         amount: 150,
@@ -48,21 +37,19 @@ void main() {
       final idA = await db.insertFinancialBucket(FinancialBucket(
         name: 'Pos A',
         allocationPercentage: 60,
-        currentBalance: 100,
         createdDate: now,
         updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'Pos B',
         allocationPercentage: 40,
-        currentBalance: 50,
         createdDate: now,
         updatedDate: now,
       ));
+      await db.applyBucketReconciliations();
 
       const totalBefore = 150.0;
 
-      // gap: DatabaseHelper.executeBucketTransfer belum ada — Task 5.2
       await db.executeBucketTransfer(
         fromBucketId: idA,
         toBucketId: idB,
@@ -91,17 +78,16 @@ void main() {
       final idA = await db.insertFinancialBucket(FinancialBucket(
         name: 'Sumber',
         allocationPercentage: 70,
-        currentBalance: 200,
         createdDate: now,
         updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'Tujuan',
         allocationPercentage: 30,
-        currentBalance: 100,
         createdDate: now,
         updatedDate: now,
       ));
+      await db.applyBucketReconciliations();
 
       await db.executeBucketTransfer(
         fromBucketId: idA,
@@ -114,8 +100,8 @@ void main() {
       final a = buckets.firstWhere((b) => b.id == idA);
       final b = buckets.firstWhere((b) => b.id == idB);
 
-      expect(a.currentBalance, closeTo(150, 0.01));
-      expect(b.currentBalance, closeTo(150, 0.01));
+      expect(a.currentBalance, closeTo(160, 0.01));
+      expect(b.currentBalance, closeTo(140, 0.01));
     });
 
     test('transfer dicatat di tabel bucket_transfers', () async {
@@ -133,17 +119,16 @@ void main() {
       final idA = await db.insertFinancialBucket(FinancialBucket(
         name: 'A',
         allocationPercentage: 100,
-        currentBalance: 500,
         createdDate: now,
         updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'B',
         allocationPercentage: 0,
-        currentBalance: 0,
         createdDate: now,
         updatedDate: now,
       ));
+      await db.applyBucketReconciliations();
 
       await db.executeBucketTransfer(
         fromBucketId: idA,
@@ -195,19 +180,18 @@ void main() {
       final idA = await db.insertFinancialBucket(FinancialBucket(
         name: 'Sumber Cash',
         walletId: cashWallet.id,
-        allocationPercentage: 100,
-        currentBalance: 500000,
+        allocationPercentage: 50,
         createdDate: now,
         updatedDate: now,
       ));
       final idB = await db.insertFinancialBucket(FinancialBucket(
         name: 'Tujuan Bank',
         walletId: bankWallet.id,
-        allocationPercentage: 100,
-        currentBalance: 100000,
+        allocationPercentage: 50,
         createdDate: now,
         updatedDate: now,
       ));
+      await db.applyBucketReconciliations();
 
       await db.executeBucketTransfer(
         fromBucketId: idA,

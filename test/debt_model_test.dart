@@ -48,6 +48,15 @@ void main() {
       expect(item.isOverdue, isFalse);
     });
 
+    test('isOverdue false bila sisa hanya pecahan di bawah 0.5 rupiah', () {
+      final item = debt(
+        due: DateTime(2025, 1, 1),
+        remaining: 0.4,
+        status: 'active',
+      );
+      expect(item.isOverdue, isFalse);
+    });
+
     test('isOverdue false bila tidak ada dueDate', () {
       expect(debt().isOverdue, isFalse);
     });

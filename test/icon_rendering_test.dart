@@ -21,10 +21,6 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  // ---------------------------------------------------------------------------
-  // Bottom shell: ikon fungsional harus tetap memakai Material icons
-  // ---------------------------------------------------------------------------
-
   group('Bottom shell — migrasi ikon', () {
     testWidgets('tab Beranda memakai ikon Material bukan emoji',
         (tester) async {
@@ -108,35 +104,20 @@ void main() {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Wallet filter: emoji dompet harus diganti dengan Material icons
-  // ---------------------------------------------------------------------------
-
   group('Wallet filter — migrasi ikon', () {
-    // Chip 'All' selalu muncul (hardcoded di presentasi), chip lain dari DB.
     testWidgets('chip All memiliki ikon Material', (tester) async {
       await pumpApp(tester);
 
       expect(find.byIcon(Icons.account_balance_wallet_outlined), findsWidgets);
     });
 
-    // Phase 4: chip Cash/E-Wallet/Bank/Tabungan sekarang dinamis dari DB.
-    // Tidak bisa di-assert di fake-async testWidgets (sqflite isolate timing).
-    // Logika icon rendering tetap di _getWalletIcon — dijamin oleh chip All
-    // yang memakai fungsi yang sama, dan oleh DB-level tests di wallet_management_test.
-
     testWidgets('wallet filter tidak lagi berisi emoji string 💵',
         (tester) async {
       await pumpApp(tester);
 
-      // Emoji di dalam chip tidak boleh ada sebagai standalone text
       expect(find.text('💵 Cash'), findsNothing);
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // Empty states: emoji ikon diganti dengan Material icons
-  // ---------------------------------------------------------------------------
 
   group('Empty state transaction — migrasi ikon', () {
     testWidgets('empty transaction memakai ikon receipt_long bukan 📝',

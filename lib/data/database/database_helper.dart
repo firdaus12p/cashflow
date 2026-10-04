@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' hide Transaction;
 
 import '../../core/constants/app_constants.dart';
+import '../../core/formatters/currency_formatters.dart';
 import '../../features/badges/models/user_badge.dart';
 import '../../features/buckets/helpers/bucket_helpers.dart';
 import '../../features/buckets/models/bucket_models.dart';
@@ -24,7 +25,59 @@ class InsufficientBalanceException implements Exception {
   String toString() => message;
 }
 
+/// One wallet or bucket that a correction would push below zero.
+class NegativeBalanceImpact {
+  const NegativeBalanceImpact({
+    required this.name,
+    required this.isBucket,
+    required this.before,
+    required this.after,
+  });
+
+  final String name;
+  final bool isBucket;
+  final double before;
+  final double after;
+}
+
+/// Thrown by corrections (edit or delete) that would leave a balance below
+/// zero. Repeat the call with `allowNegativeBalance: true` once the user
+/// confirmed. Spending is never offered this choice.
+class NegativeBalanceConfirmationRequired extends InsufficientBalanceException {
+  NegativeBalanceConfirmationRequired(this.impacts);
+
+  final List<NegativeBalanceImpact> impacts;
+}
+
+/// Thrown when a transaction touched buckets that are no longer active and
+/// the caller did not say which active bucket should absorb the change.
+///
+/// It is a [StateError] so callers that do not handle it still see the
+/// operation rejected.
+class ArchivedBucketReplacementRequired extends StateError {
+  ArchivedBucketReplacementRequired(this.buckets)
+      : super(
+            'Replacement bucket required for: ${buckets.map((b) => b.name).join(', ')}');
+
+  final List<FinancialBucket> buckets;
+}
+
+class _TransactionGuard {
+  _TransactionGuard(
+    this.baseline, {
+    required this.correction,
+    required this.confirmed,
+  });
+
+  /// Balances before the operation, keyed `w<id>`, `n<name>` or `b<id>`.
+  final Map<String, double> baseline;
+  final bool correction;
+  final bool confirmed;
+}
+
 class DatabaseHelper {
+  static final Expando<_TransactionGuard> _transactionGuards =
+      Expando<_TransactionGuard>();
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
   static String? _overridePath;
@@ -216,7 +269,6 @@ class DatabaseHelper {
       )
     ''');
 
-    // Indexes untuk kolom yang sering diquery
     await db
         .execute('CREATE INDEX idx_transactions_date ON transactions(date)');
     await db.execute(
@@ -361,7 +413,6 @@ class DatabaseHelper {
         )
       ''');
 
-      // Index untuk kolom yang sering diquery (ditambahkan bersama tabel terkait)
       await db.execute(
           'CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)');
       await db.execute(
@@ -648,7 +699,7 @@ class DatabaseHelper {
       SELECT COUNT(*) AS overdueCount
       FROM debts
       WHERE status = 'active'
-        AND remainingAmount > 0
+        AND ROUND(remainingAmount, 0) > 0
         AND dueDate IS NOT NULL
         AND dueDate < ?
         AND LOWER(type) IN ('debt', 'hutang')
@@ -692,6 +743,7 @@ class DatabaseHelper {
     required String fallbackName,
     int? fallbackWalletId,
   }) async {
+    bucket = await _activeBucketTxn(executor, bucket.id);
     return _resolveWalletContextByIdTxn(
       executor,
       walletId: bucket.walletId,
@@ -727,10 +779,50 @@ class DatabaseHelper {
         (transaction.category == 'Hutang' || transaction.category == 'Piutang');
   }
 
+  /// Maps each allocation to the bucket that receives its reversal: the
+  /// bucket itself while active, otherwise the caller-chosen replacement in
+  /// the same wallet.
+  Future<Map<int, int>> _resolveReversalBucketsTxn(
+    DatabaseExecutor txn,
+    List<TransactionBucketAllocation> allocations,
+    Map<int, int>? replacements,
+  ) async {
+    final resolved = <int, int>{};
+    final missing = <FinancialBucket>[];
+    for (final allocation in allocations) {
+      final id = allocation.bucketId;
+      if (resolved.containsKey(id) || missing.any((b) => b.id == id)) continue;
+      final rows = await txn.query('financial_buckets',
+          where: 'id = ?', whereArgs: [id], limit: 1);
+      if (rows.isEmpty) throw StateError('Financial bucket not found.');
+      final bucket = FinancialBucket.fromMap(rows.single);
+      try {
+        await _activeBucketTxn(txn, id);
+        resolved[id] = id;
+        continue;
+      } on StateError {
+        // Inactive bucket: fall through to the replacement lookup.
+      }
+      final replacementId = replacements?[id];
+      if (replacementId == null) {
+        missing.add(bucket);
+        continue;
+      }
+      final replacement = await _activeBucketTxn(txn, replacementId);
+      if (replacement.walletId != bucket.walletId) {
+        throw StateError('Replacement bucket must use the same wallet.');
+      }
+      resolved[id] = replacementId;
+    }
+    if (missing.isNotEmpty) throw ArchivedBucketReplacementRequired(missing);
+    return resolved;
+  }
+
   Future<void> _reverseTransactionAllocationsTxn(
     DatabaseExecutor txn,
-    int transactionId,
-  ) async {
+    int transactionId, {
+    Map<int, int>? replacements,
+  }) async {
     final allocationRows = await txn.query(
       'transaction_bucket_allocations',
       where: 'transactionId = ?',
@@ -740,15 +832,8 @@ class DatabaseHelper {
         allocationRows.map(TransactionBucketAllocation.fromMap).toList();
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    for (final allocation in allocations) {
-      if (allocation.role == 'target') {
-        await _ensureBucketHasSufficientBalanceTxn(
-          txn,
-          bucketId: allocation.bucketId,
-          amount: allocation.allocatedAmount,
-        );
-      }
-    }
+    final targets =
+        await _resolveReversalBucketsTxn(txn, allocations, replacements);
 
     for (final allocation in allocations) {
       double balanceDelta = 0;
@@ -761,7 +846,7 @@ class DatabaseHelper {
       if (balanceDelta != 0) {
         await txn.rawUpdate(
           'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
-          [balanceDelta, now, allocation.bucketId],
+          [balanceDelta, now, targets[allocation.bucketId]],
         );
       }
     }
@@ -865,6 +950,231 @@ class DatabaseHelper {
     final rawValue = rows.first['balance'];
     if (rawValue is num) return rawValue.toDouble();
     return 0;
+  }
+
+  double _requirePositiveRupiahAmount(
+    double amount, {
+    String argumentName = 'amount',
+    String message = 'Amount must be positive and finite.',
+  }) {
+    if (!amount.isFinite ||
+        amount > 9007199254740991 ||
+        compareRupiahAmount(amount, 0) <= 0) {
+      throw ArgumentError.value(amount, argumentName, message);
+    }
+    return normalizeRupiahAmount(amount);
+  }
+
+  double _requireNonnegativeRupiahAmount(double amount) {
+    if (!amount.isFinite || amount < 0 || amount > 9007199254740991) {
+      throw ArgumentError.value(amount, 'amount', 'Invalid rupiah amount.');
+    }
+    return normalizeRupiahAmount(amount);
+  }
+
+  void _requireChoice(String value, Set<String> allowed, String name) {
+    if (!allowed.contains(value)) {
+      throw ArgumentError.value(value, name, 'Unsupported value.');
+    }
+  }
+
+  Future<FinancialBucket> _activeBucketTxn(
+    DatabaseExecutor txn,
+    int? id,
+  ) async {
+    final rows = await txn.query('financial_buckets',
+        where: 'id = ? AND isArchived = 0', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) throw StateError('Financial bucket is not active.');
+    final bucket = FinancialBucket.fromMap(rows.single);
+    final wallets = await txn.query('wallets',
+        columns: ['id'],
+        where: 'id = ? AND isArchived = 0',
+        whereArgs: [bucket.walletId],
+        limit: 1);
+    if (wallets.isEmpty) throw StateError('Bucket wallet is not active.');
+    return bucket;
+  }
+
+  Future<({String walletName, int walletId})> _activeWalletTxn(
+      DatabaseExecutor txn,
+      {int? walletId,
+      required String walletName}) async {
+    final rows = await txn.query('wallets',
+        where: walletId == null
+            ? 'name = ? AND isArchived = 0'
+            : 'id = ? AND isArchived = 0',
+        whereArgs: [walletId ?? walletName],
+        limit: 1);
+    if (rows.isEmpty) throw StateError('An active wallet is required.');
+    return (
+      walletName: rows.single['name'] as String,
+      walletId: rows.single['id'] as int
+    );
+  }
+
+  Future<void> _requireCompleteBucketConfigurationTxn(
+      DatabaseExecutor txn) async {
+    final rows = await txn.query('financial_buckets', where: 'isArchived = 0');
+    final buckets = rows.map(FinancialBucket.fromMap).toList();
+    if (buckets.isEmpty ||
+        buckets.any((b) =>
+            !b.allocationPercentage.isFinite ||
+            b.allocationPercentage < 0 ||
+            b.allocationPercentage > 100) ||
+        (buckets.fold<double>(0, (sum, b) => sum + b.allocationPercentage) -
+                    100)
+                .abs() >
+            bucketPercentageTolerance) {
+      throw StateError('Active bucket allocation must total 100%.');
+    }
+  }
+
+  Future<List<FinancialBucket>> _incomeBucketsTxn(
+    DatabaseExecutor txn,
+    List<FinancialBucket> buckets,
+  ) async {
+    if (buckets.isEmpty ||
+        buckets.any((b) => b.id == null) ||
+        buckets.map((b) => b.id).toSet().length != buckets.length) {
+      throw ArgumentError('Income requires distinct active bucket IDs.');
+    }
+    await _requireCompleteBucketConfigurationTxn(txn);
+    final current = <FinancialBucket>[];
+    for (final bucket in buckets) {
+      current.add(await _activeBucketTxn(txn, bucket.id));
+    }
+    if (current.any((b) => b.allocationPercentage <= 0)) {
+      throw StateError('Selected income buckets require positive percentages.');
+    }
+    return current;
+  }
+
+  Future<Map<String, double>> _balanceBaselineTxn(DatabaseExecutor txn) async {
+    final baseline = <String, double>{};
+    final buckets =
+        await txn.query('financial_buckets', columns: ['id', 'currentBalance']);
+    for (final row in buckets) {
+      baseline['b${row['id']}'] = (row['currentBalance'] as num).toDouble();
+    }
+    final knownNames = <String>{};
+    final wallets = await txn.query('wallets', columns: ['id', 'name']);
+    for (final row in wallets) {
+      final id = row['id'] as int;
+      knownNames.add(row['name'] as String);
+      baseline['w$id'] =
+          await _calculateWalletBalanceTxn(txn, walletId: id, walletName: '');
+    }
+    final orphans = await txn.rawQuery(
+        'SELECT DISTINCT wallet FROM transactions WHERE walletId IS NULL');
+    for (final row in orphans) {
+      final name = (row['wallet'] as String?)?.trim() ?? '';
+      if (name.isEmpty || knownNames.contains(name)) continue;
+      baseline['n$name'] = await _calculateWalletBalanceTxn(txn,
+          walletId: null, walletName: name);
+    }
+    return baseline;
+  }
+
+  /// Runs [action] with the starting balances remembered, so a balance that
+  /// is already negative only blocks operations that lower it further.
+  Future<T> _financialTransaction<T>(
+    Database db,
+    Future<T> Function(DatabaseExecutor txn) action, {
+    bool correction = false,
+    bool confirmedNegative = false,
+  }) {
+    return db.transaction<T>((txn) async {
+      _transactionGuards[txn] = _TransactionGuard(
+        await _balanceBaselineTxn(txn),
+        correction: correction,
+        confirmed: confirmedNegative,
+      );
+      return action(txn);
+    });
+  }
+
+  /// Rejects a balance that went down and ended below zero. Balances that
+  /// were already negative may rise without being rejected.
+  Future<void> _validateFinancialStateTxn(
+    DatabaseExecutor txn, {
+    Iterable<int> bucketIds = const [],
+    Iterable<int?> walletIds = const [],
+    Iterable<String> walletNames = const [],
+  }) async {
+    final guard = _transactionGuards[txn];
+    final impacts = <NegativeBalanceImpact>[];
+    final checked = <String>{};
+
+    void check(String key, String name, bool isBucket, double after) {
+      if (!checked.add(key)) return;
+      if (!after.isFinite || after.abs() > 9007199254740991) {
+        throw StateError('Resulting balance exceeds supported rupiah range.');
+      }
+      if (compareRupiahAmount(after, 0) >= 0) return;
+      final before = guard?.baseline[key];
+      if (before != null && compareRupiahAmount(after, before) >= 0) return;
+      impacts.add(NegativeBalanceImpact(
+        name: name,
+        isBucket: isBucket,
+        before: before ?? 0,
+        after: after,
+      ));
+    }
+
+    Future<String> walletLabel(int id) async {
+      final rows = await txn.query('wallets',
+          columns: ['name'], where: 'id = ?', whereArgs: [id], limit: 1);
+      return rows.isEmpty ? 'Dompet $id' : rows.single['name'] as String;
+    }
+
+    final ids = walletIds.whereType<int>().toSet();
+    for (final bucketId in bucketIds.toSet()) {
+      final rows = await txn.query('financial_buckets',
+          where: 'id = ?', whereArgs: [bucketId], limit: 1);
+      if (rows.isEmpty) throw StateError('Financial bucket not found.');
+      check('b$bucketId', rows.single['name'] as String, true,
+          (rows.single['currentBalance'] as num).toDouble());
+      final walletId = rows.single['walletId'] as int?;
+      if (walletId != null) ids.add(walletId);
+    }
+    for (final walletId in ids) {
+      check(
+          'w$walletId',
+          await walletLabel(walletId),
+          false,
+          await _calculateWalletBalanceTxn(txn,
+              walletId: walletId, walletName: ''));
+    }
+    for (final name in walletNames.toSet()) {
+      final resolvedId = await _resolveWalletIdByNameTxn(txn, name);
+      check(
+          resolvedId != null ? 'w$resolvedId' : 'n$name',
+          name,
+          false,
+          await _calculateWalletBalanceTxn(txn,
+              walletId: null, walletName: name));
+    }
+
+    if (impacts.isEmpty || guard?.confirmed == true) return;
+    if (guard?.correction == true) {
+      throw NegativeBalanceConfirmationRequired(impacts);
+    }
+    throw const InsufficientBalanceException();
+  }
+
+  Future<List<int>> _transactionBucketIdsTxn(
+      DatabaseExecutor txn, int id) async {
+    final rows = await txn.query('transaction_bucket_allocations',
+        columns: ['bucketId'], where: 'transactionId = ?', whereArgs: [id]);
+    return rows.map((row) => row['bucketId'] as int).toList();
+  }
+
+  void _ensureTransactionMutable(Transaction transaction) {
+    if (_isDebtLinkedTransaction(transaction) ||
+        transaction.category == internalTransferCategory) {
+      throw StateError(
+          'Linked financial transactions cannot be mutated directly.');
+    }
   }
 
   Future<double> _calculateWalletBalanceTxn(
@@ -975,7 +1285,7 @@ class DatabaseHelper {
       walletName: walletName,
       excludeTransactionId: excludeTransactionId,
     );
-    if (balance + 0.001 < amount) {
+    if (!hasSufficientRupiahBalance(balance, amount)) {
       throw const InsufficientBalanceException();
     }
   }
@@ -997,27 +1307,34 @@ class DatabaseHelper {
     }
     final currentBalance =
         (rows.first['currentBalance'] as num?)?.toDouble() ?? 0;
-    if (currentBalance + 0.001 < amount) {
+    if (!hasSufficientRupiahBalance(currentBalance, amount)) {
       throw const InsufficientBalanceException();
     }
   }
 
   Future<int> insertTransaction(Transaction transaction) async {
-    if (!transaction.amount.isFinite || transaction.amount <= 0) {
-      throw ArgumentError.value(
-          transaction.amount, 'amount', 'Amount must be positive and finite.');
+    final amount = _requirePositiveRupiahAmount(transaction.amount);
+    _requireChoice(transaction.type, {'income', 'expense'}, 'type');
+    if (transaction.category == internalTransferCategory) {
+      throw StateError('Use executeBucketTransfer for internal transfers.');
     }
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       if (transaction.affectsBalance && transaction.type == 'expense') {
         await _ensureWalletHasSufficientBalanceTxn(
           txn,
-          amount: transaction.amount,
+          amount: amount,
           walletId: transaction.walletId,
           walletName: transaction.wallet,
         );
       }
-      final id = await txn.insert('transactions', transaction.toMap());
+      final id = await txn
+          .insert('transactions', {...transaction.toMap(), 'amount': amount});
+      if (transaction.affectsBalance) {
+        await _validateFinancialStateTxn(txn,
+            walletIds: [transaction.walletId],
+            walletNames: [transaction.wallet]);
+      }
       await _markFinancialActivityTxn(txn, DateTime.now());
       return id;
     });
@@ -1100,9 +1417,14 @@ class DatabaseHelper {
     return maps.map(Transaction.fromMap).toList();
   }
 
-  Future<int> deleteTransaction(int id) async {
+  Future<int> deleteTransaction(
+    int id, {
+    Map<int, int>? bucketReplacements,
+    bool allowNegativeBalance = false,
+  }) async {
     final db = await database;
-    return await db.transaction((txn) async {
+    return await _financialTransaction(db, correction: true,
+        confirmedNegative: allowNegativeBalance, (txn) async {
       final transactionRows = await txn.query(
         'transactions',
         where: 'id = ?',
@@ -1114,15 +1436,22 @@ class DatabaseHelper {
       }
 
       final transaction = Transaction.fromMap(transactionRows.first);
-      if (_isDebtLinkedTransaction(transaction)) {
-        throw StateError(
-          'Transactions linked to debt records cannot be deleted directly.',
-        );
-      }
+      _ensureTransactionMutable(transaction);
+      final bucketIds = [
+        ...await _transactionBucketIdsTxn(txn, id),
+        ...?bucketReplacements?.values,
+      ];
 
-      await _reverseTransactionAllocationsTxn(txn, id);
+      await _reverseTransactionAllocationsTxn(txn, id,
+          replacements: bucketReplacements);
 
-      return txn.delete('transactions', where: 'id = ?', whereArgs: [id]);
+      final deleted =
+          await txn.delete('transactions', where: 'id = ?', whereArgs: [id]);
+      await _validateFinancialStateTxn(txn,
+          bucketIds: bucketIds,
+          walletIds: [transaction.walletId],
+          walletNames: [transaction.wallet]);
+      return deleted;
     });
   }
 
@@ -1139,13 +1468,17 @@ class DatabaseHelper {
     FinancialBucket? sourceBucket,
     List<FinancialBucket>? subsetBuckets,
     bool allowWithoutBucketAllocation = false,
+    Map<int, int>? bucketReplacements,
+    bool allowNegativeBalance = false,
   }) async {
-    if (!amount.isFinite || amount <= 0) {
-      throw ArgumentError.value(
-          amount, 'amount', 'Amount must be positive and finite.');
+    amount = _requirePositiveRupiahAmount(amount);
+    _requireChoice(type, {'income', 'expense'}, 'type');
+    if (category == internalTransferCategory) {
+      throw StateError('Use executeBucketTransfer for internal transfers.');
     }
     final db = await database;
-    return await db.transaction((txn) async {
+    return await _financialTransaction(db, correction: true,
+        confirmedNegative: allowNegativeBalance, (txn) async {
       final transactionRows = await txn.query(
         'transactions',
         where: 'id = ?',
@@ -1157,11 +1490,7 @@ class DatabaseHelper {
       }
 
       final existingTransaction = Transaction.fromMap(transactionRows.first);
-      if (_isDebtLinkedTransaction(existingTransaction)) {
-        throw StateError(
-          'Transactions linked to debt records cannot be updated directly.',
-        );
-      }
+      _ensureTransactionMutable(existingTransaction);
 
       final resolvedAffectsBalance =
           affectsBalance ?? existingTransaction.affectsBalance;
@@ -1173,19 +1502,51 @@ class DatabaseHelper {
       }
 
       final resolvedWalletId = walletId ?? existingTransaction.walletId;
+      // Same or smaller expense in the same wallet takes no extra money.
+      final spendsNoMore = existingTransaction.affectsBalance &&
+          existingTransaction.type == 'expense' &&
+          compareRupiahAmount(amount, existingTransaction.amount) <= 0 &&
+          (resolvedWalletId ?? 0) == (existingTransaction.walletId ?? 0) &&
+          walletName == existingTransaction.wallet;
       final now = DateTime.now().millisecondsSinceEpoch;
+      final oldBucketIds = [
+        ...await _transactionBucketIdsTxn(txn, transactionId),
+        ...?bucketReplacements?.values,
+      ];
+      if (resolvedAffectsBalance &&
+          type == 'income' &&
+          subsetBuckets != null &&
+          subsetBuckets!.isNotEmpty) {
+        subsetBuckets = await _incomeBucketsTxn(txn, subsetBuckets!);
+      }
+      if (resolvedAffectsBalance && type == 'expense' && sourceBucket != null) {
+        await _requireCompleteBucketConfigurationTxn(txn);
+        sourceBucket = await _activeBucketTxn(txn, sourceBucket!.id);
+      }
 
-      await _reverseTransactionAllocationsTxn(txn, transactionId);
+      final previousSourceRows = await txn.query(
+        'transaction_bucket_allocations',
+        columns: ['bucketId'],
+        where: 'transactionId = ? AND role = ?',
+        whereArgs: [transactionId, 'source'],
+        limit: 1,
+      );
+      final previousSourceBucketId = previousSourceRows.isEmpty
+          ? null
+          : previousSourceRows.single['bucketId'] as int;
+
+      await _reverseTransactionAllocationsTxn(txn, transactionId,
+          replacements: bucketReplacements);
 
       String resolvedWalletNameForWrite = walletName;
       int? resolvedWalletIdForWrite = resolvedWalletId;
       if (resolvedAffectsBalance &&
           type == 'income' &&
           subsetBuckets != null &&
-          subsetBuckets.isNotEmpty) {
+          subsetBuckets!.isNotEmpty) {
         final resolvedIncomeWallet = await _resolveIncomeSummaryWalletTxn(
           txn,
-          subsetBuckets: subsetBuckets,
+          subsetBuckets: subsetBuckets!,
           fallbackName: walletName,
           fallbackWalletId: resolvedWalletId,
         );
@@ -1195,7 +1556,7 @@ class DatabaseHelper {
       if (resolvedAffectsBalance && type == 'expense' && sourceBucket != null) {
         final resolvedWallet = await _resolveWalletContextFromBucketTxn(
           txn,
-          bucket: sourceBucket,
+          bucket: sourceBucket!,
           fallbackName: walletName,
           fallbackWalletId: resolvedWalletId,
         );
@@ -1221,23 +1582,38 @@ class DatabaseHelper {
         whereArgs: [transactionId],
       );
 
-      if (!resolvedAffectsBalance) {
+      Future<int> finish() async {
+        await _validateFinancialStateTxn(txn, bucketIds: [
+          ...oldBucketIds,
+          ...await _transactionBucketIdsTxn(txn, transactionId)
+        ], walletIds: [
+          existingTransaction.walletId,
+          resolvedWalletIdForWrite
+        ], walletNames: [
+          existingTransaction.wallet,
+          resolvedWalletNameForWrite
+        ]);
+        await _markFinancialActivityTxn(txn, DateTime.now());
         return updatedRows;
       }
 
+      if (!resolvedAffectsBalance) {
+        return finish();
+      }
+
       if (type == 'income') {
-        if (subsetBuckets == null || subsetBuckets.isEmpty) {
+        if (subsetBuckets == null || subsetBuckets!.isEmpty) {
           if (allowWithoutBucketAllocation) {
-            return updatedRows;
+            return finish();
           }
           throw StateError(
             'Income transactions that affect balance require subset buckets.',
           );
         }
 
-        final allocations = allocateIncomeToBuckets(amount, subsetBuckets);
-        final normalized = normalizeSubsetAllocation(subsetBuckets);
-        for (final bucket in subsetBuckets) {
+        final allocations = allocateIncomeToBuckets(amount, subsetBuckets!);
+        final normalized = normalizeSubsetAllocation(subsetBuckets!);
+        for (final bucket in subsetBuckets!) {
           final bucketId = bucket.id!;
           await txn.insert('transaction_bucket_allocations', {
             'transactionId': transactionId,
@@ -1253,20 +1629,22 @@ class DatabaseHelper {
           );
         }
 
-        return updatedRows;
+        return finish();
       }
 
       if (type == 'expense') {
         if (sourceBucket == null) {
           if (allowWithoutBucketAllocation) {
-            await _ensureWalletHasSufficientBalanceTxn(
-              txn,
-              amount: amount,
-              walletId: resolvedWalletId,
-              walletName: walletName,
-              excludeTransactionId: transactionId,
-            );
-            return updatedRows;
+            if (!spendsNoMore) {
+              await _ensureWalletHasSufficientBalanceTxn(
+                txn,
+                amount: amount,
+                walletId: resolvedWalletId,
+                walletName: walletName,
+                excludeTransactionId: transactionId,
+              );
+            }
+            return finish();
           }
           throw StateError(
             'Expense transactions that affect balance require a source bucket.',
@@ -1275,22 +1653,25 @@ class DatabaseHelper {
 
         // The row already contains the edited expense; exclude it before
         // checking affordability so it is charged only once.
-        await _ensureWalletHasSufficientBalanceTxn(
-          txn,
-          amount: amount,
-          walletId: resolvedWalletIdForWrite,
-          walletName: resolvedWalletNameForWrite,
-          excludeTransactionId: transactionId,
-        );
-        await _ensureBucketHasSufficientBalanceTxn(
-          txn,
-          bucketId: sourceBucket.id!,
-          amount: amount,
-        );
+        final sameSource = previousSourceBucketId == sourceBucket!.id;
+        if (!(spendsNoMore && sameSource)) {
+          await _ensureWalletHasSufficientBalanceTxn(
+            txn,
+            amount: amount,
+            walletId: resolvedWalletIdForWrite,
+            walletName: resolvedWalletNameForWrite,
+            excludeTransactionId: transactionId,
+          );
+          await _ensureBucketHasSufficientBalanceTxn(
+            txn,
+            bucketId: sourceBucket!.id!,
+            amount: amount,
+          );
+        }
 
         await txn.insert('transaction_bucket_allocations', {
           'transactionId': transactionId,
-          'bucketId': sourceBucket.id!,
+          'bucketId': sourceBucket!.id!,
           'normalizedPercentage': 100.0,
           'allocatedAmount': amount,
           'role': 'source',
@@ -1298,19 +1679,63 @@ class DatabaseHelper {
         });
         await txn.rawUpdate(
           'UPDATE financial_buckets SET currentBalance = currentBalance - ?, updatedDate = ? WHERE id = ?',
-          [amount, now, sourceBucket.id!],
+          [amount, now, sourceBucket!.id!],
         );
 
-        return updatedRows;
+        return finish();
       }
 
       throw StateError('Unsupported transaction type: $type');
     });
   }
 
+  /// Edits only the text and date of a transaction. Amount, wallet and bucket
+  /// allocations stay as they were, so it also works when the original bucket
+  /// has since been removed.
+  Future<int> updateTransactionDetails({
+    required int transactionId,
+    required String category,
+    required String description,
+    required DateTime date,
+  }) async {
+    if (category == internalTransferCategory) {
+      throw StateError('Use executeBucketTransfer for internal transfers.');
+    }
+    final db = await database;
+    return _financialTransaction(db, (txn) async {
+      final rows = await txn.query('transactions',
+          where: 'id = ?', whereArgs: [transactionId], limit: 1);
+      if (rows.isEmpty) return 0;
+      final existing = Transaction.fromMap(rows.single);
+      _ensureTransactionMutable(existing);
+      if (existing.affectsBalance &&
+          (category == 'Hutang' || category == 'Piutang')) {
+        throw StateError(
+          'Transactions linked to debt records cannot be updated directly.',
+        );
+      }
+      final updated = await txn.update(
+        'transactions',
+        {
+          'category': category,
+          'description': description,
+          'date': date.millisecondsSinceEpoch,
+        },
+        where: 'id = ?',
+        whereArgs: [transactionId],
+      );
+      await _markFinancialActivityTxn(txn, DateTime.now());
+      return updated;
+    });
+  }
+
   Future<int> insertSavingGoal(SavingGoal goal) async {
     final db = await database;
-    return db.insert('saving_goals', goal.toMap());
+    return db.insert('saving_goals', {
+      ...goal.toMap(),
+      'targetAmount': _requirePositiveRupiahAmount(goal.targetAmount),
+      'currentAmount': _requireNonnegativeRupiahAmount(goal.currentAmount),
+    });
   }
 
   Future<List<SavingGoal>> getSavingGoals() async {
@@ -1323,7 +1748,11 @@ class DatabaseHelper {
     final db = await database;
     return db.update(
       'saving_goals',
-      goal.toMap(),
+      {
+        ...goal.toMap(),
+        'targetAmount': _requirePositiveRupiahAmount(goal.targetAmount),
+        'currentAmount': _requireNonnegativeRupiahAmount(goal.currentAmount)
+      },
       where: 'id = ?',
       whereArgs: [goal.id],
     );
@@ -1335,8 +1764,10 @@ class DatabaseHelper {
   }
 
   Future<int> insertWishlistItem(WishlistItem item) async {
+    final price = _requirePositiveRupiahAmount(item.price);
+    _requireChoice(item.priority, {'high', 'medium', 'low'}, 'priority');
     final db = await database;
-    return db.insert('wishlist', item.toMap());
+    return db.insert('wishlist', {...item.toMap(), 'price': price});
   }
 
   Future<List<WishlistItem>> getWishlistItems() async {
@@ -1371,6 +1802,9 @@ class DatabaseHelper {
     required FinancialBucket sourceBucket,
     int? walletId,
   }) async {
+    amount = _requirePositiveRupiahAmount(amount);
+    await _requireCompleteBucketConfigurationTxn(txn);
+    sourceBucket = await _activeBucketTxn(txn, sourceBucket.id);
     final resolvedWallet = await _resolveWalletContextFromBucketTxn(
       txn,
       bucket: sourceBucket,
@@ -1413,6 +1847,7 @@ class DatabaseHelper {
       'UPDATE financial_buckets SET currentBalance = currentBalance - ?, updatedDate = ? WHERE id = ?',
       [amount, now, sourceBucket.id!],
     );
+    await _validateFinancialStateTxn(txn, bucketIds: [sourceBucket.id!]);
 
     return txId;
   }
@@ -1427,6 +1862,8 @@ class DatabaseHelper {
     required List<FinancialBucket> subsetBuckets,
     int? walletId,
   }) async {
+    amount = _requirePositiveRupiahAmount(amount);
+    subsetBuckets = await _incomeBucketsTxn(txn, subsetBuckets);
     final allocations = allocateIncomeToBuckets(amount, subsetBuckets);
     final normalized = normalizeSubsetAllocation(subsetBuckets);
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -1464,6 +1901,8 @@ class DatabaseHelper {
       );
     }
 
+    await _validateFinancialStateTxn(txn,
+        bucketIds: subsetBuckets.map((b) => b.id!));
     return txId;
   }
 
@@ -1478,11 +1917,22 @@ class DatabaseHelper {
     }
 
     final db = await database;
-    await db.transaction((txn) async {
+    await _financialTransaction(db, (txn) async {
+      final rows = await txn.query('wishlist',
+          where: 'id = ?', whereArgs: [item.id], limit: 1);
+      if (rows.isEmpty) {
+        throw StateError('Wishlist item is no longer available.');
+      }
+      final storedItem = WishlistItem.fromMap(rows.single);
+      final price = _requirePositiveRupiahAmount(storedItem.price);
       if (sourceBucket == null) {
+        final wallet = await _activeWalletTxn(txn,
+            walletId: walletId, walletName: walletName);
+        walletId = wallet.walletId;
+        walletName = wallet.walletName;
         await _ensureWalletHasSufficientBalanceTxn(
           txn,
-          amount: item.price,
+          amount: price,
           walletId: walletId,
           walletName: walletName,
         );
@@ -1490,9 +1940,9 @@ class DatabaseHelper {
       if (sourceBucket == null) {
         await txn.insert('transactions', {
           'type': 'expense',
-          'amount': item.price,
+          'amount': price,
           'category': 'Belanja',
-          'description': item.name,
+          'description': storedItem.name,
           'date': DateTime.now().millisecondsSinceEpoch,
           'wallet': walletName,
           'walletId': walletId,
@@ -1502,16 +1952,23 @@ class DatabaseHelper {
       } else {
         await _insertExpenseWithSourceTxn(
           txn,
-          amount: item.price,
+          amount: price,
           category: 'Belanja',
-          description: item.name,
+          description: storedItem.name,
           date: DateTime.now(),
           walletName: walletName,
           sourceBucket: sourceBucket,
           walletId: walletId,
         );
       }
-      await txn.delete('wishlist', where: 'id = ?', whereArgs: [item.id]);
+      final deleted = await txn
+          .delete('wishlist', where: 'id = ?', whereArgs: [storedItem.id]);
+      if (deleted != 1) throw StateError('Wishlist item was already consumed.');
+      if (sourceBucket == null) {
+        await _validateFinancialStateTxn(txn,
+            walletIds: [walletId], walletNames: [walletName]);
+      }
+      await _markFinancialActivityTxn(txn, DateTime.now());
     });
   }
 
@@ -1543,7 +2000,7 @@ class DatabaseHelper {
       return 0;
     }
 
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       if (wallet.isArchived) {
         await _ensureWalletHasNoActiveBucketsTxn(txn, walletId);
       }
@@ -1626,7 +2083,7 @@ class DatabaseHelper {
 
   Future<int> archiveWallet(int id) async {
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       await _ensureWalletHasNoActiveBucketsTxn(txn, id);
       return txn.update(
         'wallets',
@@ -1656,7 +2113,7 @@ class DatabaseHelper {
 
   Future<int> deleteWallet(int id) async {
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final walletRows = await txn.query(
         'wallets',
         columns: ['name'],
@@ -1687,10 +2144,29 @@ class DatabaseHelper {
     });
   }
 
+  Map<String, Object?> _debtPayload(Debt debt) {
+    _requireChoice(debt.type, {'debt', 'receivable'}, 'type');
+    _requireChoice(debt.recordingMode, {'note', 'balance'}, 'recordingMode');
+    _requireChoice(debt.status, {'active', 'settled'}, 'status');
+    final principal = _requirePositiveRupiahAmount(debt.principalAmount);
+    final remaining = _requireNonnegativeRupiahAmount(debt.remainingAmount);
+    if (remaining > principal) {
+      throw ArgumentError('Remaining amount exceeds principal.');
+    }
+    return {
+      ...debt.toMap(),
+      'principalAmount': principal,
+      'remainingAmount': remaining,
+      'status': remaining == 0 ? 'settled' : 'active'
+    };
+  }
+
   Future<int> insertDebt(Debt debt) async {
+    final payload = _debtPayload(debt);
     final db = await database;
-    return db.transaction((txn) async {
-      final id = await txn.insert('debts', debt.toMap());
+    return _financialTransaction(db, (txn) async {
+      if (debt.bucketId != null) await _activeBucketTxn(txn, debt.bucketId);
+      final id = await txn.insert('debts', payload);
       await _markFinancialActivityTxn(txn, DateTime.now());
       return id;
     });
@@ -1702,14 +2178,31 @@ class DatabaseHelper {
     required bool bucketSystemEnabled,
     FinancialBucket? affectedBucket,
   }) async {
+    final payload = _debtPayload(debt);
+    if (debt.recordingMode != 'balance') {
+      throw ArgumentError('Expected balance recording mode.');
+    }
+    final amount = payload['principalAmount'] as double;
     final db = await database;
     final now = DateTime.now();
 
     // Operasi dilakukan dalam satu transaksi SQLite agar debt record dan
     // transaksi saldo yang terkait tersimpan secara atomik.
-    return db.transaction((txn) async {
-      // 1. Validasi: dompet wajib ada untuk mode balance
-      final walletId = debt.walletId;
+    return _financialTransaction(db, (txn) async {
+      if (bucketSystemEnabled) {
+        await _requireCompleteBucketConfigurationTxn(txn);
+        affectedBucket = await _activeBucketTxn(txn, affectedBucket?.id);
+        final resolved = await _resolveWalletContextFromBucketTxn(txn,
+            bucket: affectedBucket!, fallbackName: walletName);
+        walletName = resolved.walletName;
+        payload['walletId'] = resolved.walletId;
+      } else {
+        final wallet = await _activeWalletTxn(txn,
+            walletId: debt.walletId, walletName: walletName);
+        payload['walletId'] = wallet.walletId;
+        walletName = wallet.walletName;
+      }
+      final walletId = payload['walletId'] as int?;
       if (walletId == null || walletName.trim().isEmpty) {
         throw StateError('Debt with balance effect requires a wallet.');
       }
@@ -1719,28 +2212,27 @@ class DatabaseHelper {
       final description =
           '${isDebtType ? 'Hutang dari' : 'Piutang ke'} ${debt.personName}';
 
-      // 2. Simpan efek saldo: pilih jalur sesuai tipe dan mode pos keuangan
       if (bucketSystemEnabled && affectedBucket != null) {
         if (isDebtType) {
           await _insertIncomeWithBucketsTxn(
             txn,
-            amount: debt.principalAmount,
+            amount: amount,
             category: category,
             description: description,
             date: now,
             walletName: walletName,
             walletId: walletId,
-            subsetBuckets: [affectedBucket],
+            subsetBuckets: [affectedBucket!],
           );
         } else {
           await _insertExpenseWithSourceTxn(
             txn,
-            amount: debt.principalAmount,
+            amount: amount,
             category: category,
             description: description,
             date: now,
             walletName: walletName,
-            sourceBucket: affectedBucket,
+            sourceBucket: affectedBucket!,
             walletId: walletId,
           );
         }
@@ -1748,7 +2240,7 @@ class DatabaseHelper {
         if (isDebtType) {
           await txn.insert('transactions', {
             'type': 'income',
-            'amount': debt.principalAmount,
+            'amount': amount,
             'category': category,
             'description': description,
             'date': now.millisecondsSinceEpoch,
@@ -1760,13 +2252,13 @@ class DatabaseHelper {
         } else {
           await _ensureWalletHasSufficientBalanceTxn(
             txn,
-            amount: debt.principalAmount,
+            amount: amount,
             walletId: walletId,
             walletName: walletName,
           );
           await txn.insert('transactions', {
             'type': 'expense',
-            'amount': debt.principalAmount,
+            'amount': amount,
             'category': category,
             'description': description,
             'date': now.millisecondsSinceEpoch,
@@ -1778,11 +2270,11 @@ class DatabaseHelper {
         }
       }
 
-      final payload = debt.toMap();
       payload['bucketId'] =
           bucketSystemEnabled ? affectedBucket?.id ?? debt.bucketId : null;
-      // 3. Simpan debt record dan kembalikan id baru
       final id = await txn.insert('debts', payload);
+      await _validateFinancialStateTxn(txn,
+          walletIds: [walletId], walletNames: [walletName]);
       await _markFinancialActivityTxn(txn, now);
       return id;
     });
@@ -1801,11 +2293,43 @@ class DatabaseHelper {
   }
 
   Future<int> updateDebt(Debt debt) async {
+    final requested = _debtPayload(debt);
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
+      final rows = await txn.query('debts',
+          where: 'id = ?', whereArgs: [debt.id], limit: 1);
+      if (rows.isEmpty) return 0;
+      final stored = Debt.fromMap(rows.single);
+      _debtPayload(stored);
+      if (stored.type != debt.type ||
+          stored.recordingMode != debt.recordingMode) {
+        throw StateError('Debt type and recording mode are immutable.');
+      }
+      final principal = requested['principalAmount'] as double;
+      if (stored.recordingMode == 'balance' &&
+          (compareRupiahAmount(principal, stored.principalAmount) != 0 ||
+              stored.walletId != debt.walletId ||
+              stored.bucketId != debt.bucketId)) {
+        throw StateError('Balance debt financial fields are immutable.');
+      }
+      final paid = stored.principalAmount - stored.remainingAmount;
+      if (compareRupiahAmount(principal, paid) < 0) {
+        throw RangeError(
+            'Principal cannot be smaller than the amount already paid.');
+      }
+      final remaining = _requireNonnegativeRupiahAmount(principal - paid);
       final updatedRows = await txn.update(
         'debts',
-        debt.toMap(),
+        {
+          'personName': debt.personName,
+          'borrowedDate': debt.borrowedDate.millisecondsSinceEpoch,
+          'dueDate': debt.dueDate?.millisecondsSinceEpoch,
+          'note': debt.note,
+          'principalAmount': principal,
+          'remainingAmount': remaining,
+          'status': remaining == 0 ? 'settled' : 'active',
+          'updatedDate': DateTime.now().millisecondsSinceEpoch,
+        },
         where: 'id = ?',
         whereArgs: [debt.id],
       );
@@ -1816,7 +2340,7 @@ class DatabaseHelper {
 
   Future<int> deleteDebt(int id) async {
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final debtRows = await txn.query(
         'debts',
         where: 'id = ?',
@@ -1834,8 +2358,14 @@ class DatabaseHelper {
   }
 
   Future<int> insertDebtPayment(DebtPayment payment) async {
-    final db = await database;
-    return db.insert('debt_payments', payment.toMap());
+    return recordDebtPayment(
+        debtId: payment.debtId,
+        amount: payment.amount,
+        paymentDate: payment.paymentDate,
+        recordingMode: payment.recordingMode,
+        walletId: payment.walletId,
+        bucketId: payment.bucketId,
+        note: payment.note);
   }
 
   Future<List<DebtPayment>> getDebtPaymentsByDebt(int debtId) async {
@@ -1849,12 +2379,8 @@ class DatabaseHelper {
     return maps.map(DebtPayment.fromMap).toList();
   }
 
-  // Mencatat satu cicilan pembayaran hutang/piutang secara atomik:
-  // 1. Validasi saldo tersisa dan jumlah pembayaran
-  // 2. Resolve dompet efektif (dari bucket bila mode balance + bucket aktif)
-  // 3. Dalam satu transaksi SQLite: update saldo dompet, saldo bucket, saldo
-  //    sisa hutang, status lunas bila perlu, dan simpan debt_payment record
-  Future<void> recordDebtPayment({
+  // Mencatat cicilan hutang/piutang dan efek saldonya secara atomik.
+  Future<int> recordDebtPayment({
     required int debtId,
     required double amount,
     required DateTime paymentDate,
@@ -1865,16 +2391,11 @@ class DatabaseHelper {
     FinancialBucket? affectedBucket,
     String walletName = 'Cash',
   }) async {
+    amount = _requirePositiveRupiahAmount(amount);
+    _requireChoice(recordingMode, {'note', 'balance'}, 'recordingMode');
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    if (!amount.isFinite || amount <= 0) {
-      throw ArgumentError.value(
-        amount,
-        'amount',
-        'Payment amount must be positive and finite.',
-      );
-    }
-    await db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final debtRows = await txn.query(
         'debts',
         where: 'id = ?',
@@ -1883,10 +2404,12 @@ class DatabaseHelper {
       );
       if (debtRows.isEmpty) throw StateError('Debt not found.');
       final debt = Debt.fromMap(debtRows.first);
-      if (debt.remainingAmount <= 0 || debt.status == 'settled') {
+      _debtPayload(debt);
+      if (debt.status == 'settled' ||
+          compareRupiahAmount(debt.remainingAmount, 0) <= 0) {
         throw StateError('Debt is already settled.');
       }
-      if (amount > debt.remainingAmount + 0.001) {
+      if (compareRupiahAmount(amount, debt.remainingAmount) > 0) {
         throw RangeError.value(
           amount,
           'amount',
@@ -1896,28 +2419,29 @@ class DatabaseHelper {
 
       String resolvedWalletName = walletName;
       int? resolvedWalletId = walletId;
+      if (recordingMode == 'note') {
+        affectedBucket = null;
+        bucketId = null;
+        resolvedWalletId = null;
+      } else if (affectedBucket != null || bucketId != null) {
+        await _requireCompleteBucketConfigurationTxn(txn);
+        affectedBucket =
+            await _activeBucketTxn(txn, affectedBucket?.id ?? bucketId);
+      }
       if (recordingMode == 'balance' && affectedBucket != null) {
         final resolvedWallet = await _resolveWalletContextFromBucketTxn(
           txn,
-          bucket: affectedBucket,
+          bucket: affectedBucket!,
           fallbackName: walletName,
           fallbackWalletId: walletId,
         );
         resolvedWalletName = resolvedWallet.walletName;
         resolvedWalletId = resolvedWallet.walletId;
-      } else if (walletId != null) {
-        final walletRows = await txn.query(
-          'wallets',
-          where: 'id = ?',
-          whereArgs: [walletId],
-          limit: 1,
-        );
-        if (walletRows.isNotEmpty) {
-          resolvedWalletName =
-              walletRows.first['name'] as String? ?? walletName;
-        } else {
-          resolvedWalletName = 'Dompet tidak aktif';
-        }
+      } else if (recordingMode == 'balance') {
+        final wallet = await _activeWalletTxn(txn,
+            walletId: walletId, walletName: walletName);
+        resolvedWalletName = wallet.walletName;
+        resolvedWalletId = wallet.walletId;
       }
 
       if (recordingMode == 'balance' && debt.type == 'debt') {
@@ -1934,12 +2458,12 @@ class DatabaseHelper {
           debt.type == 'debt') {
         await _ensureBucketHasSufficientBalanceTxn(
           txn,
-          bucketId: affectedBucket.id!,
+          bucketId: affectedBucket!.id!,
           amount: amount,
         );
       }
 
-      await txn.insert('debt_payments', {
+      final paymentId = await txn.insert('debt_payments', {
         'debtId': debtId,
         'amount': amount,
         'paymentDate': paymentDate.millisecondsSinceEpoch,
@@ -1955,9 +2479,30 @@ class DatabaseHelper {
         [amount, now, debtId],
       );
 
-      await txn.rawUpdate(
-        "UPDATE debts SET status = 'settled', updatedDate = ? WHERE id = ? AND remainingAmount <= 0",
-        [now, debtId],
+      final updatedDebtRows = await txn.query(
+        'debts',
+        columns: ['remainingAmount'],
+        where: 'id = ?',
+        whereArgs: [debtId],
+        limit: 1,
+      );
+      final remainingAmount = updatedDebtRows.isEmpty
+          ? 0
+          : ((updatedDebtRows.first['remainingAmount'] as num?)?.toDouble() ??
+              0);
+      final normalizedRemainingAmount = normalizeRupiahAmount(remainingAmount);
+      final nextStatus = compareRupiahAmount(normalizedRemainingAmount, 0) <= 0
+          ? 'settled'
+          : 'active';
+      await txn.update(
+        'debts',
+        {
+          'remainingAmount': normalizedRemainingAmount,
+          'status': nextStatus,
+          'updatedDate': now,
+        },
+        where: 'id = ?',
+        whereArgs: [debtId],
       );
 
       if (recordingMode == 'balance' && affectedBucket != null) {
@@ -1980,7 +2525,7 @@ class DatabaseHelper {
 
         await txn.insert('transaction_bucket_allocations', {
           'transactionId': txId,
-          'bucketId': affectedBucket.id!,
+          'bucketId': affectedBucket!.id!,
           'normalizedPercentage': 100.0,
           'allocatedAmount': amount,
           'role': allocationRole,
@@ -1990,12 +2535,12 @@ class DatabaseHelper {
         if (debt.type == 'debt') {
           await txn.rawUpdate(
             'UPDATE financial_buckets SET currentBalance = currentBalance - ?, updatedDate = ? WHERE id = ?',
-            [amount, now, affectedBucket.id!],
+            [amount, now, affectedBucket!.id!],
           );
         } else {
           await txn.rawUpdate(
             'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
-            [amount, now, affectedBucket.id!],
+            [amount, now, affectedBucket!.id!],
           );
         }
       } else if (recordingMode == 'balance') {
@@ -2013,13 +2558,25 @@ class DatabaseHelper {
           'affectsBalance': 1,
         });
       }
+      if (recordingMode == 'balance') {
+        await _validateFinancialStateTxn(txn,
+            bucketIds: [if (affectedBucket != null) affectedBucket!.id!],
+            walletIds: [resolvedWalletId],
+            walletNames: [resolvedWalletName]);
+      }
       await _markFinancialActivityTxn(txn, DateTime.now());
+      return paymentId;
     });
   }
 
   Future<int> insertFinancialBucket(FinancialBucket bucket) async {
+    _requireNonnegativeRupiahAmount(bucket.currentBalance);
+    if (bucket.currentBalance != 0 || bucket.isArchived) {
+      throw StateError('New buckets must be active with zero balance.');
+    }
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
+      await _validateBucketPercentageTxn(txn, bucket.allocationPercentage);
       final resolvedWalletId = await _resolveBucketWalletIdForWriteTxn(
         txn,
         walletId: bucket.walletId,
@@ -2054,8 +2611,9 @@ class DatabaseHelper {
   }
 
   Future<int> updateFinancialBucket(FinancialBucket bucket) async {
+    _requireNonnegativeRupiahAmount(bucket.currentBalance);
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final rows = await txn.query(
         'financial_buckets',
         where: 'id = ?',
@@ -2063,6 +2621,15 @@ class DatabaseHelper {
         limit: 1,
       );
       if (rows.isEmpty) return 0;
+      if ((rows.first['isArchived'] == 1) != bucket.isArchived) {
+        throw StateError('Use the guarded bucket removal operation.');
+      }
+      if (!bucket.isArchived) {
+        await _validateBucketPercentageTxn(txn, bucket.allocationPercentage,
+            excludeId: bucket.id);
+      } else {
+        _validateBucketPercentage(bucket.allocationPercentage);
+      }
       final resolvedWalletId = bucket.walletId != null &&
               bucket.walletId == rows.first['walletId'] &&
               (bucket.isArchived || rows.first['isArchived'] == 0)
@@ -2085,14 +2652,21 @@ class DatabaseHelper {
           UNION ALL SELECT 1 FROM debt_payments WHERE bucketId = ?
           LIMIT 1
         ''', [bucket.id, bucket.id, bucket.id, bucket.id, bucket.id]);
-        if (balance != 0 || bucket.currentBalance != 0 || history.isNotEmpty) {
+        final hasResidualBalance = compareRupiahAmount(balance, 0) != 0 ||
+            compareRupiahAmount(bucket.currentBalance, 0) != 0;
+        if (hasResidualBalance || history.isNotEmpty) {
           throw StateError(
               'Financial bucket with balance or history cannot change wallet.');
         }
       }
 
-      final payload = bucket.toMap();
-      payload['walletId'] = resolvedWalletId;
+      final payload = <String, Object?>{
+        'name': bucket.name,
+        'iconKey': bucket.iconKey,
+        'allocationPercentage': bucket.allocationPercentage,
+        'walletId': resolvedWalletId,
+        'updatedDate': DateTime.now().millisecondsSinceEpoch,
+      };
       return txn.update(
         'financial_buckets',
         payload,
@@ -2102,20 +2676,41 @@ class DatabaseHelper {
     });
   }
 
+  void _validateBucketPercentage(double percentage) {
+    if (!percentage.isFinite || percentage < 0 || percentage > 100) {
+      throw ArgumentError.value(percentage, 'allocationPercentage');
+    }
+  }
+
+  Future<void> _validateBucketPercentageTxn(
+      DatabaseExecutor txn, double percentage,
+      {int? excludeId}) async {
+    _validateBucketPercentage(percentage);
+    final rows = await txn.rawQuery(
+        'SELECT COALESCE(SUM(allocationPercentage), 0) AS total FROM financial_buckets '
+        'WHERE isArchived = 0 AND (? IS NULL OR id != ?)',
+        [excludeId, excludeId]);
+    final total = (rows.single['total'] as num).toDouble() + percentage;
+    if (!total.isFinite || total > 100 + bucketPercentageTolerance) {
+      throw StateError('Active bucket percentages cannot exceed 100%.');
+    }
+  }
+
   Future<int> removeFinancialBucketFromActive(int id) async {
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final rows = await txn.query(
         'financial_buckets',
-        columns: ['id', 'currentBalance'],
+        columns: ['id', 'currentBalance', 'isArchived'],
         where: 'id = ?',
         whereArgs: [id],
         limit: 1,
       );
       if (rows.isEmpty) return 0;
+      if (rows.single['isArchived'] == 1) return 0;
       final currentBalance =
           (rows.first['currentBalance'] as num?)?.toDouble() ?? 0;
-      if (currentBalance > bucketPercentageTolerance) {
+      if (compareRupiahAmount(currentBalance, 0) != 0) {
         throw StateError('Financial bucket must be emptied before removal.');
       }
 
@@ -2193,13 +2788,11 @@ class DatabaseHelper {
     return db.transaction((txn) => _previewBucketReconciliationsTxn(txn));
   }
 
-  // Menerapkan rekonsiliasi saldo pos keuangan saat aktivasi/reaktivasi mode pos.
-  // Per dompet: hitung selisih saldo dompet vs total saldo pos aktif, lalu
-  // distribusikan selisih ke setiap pos secara proporsional. Tolak bila ada
-  // dompet yang menghasilkan saldo pos negatif.
+  // Menerapkan rekonsiliasi saldo pos proporsional saat aktivasi mode pos.
   Future<void> applyBucketReconciliations() async {
     final db = await database;
-    await db.transaction((txn) async {
+    await _financialTransaction(db, (txn) async {
+      await _requireCompleteBucketConfigurationTxn(txn);
       final previews = await _previewBucketReconciliationsTxn(txn);
       final blockingWalletIds = previews.entries
           .where((entry) => !entry.value.canApply)
@@ -2221,6 +2814,8 @@ class DatabaseHelper {
           );
         }
       }
+      await _validateFinancialStateTxn(txn,
+          bucketIds: previews.values.expand((p) => p.balanceChanges.keys));
     });
   }
 
@@ -2231,11 +2826,7 @@ class DatabaseHelper {
     return maps.map(BucketTransfer.fromMap).toList();
   }
 
-  // Memindahkan sebagian saldo antar-pos secara atomik:
-  // - Validasi saldo pos sumber cukup
-  // - Bila lintas dompet: validasi dan update saldo kedua dompet
-  // - Update saldo pos sumber (-) dan tujuan (+)
-  // - Simpan record bucket_transfers dengan snapshot walletId
+  // Memindahkan saldo antar-pos dan memperbarui saldo dompet terkait secara atomik.
   Future<void> executeBucketTransfer({
     required int fromBucketId,
     required int toBucketId,
@@ -2243,8 +2834,14 @@ class DatabaseHelper {
     required DateTime transferDate,
     String? note,
   }) async {
+    final normalizedAmount = _requirePositiveRupiahAmount(amount);
+    if (fromBucketId == toBucketId) {
+      throw ArgumentError('Transfer requires different buckets.');
+    }
     final db = await database;
-    await db.transaction((txn) async {
+    await _financialTransaction(db, (txn) async {
+      await _activeBucketTxn(txn, fromBucketId);
+      await _activeBucketTxn(txn, toBucketId);
       final fromRows = await txn.query(
         'financial_buckets',
         columns: ['walletId'],
@@ -2271,23 +2868,23 @@ class DatabaseHelper {
       );
       await _ensureWalletHasSufficientBalanceTxn(
         txn,
-        amount: amount,
+        amount: normalizedAmount,
         walletId: fromWallet.walletId,
         walletName: fromWallet.walletName,
       );
       await _ensureBucketHasSufficientBalanceTxn(
         txn,
         bucketId: fromBucketId,
-        amount: amount,
+        amount: normalizedAmount,
       );
       final now = DateTime.now().millisecondsSinceEpoch;
       await txn.rawUpdate(
         'UPDATE financial_buckets SET currentBalance = currentBalance - ?, updatedDate = ? WHERE id = ?',
-        [amount, now, fromBucketId],
+        [normalizedAmount, now, fromBucketId],
       );
       await txn.rawUpdate(
         'UPDATE financial_buckets SET currentBalance = currentBalance + ?, updatedDate = ? WHERE id = ?',
-        [amount, now, toBucketId],
+        [normalizedAmount, now, toBucketId],
       );
       await txn.insert('bucket_transfers', {
         'fromBucketId': fromBucketId,
@@ -2295,7 +2892,7 @@ class DatabaseHelper {
         'fromWalletIdSnapshot':
             fromRows.isEmpty ? null : fromRows.first['walletId'],
         'toWalletIdSnapshot': toRows.isEmpty ? null : toRows.first['walletId'],
-        'amount': amount,
+        'amount': normalizedAmount,
         'note': note,
         'transferDate': transferDate.millisecondsSinceEpoch,
         'createdDate': now,
@@ -2315,7 +2912,7 @@ class DatabaseHelper {
 
         await txn.insert('transactions', {
           'type': 'expense',
-          'amount': amount,
+          'amount': normalizedAmount,
           'category': internalTransferCategory,
           'description': 'Transfer ke ${toWallet.walletName}',
           'date': transferDate.millisecondsSinceEpoch,
@@ -2326,7 +2923,7 @@ class DatabaseHelper {
         });
         await txn.insert('transactions', {
           'type': 'income',
-          'amount': amount,
+          'amount': normalizedAmount,
           'category': internalTransferCategory,
           'description': 'Transfer dari ${fromWallet.walletName}',
           'date': transferDate.millisecondsSinceEpoch,
@@ -2336,6 +2933,8 @@ class DatabaseHelper {
           'affectsBalance': 1,
         });
       }
+      await _validateFinancialStateTxn(txn,
+          bucketIds: [fromBucketId, toBucketId]);
       await _markFinancialActivityTxn(txn, DateTime.now());
     });
   }
@@ -2349,11 +2948,12 @@ class DatabaseHelper {
     required List<FinancialBucket> subsetBuckets,
     int? walletId,
   }) async {
+    final normalizedAmount = _requirePositiveRupiahAmount(amount);
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final txId = await _insertIncomeWithBucketsTxn(
         txn,
-        amount: amount,
+        amount: normalizedAmount,
         category: category,
         description: description,
         date: date,
@@ -2375,12 +2975,13 @@ class DatabaseHelper {
     required FinancialBucket sourceBucket,
     int? walletId,
   }) async {
+    final normalizedAmount = _requirePositiveRupiahAmount(amount);
     final db = await database;
 
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final txId = await _insertExpenseWithSourceTxn(
         txn,
-        amount: amount,
+        amount: normalizedAmount,
         category: category,
         description: description,
         date: date,
@@ -2401,11 +3002,12 @@ class DatabaseHelper {
     required String walletName,
     int? walletId,
   }) async {
+    final normalizedAmount = _requirePositiveRupiahAmount(amount);
     final db = await database;
-    return db.transaction((txn) async {
+    return _financialTransaction(db, (txn) async {
       final txId = await txn.insert('transactions', {
         'type': 'expense',
-        'amount': amount,
+        'amount': normalizedAmount,
         'category': category,
         'description': description,
         'date': date.millisecondsSinceEpoch,

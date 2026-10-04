@@ -130,7 +130,6 @@ void main() {
     testWidgets('quick menu bisa digeser horizontal', (tester) async {
       await pumpApp(tester);
 
-      // Quick menu harus memiliki SingleChildScrollView horizontal
       final scrollable = find.descendant(
         of: find.byKey(const Key('home_quick_menu')),
         matching: find.byWidgetPredicate((w) =>
@@ -208,7 +207,6 @@ void main() {
     });
   });
 
-  // BR-01: item quick menu tidak boleh menduplikasi bottom navigation
   group('BR-01 — tidak ada duplikat bottom nav di quick menu', () {
     testWidgets('Statistik tidak ada di quick menu', (tester) async {
       await pumpApp(tester);
